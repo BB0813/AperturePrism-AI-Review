@@ -4,8 +4,12 @@
   "version": "0.1.0",
   "packageManager": "npm@11.18.0",
   "workspaces": [
-    "apps/*",
-    "packages/*"
+    "packages/*",
+    "apps/api",
+    "apps/analysis-worker",
+    "apps/index-worker",
+    "apps/qq-bot",
+    "apps/scheduler"
   ],
   "engines": {
     "node": ">=22.0.0"
