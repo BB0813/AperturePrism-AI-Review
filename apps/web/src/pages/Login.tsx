@@ -1,9 +1,18 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { fetchOAuthStatus } from "../lib/api";
 
 /** Full-screen gate shown when no access token is stored. */
 export function Login(props: { onAuthenticated: (token: string) => void }) {
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [oauthOn, setOauthOn] = useState(false);
+
+  useEffect(() => {
+    fetchOAuthStatus()
+      .then((s) => setOauthOn(s.oauthConfigured))
+      .catch(() => undefined);
+  }, []);
 
   const submit = () => {
     const token = value.trim();
@@ -11,35 +20,63 @@ export function Login(props: { onAuthenticated: (token: string) => void }) {
       setError("请输入访问令牌");
       return;
     }
+    setBusy(true);
     props.onAuthenticated(token);
   };
 
   return (
-    <div className="shell login-wrap">
-      <div className="brand">
-        <span className="brand-mark">A</span>
-        <span>AperturePrism</span>
+    <div className="login-wrap">
+      <div className="login-card">
+        <div className="login-brand">
+          <img src="/aprism-logo.png" alt="AperturePrism" className="logo-img" />
+          <span>AperturePrism</span>
+        </div>
+
+        {oauthOn ? (
+          <a className="btn btn-primary btn-block" href="/auth/login">
+            使用 GitHub 登录
+          </a>
+        ) : null}
+
+        <form
+          className="login"
+          onSubmit={(event) => {
+            event.preventDefault();
+            submit();
+          }}
+        >
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>访问控制台</div>
+            <p className="login-desc">
+              请输入 API 访问令牌。令牌仅保存在本机浏览器，用于保护任务、结果与事件接口。
+            </p>
+          </div>
+
+          <div className="field">
+            <label htmlFor="token">API 访问令牌</label>
+            <input
+              id="token"
+              className="input"
+              type="password"
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+              placeholder="输入 WEBUI_API_TOKEN"
+              autoFocus
+              autoComplete="current-password"
+            />
+          </div>
+
+          {error ? <p className="state state-error">{error}</p> : null}
+
+          <button className="btn btn-block" type="submit" disabled={busy}>
+            进入控制台
+          </button>
+        </form>
+
+        <a className="btn btn-ghost btn-block" href="#/setup" style={{ justifyContent: "center" }}>
+          首次使用？进入安装向导
+        </a>
       </div>
-      <form
-        className="card login"
-        onSubmit={(event) => {
-          event.preventDefault();
-          submit();
-        }}
-      >
-        <h2>访问控制台</h2>
-        <p className="muted">该控制台受保护，请输入 API 访问令牌以继续。</p>
-        <input
-          type="password"
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-          placeholder="API token"
-          autoFocus
-          autoComplete="current-password"
-        />
-        {error ? <p className="state-error">{error}</p> : null}
-        <button type="submit">进入</button>
-      </form>
     </div>
   );
 }

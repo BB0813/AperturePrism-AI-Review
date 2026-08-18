@@ -331,3 +331,20 @@ export const subjectResults = pgTable(
     ),
   ],
 );
+
+/**
+ * Runtime-overridable settings that hot-apply without a process restart.
+ * `value` is a plain string; an empty/absent row falls back to the env config
+ * (WEBUI_API_TOKEN, GITHUB_WEBHOOK_SECRET, LOG_LEVEL). Updated via the API.
+ */
+export const systemSettings = pgTable(
+  "system_settings",
+  {
+    key: text("key").primaryKey(),
+    value: text("value").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [index("system_settings_key_idx").on(table.key)],
+);

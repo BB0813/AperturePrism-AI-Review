@@ -1,23 +1,24 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchTasks, type TaskList, type TaskSummary } from "../lib/api";
 import { navigate } from "../hooks/useHash";
+import { RefreshIcon, ChevronRightIcon } from "../components/icons";
+import { Empty, LoadingRows, StatusPill, TypeChip, timeAgo } from "../components/ui";
 
-const TYPE_LABEL: Record<TaskSummary["taskType"], string> = {
-  issue_analysis: "Issue",
-  pr_review: "PR",
-  repository_index: "Index",
-};
+const TYPE_FILTERS = ["all", "issue_analysis", "pr_review", "repository_index"] as const;
+const STATUS_FILTERS = ["all", "queued", "running", "publishing", "completed", "failed", "retry_wait", "canceled"] as const;
 
-/** Tasks tab: cursor-paginated task list with loading/empty/error states. */
 export function TasksPage() {
   const [list, setList] = useState<TaskList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [type, setType] = useState<string>("all");
+  const [status, setStatus] = useState<string>("all");
 
   const refresh = useCallback(() => {
     setLoading(true);
     setError(null);
-    fetchTasks({ limit: 25 })
+    fetchTasks({ limit: 50 })
       .then(setList)
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : "failed to load tasks");
@@ -26,70 +27,135 @@ export function TasksPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  useEffect(() => refresh(), [refresh]);
+
+  const loadMore = useCallback(() => {
+    if (!list || list.nextOffset === undefined || loadingMore) return;
+    setLoadingMore(true);
+    fetchTasks({ limit: 50, offset: list.nextOffset })
+      .then((more) => {
+        const seen = new Set(list.items.map((t) => t.id));
+        const fresh = more.items.filter((t) => !seen.has(t.id));
+        setList({ items: [...list.items, ...fresh], nextOffset: more.nextOffset });
+      })
+      .catch(() => undefined)
+      .finally(() => setLoadingMore(false));
+  }, [list, loadingMore]);
+
+  const items = useMemo(() => {
+    if (!list) return [];
+    return list.items.filter(
+      (t) =>
+        (type === "all" || t.taskType === type) &&
+        (status === "all" || t.status === status),
+    );
+  }, [list, type, status]);
 
   return (
-    <section className="card">
-      <div className="card-head">
-        <h2>任务</h2>
-        <button onClick={refresh} disabled={loading}>
-          刷新
-        </button>
+    <div className="stack">
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">任务队列</h1>
+          <p className="page-desc">Issue 分析与 PR 审查任务的执行状态</p>
+        </div>
+        <div className="actions">
+          <button className="btn" onClick={refresh} disabled={loading}>
+            <RefreshIcon size={16} />
+            刷新
+          </button>
+        </div>
       </div>
 
-      {error ? (
-        <p className="state-error">加载失败：{error}</p>
-      ) : loading || !list ? (
-        <p className="state-loading">正在加载任务…</p>
-      ) : list.items.length === 0 ? (
-        <p className="state-empty">暂无任务</p>
-      ) : (
-        <table className="table">
-          <thead>
-            <tr>
-              <th>类型</th>
-              <th>状态</th>
-              <th>对象</th>
-              <th>策略</th>
-              <th>创建时间</th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.items.map((task) => (
-              <tr key={task.id} className="row-link" onClick={() => navigate(`/tasks/${task.id}`)}>
-                <td>{TYPE_LABEL[task.taskType] ?? task.taskType}</td>
-                <td>
-                  <span className={`status status-${task.status}`}>{task.status}</span>
-                </td>
-                <td className="mono">
-                  {task.subjectNumber ?? "—"}
-                  {task.attemptCount > 1 ? (
-                    <span className="muted"> (x{task.attemptCount})</span>
-                  ) : null}
-                </td>
-                <td className="mono muted">{task.policyVersion}</td>
-                <td className="mono muted">{fmt(task.createdAt)}</td>
-              </tr>
+      <div className="panel">
+        <div className="panel-title">
+          <h2>筛选</h2>
+        </div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <div className="seg">
+            {TYPE_FILTERS.map((t) => (
+              <button key={t} className={type === t ? "on" : ""} onClick={() => setType(t)}>
+                {t === "all" ? "全部类型" : TypeChipLabel(t)}
+              </button>
             ))}
-          </tbody>
-        </table>
-      )}
-      {list?.nextCursor ? (
-        <button
-          onClick={() => {
-            fetchTasks({ limit: 25, before: list.nextCursor }).then(setList).catch(() => undefined);
-          }}
-        >
-          加载更多
-        </button>
-      ) : null}
-    </section>
+          </div>
+          <div className="seg">
+            {STATUS_FILTERS.map((s) => (
+              <button key={s} className={status === s ? "on" : ""} onClick={() => setStatus(s)}>
+                {s === "all" ? "全部状态" : s}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <section className="panel">
+        <div className="panel-title">
+          <h2>任务</h2>
+          <span className="count">{items.length} 条</span>
+        </div>
+
+        {error ? (
+          <p className="state state-error">加载失败：{error}</p>
+        ) : loading ? (
+          <LoadingRows />
+        ) : items.length === 0 ? (
+          <Empty title="暂无任务" hint="通过 GitHub Webhook 或任务 API 创建任务后，将在这里显示" />
+        ) : (
+          <div className="tablewrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>类型</th>
+                  <th>对象</th>
+                  <th>状态</th>
+                  <th>策略</th>
+                  <th>尝试</th>
+                  <th>上次错误</th>
+                  <th>更新时间</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((task) => (
+                  <TaskRow key={task.id} task={task} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {list?.nextOffset !== undefined ? (
+          <button
+            className="btn btn-block"
+            style={{ marginTop: 14 }}
+            onClick={loadMore}
+            disabled={loadingMore}
+          >
+            {loadingMore ? "加载中…" : "加载更多"}
+          </button>
+        ) : null}
+      </section>
+    </div>
   );
 }
 
-function fmt(iso: string): string {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
+function TaskRow({ task }: { task: TaskSummary }) {
+  return (
+    <tr className="clickable" onClick={() => navigate(`/tasks/${task.id}`)}>
+      <td><TypeChip type={task.taskType} /></td>
+      <td className="num">#{task.subjectNumber ?? "—"}</td>
+      <td><StatusPill status={task.status} /></td>
+      <td><span className="chip mono">{task.policyVersion}</span></td>
+      <td className="num muted">
+        {task.attemptCount}/{task.maxAttempts}
+      </td>
+      <td>{task.lastErrorCategory ? <span className="pill pill-err">{task.lastErrorCategory}</span> : <span className="faint">—</span>}</td>
+      <td className="muted">{timeAgo(task.updatedAt)}</td>
+      <td style={{ textAlign: "right" }}><ChevronRightIcon size={15} /></td>
+    </tr>
+  );
+}
+
+function TypeChipLabel(type: string): string {
+  return { issue_analysis: "Issue", pr_review: "PR", repository_index: "索引" }[type] ?? type;
 }

@@ -1,10 +1,10 @@
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import {
   createServer,
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { and, asc, desc, eq, gt, lt } from "drizzle-orm";
+import { and, asc, desc, eq, gt } from "drizzle-orm";
 import { loadConfig } from "../../../packages/config/src/index.js";
 import {
   analysisTasks,
@@ -14,11 +14,15 @@ import {
   createDatabaseClient,
   createRedisClient,
   ingestGitHubWebhook,
+  issueDocuments,
   modelRolePolicies,
   providerAccounts,
+  repositories,
   subjectResults,
+  systemSettings,
   taskAttempts,
   taskEvents,
+  webhookDeliveries,
 } from "../../../packages/database/src/index.js";
 import {
   normalizeGitHubEvent,
@@ -41,16 +45,134 @@ const logger = createLogger(config.logLevel);
 const database = createDatabaseClient(config.databaseUrl);
 const redis = createRedisClient(config.redisUrl);
 
+/* ---------- GitHub OAuth (progressive; enabled when configured) ---------- */
+const oauthClientId = process.env.GITHUB_OAUTH_CLIENT_ID ?? "";
+const oauthClientSecret = process.env.GITHUB_OAUTH_CLIENT_SECRET ?? "";
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+/** In-memory OAuth `state` → expiry, verified in the callback. */
+const oauthStates = new Map<string, number>();
+
+function oauthConfigured(): boolean {
+  return Boolean(oauthClientId && oauthClientSecret);
+}
+
+/** Stable HMAC key for signing session tokens (derived from OAuth creds). */
+function sessionKey(): Buffer {
+  return createHash("sha256")
+    .update(`${oauthClientSecret}:${oauthClientId}`)
+    .digest();
+}
+
+function signSession(login: string): string {
+  const payload = Buffer.from(
+    JSON.stringify({ login, exp: Date.now() + SESSION_TTL_MS }),
+  ).toString("base64url");
+  const sig = createHmac("sha256", sessionKey())
+    .update(payload)
+    .digest("base64url");
+  return `${payload}.${sig}`;
+}
+
+function parseSessionToken(token: string): string | null {
+  const dot = token.indexOf(".");
+  if (dot === -1) return null;
+  const payload = token.slice(0, dot);
+  const sig = token.slice(dot + 1);
+  const expected = createHmac("sha256", sessionKey())
+    .update(payload)
+    .digest();
+  const received = Buffer.from(sig);
+  if (expected.length !== received.length || !timingSafeEqual(expected, received))
+    return null;
+  try {
+    const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as {
+      login?: unknown;
+      exp?: unknown;
+    };
+    if (typeof data.login !== "string") return null;
+    if (typeof data.exp !== "number" || data.exp < Date.now()) return null;
+    return data.login;
+  } catch {
+    return null;
+  }
+}
+
+/* ---------- runtime settings (hot-reload overrides) ---------- */
+const SETTINGS_POLL_MS = 8_000;
+const SECRET_SETTING_KEYS = new Set(["webui_api_token", "github_webhook_secret"]);
+const ALLOWED_SETTING_KEYS = new Set([
+  "webui_api_token",
+  "github_webhook_secret",
+  "github_webhook_enabled",
+  "log_level",
+]);
+
+const runtimeSettings = new Map<string, string>();
+
+/** Syncs the in-memory override map from the `system_settings` table. */
+async function refreshRuntimeSettings(): Promise<void> {
+  try {
+    const rows = await database.db
+      .select({ key: systemSettings.key, value: systemSettings.value })
+      .from(systemSettings);
+    runtimeSettings.clear();
+    for (const row of rows) runtimeSettings.set(row.key, row.value);
+    logger.level = runtimeSettings.get("log_level") ?? config.logLevel;
+    logger.debug(
+      { keys: rows.map((row) => row.key), count: rows.length },
+      "runtime settings refreshed",
+    );
+  } catch (error) {
+    logger.warn({ err: error }, "runtime settings refresh failed");
+  }
+}
+
+function startRuntimeSettings(): void {
+  void refreshRuntimeSettings();
+  setInterval(() => void refreshRuntimeSettings(), SETTINGS_POLL_MS);
+}
+
+/** Effective WebUI token: settings override; falls back to env/./env.example. */
+function webuiToken(): string {
+  const override = runtimeSettings.get("webui_api_token");
+  if (override && override.trim().length > 0) return override;
+  return config.webuiApiToken ?? "";
+}
+
+/** Effective webhook secret + enabled flag, both runtime-overridable. */
+function webhookSecret(): string {
+  const override = runtimeSettings.get("github_webhook_secret");
+  if (override && override.trim().length > 0) return override;
+  return config.githubWebhookSecret ?? "";
+}
+function webhookEnabled(): boolean {
+  const override = runtimeSettings.get("github_webhook_enabled");
+  if (override !== undefined && override !== "") return override === "true";
+  return Boolean(config.githubWebhookSecret);
+}
+
 /** Open SSE connections so shutdown can end them and exit cleanly. */
 const sseClients = new Set<ServerResponse>();
 
 /** Routes that require the WebUI bearer token when it is configured. */
-const protectedPaths = ["/tasks", "/results", "/providers", "/events"];
+const protectedPaths = [
+  "/tasks",
+  "/summary",
+  "/results",
+  "/providers",
+  "/repositories",
+  "/logs",
+  "/vector",
+  "/config",
+  "/settings",
+  "/events",
+];
 const EVENT_CHANNEL = "apertureprism:task:events";
 
-/** Auth is disabled when WEBUI_API_TOKEN is unset (open dev / intranet mode). */
+/** Auth is disabled when no WebUI token is configured (open dev / intranet mode). */
 function isAuthorized(request: IncomingMessage): boolean {
-  if (!config.webuiApiToken) return true;
+  const expected = webuiToken();
+  if (!expected) return true;
   let token: string | null = null;
   const header = request.headers.authorization;
   if (typeof header === "string" && header.startsWith("Bearer "))
@@ -60,10 +182,13 @@ function isAuthorized(request: IncomingMessage): boolean {
     token = url.searchParams.get("token");
   }
   if (token === null || token.length === 0) return false;
-  return (
-    token.length === config.webuiApiToken.length &&
-    timingSafeEqual(Buffer.from(token), Buffer.from(config.webuiApiToken))
-  );
+  if (
+    token.length === expected.length &&
+    timingSafeEqual(Buffer.from(token), Buffer.from(expected))
+  )
+    return true;
+  // GitHub OAuth session tokens are also accepted when OAuth is configured.
+  return oauthConfigured() && parseSessionToken(token) !== null;
 }
 
 const requiresAuth = (path: string): boolean =>
@@ -95,11 +220,11 @@ async function handleWebhook(
   response: ServerResponse,
   requestId: string,
 ): Promise<void> {
-  if (!config.githubWebhookSecret) {
+  if (!webhookEnabled()) {
     json(
       response,
       503,
-      { status: "error", reason: "GitHub webhook is not configured" },
+      { status: "error", reason: "GitHub webhook is not enabled" },
       requestId,
     );
     return;
@@ -111,7 +236,7 @@ async function handleWebhook(
       typeof request.headers["x-hub-signature-256"] === "string"
         ? request.headers["x-hub-signature-256"]
         : undefined,
-      config.githubWebhookSecret,
+      webhookSecret(),
     );
     const deliveryId = request.headers["x-github-delivery"]?.toString();
     const eventName = request.headers["x-github-event"]?.toString();
@@ -369,27 +494,36 @@ async function handleTasks(
     ? decodeURIComponent(path.slice("/tasks/".length)).trim()
     : null;
 
+  // A well-formed task id is a UUID. Guard the detail lookup so a short or
+  // malformed id (e.g. /tasks/1) returns 404 instead of a Postgres uuid parse
+  // error bubbling up as a 500.
+  if (id && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    json(response, 404, { status: "error", reason: "task not found" }, requestId);
+    return;
+  }
+
   if (!id) {
     const limitRaw = Number(url.searchParams.get("limit"));
     const limit = Number.isFinite(limitRaw)
       ? Math.min(Math.max(Math.trunc(limitRaw), 1), 200)
       : 50;
-    const beforeRaw = url.searchParams.get("before");
-    const before =
-      beforeRaw && !Number.isNaN(Date.parse(beforeRaw)) ? new Date(beforeRaw) : null;
+    // Offset pagination is stable even when many rows share the same
+    // createdAt millisecond (a pure createdAt cursor would skip duplicates).
+    const offsetRaw = Number(url.searchParams.get("offset"));
+    const offset = Number.isFinite(offsetRaw)
+      ? Math.max(Math.trunc(offsetRaw), 0)
+      : 0;
     const items = await database.db
       .select(taskSummaryColumns)
       .from(analysisTasks)
-      .where(before ? lt(analysisTasks.createdAt, before) : undefined)
-      .orderBy(desc(analysisTasks.createdAt))
-      .limit(limit);
-    const last = items.at(-1)?.createdAt;
-    const nextCursor =
-      items.length === limit && last ? last.toISOString() : undefined;
+      .orderBy(desc(analysisTasks.createdAt), desc(analysisTasks.id))
+      .limit(limit)
+      .offset(offset);
+    const nextOffset = items.length === limit ? offset + limit : undefined;
     json(
       response,
       200,
-      nextCursor === undefined ? { items } : { items, nextCursor },
+      nextOffset === undefined ? { items } : { items, nextOffset },
       requestId,
     );
     return;
@@ -459,6 +593,545 @@ async function handleProviders(
   );
 }
 
+/** Aggregated counts for the WebUI overview KPIs (status/type/result totals). */
+async function handleSummary(
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const [byStatus, byType, resultCounts] = await Promise.all([
+    database.sql<{ status: string; count: number }[]>`
+      SELECT status, count(*)::int AS count FROM analysis_tasks GROUP BY status
+    `,
+    database.sql<{ task_type: string; count: number }[]>`
+      SELECT task_type, count(*)::int AS count FROM analysis_tasks GROUP BY task_type
+    `,
+    database.sql<{ subject_type: string; count: number }[]>`
+      SELECT subject_type, count(*)::int AS count
+      FROM subject_results WHERE published = true GROUP BY subject_type
+    `,
+  ]);
+  const total = byStatus.reduce((sum, row) => sum + Number(row.count), 0);
+  json(
+    response,
+    200,
+    {
+      tasks: {
+        total,
+        byStatus: Object.fromEntries(
+          byStatus.map((row) => [row.status, Number(row.count)]),
+        ),
+        byType: Object.fromEntries(
+          byType.map((row) => [row.task_type, Number(row.count)]),
+        ),
+      },
+      results: {
+        issue: Number(
+          resultCounts.find((row) => row.subject_type === "issue")?.count ?? 0,
+        ),
+        pr: Number(
+          resultCounts.find((row) => row.subject_type === "pr")?.count ?? 0,
+        ),
+      },
+    },
+    requestId,
+  );
+}
+
+/** Installed GitHub repositories with per-repo task/result counts. */
+async function handleRepositories(
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const [repos, taskCounts, resultCounts] = await Promise.all([
+    database.db
+      .select({
+        id: repositories.id,
+        githubId: repositories.githubId,
+        owner: repositories.owner,
+        name: repositories.name,
+        createdAt: repositories.createdAt,
+      })
+      .from(repositories)
+      .orderBy(asc(repositories.name)),
+    database.sql<{ repository_id: string; c: number }[]>`
+      SELECT repository_id, count(*)::int AS c FROM analysis_tasks
+      WHERE repository_id IS NOT NULL GROUP BY repository_id
+    `,
+    database.sql<{ repository_full_name: string; c: number }[]>`
+      SELECT repository_full_name, count(*)::int AS c FROM subject_results GROUP BY repository_full_name
+    `,
+  ]);
+  const taskByRepo = new Map(taskCounts.map((r) => [r.repository_id, Number(r.c)]));
+  const resultByName = new Map(
+    resultCounts.map((r) => [r.repository_full_name, Number(r.c)]),
+  );
+  // A repo may have been ingested more than once (different GitHub ids from
+  // separate webhook deliveries); merge by full name for a clean list.
+  const byName = new Map<
+    string,
+    { id: string; owner: string; taskCount: number; resultCount: number; createdAt: Date }
+  >();
+  for (const repo of repos) {
+    const fullName = `${repo.owner}/${repo.name}`;
+    const existing = byName.get(fullName);
+    const taskCount = taskByRepo.get(repo.id) ?? 0;
+    const resultCount = resultByName.get(fullName) ?? 0;
+    if (!existing) {
+      byName.set(fullName, {
+        id: repo.id,
+        owner: repo.owner,
+        taskCount,
+        resultCount,
+        createdAt: repo.createdAt,
+      });
+    } else {
+      existing.taskCount += taskCount;
+      existing.resultCount = Math.max(existing.resultCount, resultCount);
+    }
+  }
+  json(
+    response,
+    200,
+    {
+      items: [...byName.entries()].map(([fullName, info]) => ({
+        id: info.id,
+        owner: info.owner,
+        name: fullName.split("/")[1] ?? fullName,
+        fullName,
+        taskCount: info.taskCount,
+        resultCount: info.resultCount,
+        createdAt: info.createdAt,
+      })),
+    },
+    requestId,
+  );
+}
+
+/**
+ * Activity log. Three modes driven by query params:
+ *  - default: recent events (60) + webhook deliveries (30) — diagnostic bundle.
+ *  - ?history=1&offset=N&limit=M: offset-paginated historical events.
+ *  - ?since=<iso>: events created after `since` (resume from a bookmark).
+ */
+async function handleLogs(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const url = new URL(request.url ?? "/", "http://localhost");
+
+  const sinceRaw = url.searchParams.get("since");
+  const isHistory = url.searchParams.get("history") === "1";
+
+  if (isHistory) {
+    const limitRaw = Number(url.searchParams.get("limit"));
+    const limit = Number.isFinite(limitRaw)
+      ? Math.min(Math.max(Math.trunc(limitRaw), 1), 200)
+      : 50;
+    const offsetRaw = Number(url.searchParams.get("offset"));
+    const offset = Number.isFinite(offsetRaw)
+      ? Math.max(Math.trunc(offsetRaw), 0)
+      : 0;
+    const events = await database.db
+      .select({
+        taskId: taskEvents.taskId,
+        eventType: taskEvents.eventType,
+        data: taskEvents.data,
+        createdAt: taskEvents.createdAt,
+      })
+      .from(taskEvents)
+      .orderBy(desc(taskEvents.createdAt), desc(taskEvents.id))
+      .limit(limit)
+      .offset(offset);
+    const nextOffset = events.length === limit ? offset + limit : undefined;
+    json(
+      response,
+      200,
+      nextOffset === undefined ? { events, deliveries: [] } : { events, deliveries: [], nextOffset },
+      requestId,
+    );
+    return;
+  }
+
+  if (sinceRaw && !Number.isNaN(Date.parse(sinceRaw))) {
+    const since = new Date(sinceRaw);
+    const events = await database.db
+      .select({
+        taskId: taskEvents.taskId,
+        eventType: taskEvents.eventType,
+        data: taskEvents.data,
+        createdAt: taskEvents.createdAt,
+      })
+      .from(taskEvents)
+      .where(gt(taskEvents.createdAt, since))
+      .orderBy(asc(taskEvents.createdAt))
+      .limit(500);
+    json(response, 200, { events, deliveries: [] }, requestId);
+    return;
+  }
+
+  const [events, deliveries] = await Promise.all([
+    database.db
+      .select({
+        taskId: taskEvents.taskId,
+        eventType: taskEvents.eventType,
+        data: taskEvents.data,
+        createdAt: taskEvents.createdAt,
+      })
+      .from(taskEvents)
+      .orderBy(desc(taskEvents.createdAt))
+      .limit(60),
+    database.db
+      .select({
+        eventName: webhookDeliveries.eventName,
+        status: webhookDeliveries.processingStatus,
+        outcomeReason: webhookDeliveries.outcomeReason,
+        receivedAt: webhookDeliveries.receivedAt,
+      })
+      .from(webhookDeliveries)
+      .orderBy(desc(webhookDeliveries.receivedAt))
+      .limit(30),
+  ]);
+  json(response, 200, { events, deliveries }, requestId);
+}
+
+/** Vector/duplicate-index stats from issue_documents (nvidia/nv-embed-v1). */
+async function handleVector(
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const [stats, repoCoverage] = await Promise.all([
+    database.sql<{ docs: number; with_embedding: number; with_signals: number }[]>`
+      SELECT count(*)::int AS docs,
+             count(embedding)::int AS with_embedding,
+             count(*) FILTER (WHERE cardinality(error_codes) > 0)::int AS with_signals
+      FROM issue_documents
+    `,
+    database.sql<{ repositories: number }[]>`
+      SELECT count(DISTINCT repository_id)::int AS repositories
+      FROM issue_documents WHERE repository_id IS NOT NULL
+    `,
+  ]);
+  const row = stats[0];
+  json(
+    response,
+    200,
+    {
+      documents: row?.docs ?? 0,
+      withEmbedding: row?.with_embedding ?? 0,
+      withSignals: row?.with_signals ?? 0,
+      repositoryCoverage: repoCoverage[0]?.repositories ?? 0,
+      embeddingModel: config.embedding.model,
+      embeddingConfigured: Boolean(config.embedding.baseUrl && config.embedding.apiKey),
+    },
+    requestId,
+  );
+}
+
+/** Non-secret runtime configuration snapshot (no keys, no secrets). */
+async function handleConfig(
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const modelProviders = Object.keys(config.modelProviderBaseUrls);
+  json(
+    response,
+    200,
+    {
+      host: config.host,
+      port: config.port,
+      logLevel: config.logLevel,
+      githubWebhookConfigured: Boolean(config.githubWebhookSecret),
+      githubAppConfigured: Boolean(config.githubAppId && config.githubAppPrivateKeyPath),
+      webuiAuthEnabled: Boolean(config.webuiApiToken),
+      modelProviders,
+      embeddingModel: config.embedding.model,
+      embeddingConfigured: Boolean(config.embedding.baseUrl && config.embedding.apiKey),
+      qqBotProtocols: Object.keys(config.qqBotProtocols),
+      qqOfficialConfigured: Boolean(config.qqOfficialAppId && config.qqOfficialAppSecret),
+      oauthConfigured: oauthConfigured(),
+      oauthEnabled: oauthConfigured() && webuiToken().length === 0,
+    },
+    requestId,
+  );
+}
+
+/** Runtime settings: GET lists (secret values masked); PUT upserts a key. */
+async function handleSettings(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  if (request.method === "PUT") {
+    const body = await readBody(request);
+    let parsed: { key?: unknown; value?: unknown };
+    try {
+      parsed = JSON.parse(body.toString("utf8"));
+    } catch {
+      json(response, 400, { status: "error", reason: "invalid JSON" }, requestId);
+      return;
+    }
+    const key = typeof parsed.key === "string" ? parsed.key : null;
+    if (!key || !ALLOWED_SETTING_KEYS.has(key)) {
+      json(
+        response,
+        400,
+        { status: "error", reason: "unsupported_setting_key" },
+        requestId,
+      );
+      return;
+    }
+    const value = typeof parsed.value === "string" ? parsed.value : "";
+    await database.db
+      .insert(systemSettings)
+      .values({ key, value })
+      .onConflictDoUpdate({
+        target: systemSettings.key,
+        set: { value, updatedAt: new Date() },
+      });
+    await refreshRuntimeSettings();
+    json(response, 200, { status: "ok", key }, requestId);
+    return;
+  }
+
+  const rows = await database.db
+    .select({
+      key: systemSettings.key,
+      value: systemSettings.value,
+      updatedAt: systemSettings.updatedAt,
+    })
+    .from(systemSettings)
+    .orderBy(asc(systemSettings.key));
+  const byKey = new Map(rows.map((row) => [row.key, row]));
+  const known = [
+    "webui_api_token",
+    "github_webhook_secret",
+    "github_webhook_enabled",
+    "log_level",
+  ];
+  const items = known.map((key) => {
+    const row = byKey.get(key);
+    const hasValue = Boolean(row && row.value.trim().length > 0);
+    const masked = SECRET_SETTING_KEYS.has(key) && hasValue;
+    return {
+      key,
+      hasValue,
+      value: masked ? "••••••••" : (hasValue ? (row?.value ?? "") : ""),
+      updatedAt: row?.updatedAt ?? null,
+    };
+  });
+  json(response, 200, { items }, requestId);
+}
+
+/** GitHub OAuth entry: /auth/status, /auth/login (redirect), /auth/callback. */
+async function handleAuth(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const url = new URL(request.url ?? "/", "http://localhost");
+  const path = url.pathname;
+
+  if (path === "/auth/status") {
+    json(response, 200, { oauthConfigured: oauthConfigured() }, requestId);
+    return;
+  }
+
+  if (path === "/auth/login") {
+    if (!oauthConfigured()) {
+      json(
+        response,
+        503,
+        { status: "error", reason: "oauth_not_configured" },
+        requestId,
+      );
+      return;
+    }
+    const state = randomUUID();
+    oauthStates.set(state, Date.now() + 10 * 60 * 1000);
+    const authorizeUrl =
+      `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(oauthClientId)}` +
+      `&scope=read:user&state=${state}`;
+    response.writeHead(302, { Location: authorizeUrl });
+    response.end();
+    return;
+  }
+
+  if (path === "/auth/callback") {
+    const code = url.searchParams.get("code");
+    const state = url.searchParams.get("state");
+    const exp = state ? oauthStates.get(state) : undefined;
+    if (!state || exp === undefined || exp < Date.now()) {
+      oauthStates.delete(state ?? "");
+      response.writeHead(302, { Location: "/#/?oauth_error=bad_state" });
+      response.end();
+      return;
+    }
+    oauthStates.delete(state);
+    if (!code) {
+      response.writeHead(302, { Location: "/#/?oauth_error=missing_code" });
+      response.end();
+      return;
+    }
+    try {
+      const tokenRes = await fetch("https://github.com/login/oauth/access_token", {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          client_id: oauthClientId,
+          client_secret: oauthClientSecret,
+          code,
+        }),
+      });
+      const tokenJson = (await tokenRes.json()) as { access_token?: string; error?: string };
+      if (typeof tokenJson.access_token !== "string")
+        throw new Error(tokenJson.error ?? "no_access_token");
+      const userRes = await fetch("https://api.github.com/user", {
+        headers: {
+          authorization: `Bearer ${tokenJson.access_token}`,
+          "user-agent": "apertureprism",
+        },
+      });
+      const user = (await userRes.json()) as { login?: string };
+      if (typeof user.login !== "string") throw new Error("no_login");
+      const session = signSession(user.login);
+      response.writeHead(302, {
+        Location: `/#/?token=${encodeURIComponent(session)}`,
+      });
+      response.end();
+    } catch {
+      response.writeHead(302, { Location: "/#/?oauth_error=login_failed" });
+      response.end();
+    }
+    return;
+  }
+
+  json(response, 404, { status: "error", reason: "not_found" }, requestId);
+}
+
+/* ---------- install wizard / one-click init ---------- */
+const DEFAULT_POLICIES = [
+  { role: "issue_analysis", version: "issue-analysis-v1" },
+  { role: "pr_review", version: "pr-review-v1" },
+  { role: "duplicate_judgment", version: "duplicate-judgment-v1" },
+] as const;
+
+async function tableCount(names: string[]): Promise<number> {
+  const rows = await database.sql<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = ANY(${names})
+  `;
+  return rows[0]?.n ?? 0;
+}
+
+/** Setup diagnostics (public; shown by the install wizard before login). */
+async function handleSetupStatus(
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  let dbOk = false;
+  let tablesReady = 0;
+  let providerCount = 0;
+  let policyCount = 0;
+  try {
+    const h = await checkDatabase(database.sql, config.healthCheckTimeoutMs);
+    dbOk = h.status === "ok";
+    tablesReady = dbOk
+      ? await tableCount(["analysis_tasks", "task_events", "subject_results", "system_settings", "model_role_policies", "provider_accounts"])
+      : 0;
+    if (dbOk) {
+      const [p, pol] = await Promise.all([
+        database.db.select({ id: providerAccounts.id }).from(providerAccounts).limit(100),
+        database.db.select({ id: modelRolePolicies.id }).from(modelRolePolicies).limit(100),
+      ]);
+      providerCount = p.length;
+      policyCount = pol.length;
+    }
+  } catch {
+    dbOk = false;
+  }
+  const providerKey = Object.keys(config.modelProviderBaseUrls)[0] ?? "";
+  json(
+    response,
+    200,
+    {
+      database: { ok: dbOk, tablesReady, tablesTotal: 6 },
+      provider: { count: providerCount, providerKey, model: "deepseek-v4-flash" },
+      policies: { count: policyCount, required: DEFAULT_POLICIES.length },
+      githubWebhookConfigured: Boolean(config.githubWebhookSecret),
+      githubAppConfigured: Boolean(config.githubAppId && config.githubAppPrivateKeyPath),
+      oauthConfigured: oauthConfigured(),
+      embeddingConfigured: Boolean(config.embedding.baseUrl && config.embedding.apiKey),
+      initialized:
+        dbOk && tablesReady === 6 && policyCount >= DEFAULT_POLICIES.length,
+    },
+    requestId,
+  );
+}
+
+/** One-click init: seed default model role policies if none exist. */
+async function handleSetupInit(
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  try {
+    const existing = await database.db
+      .select({ id: modelRolePolicies.id })
+      .from(modelRolePolicies)
+      .limit(1);
+    if (existing.length > 0) {
+      json(
+        response,
+        200,
+        { status: "ok", created: 0, reason: "already_initialized" },
+        requestId,
+      );
+      return;
+    }
+    const providerKey = Object.keys(config.modelProviderBaseUrls)[0] ?? "";
+    const accounts = await database.db
+      .select({ name: providerAccounts.name })
+      .from(providerAccounts)
+      .limit(1);
+    const accountName = accounts[0]?.name;
+    const created = [];
+    if (providerKey && accountName) {
+      for (const policy of DEFAULT_POLICIES) {
+        await database.db.insert(modelRolePolicies).values({
+          role: policy.role,
+          version: policy.version,
+          candidates: [
+            { provider: providerKey, model: "deepseek-v4-flash", accountName },
+          ],
+        });
+        created.push(policy.role);
+      }
+    }
+    json(
+      response,
+      200,
+      {
+        status: "ok",
+        created: created.length,
+        roles: created,
+        skipped: created.length === 0 ? "model provider/account not configured" : undefined,
+      },
+      requestId,
+    );
+  } catch (error) {
+    logger.warn({ err: error }, "setup init failed");
+    json(
+      response,
+      500,
+      { status: "error", reason: "init_failed" },
+      requestId,
+    );
+  }
+}
+
 const resultColumns = {
   subjectType: subjectResults.subjectType,
   subjectNumber: subjectResults.subjectNumber,
@@ -523,27 +1196,23 @@ async function handleResults(
   const limit = Number.isFinite(limitRaw)
     ? Math.min(Math.max(Math.trunc(limitRaw), 1), 100)
     : 25;
-  const beforeRaw = url.searchParams.get("before");
-  const before =
-    beforeRaw && !Number.isNaN(Date.parse(beforeRaw)) ? new Date(beforeRaw) : null;
+  // Offset pagination avoids skipping rows that share a createdAt millisecond.
+  const offsetRaw = Number(url.searchParams.get("offset"));
+  const offset = Number.isFinite(offsetRaw)
+    ? Math.max(Math.trunc(offsetRaw), 0)
+    : 0;
   const items = await database.db
     .select(resultColumns)
     .from(subjectResults)
-    .where(
-      and(
-        eq(subjectResults.subjectType, type),
-        before ? lt(subjectResults.createdAt, before) : undefined,
-      ),
-    )
-    .orderBy(desc(subjectResults.createdAt))
-    .limit(limit);
-  const last = items.at(-1)?.createdAt;
-  const nextCursor =
-    items.length === limit && last ? last.toISOString() : undefined;
+    .where(eq(subjectResults.subjectType, type))
+    .orderBy(desc(subjectResults.createdAt), desc(subjectResults.id))
+    .limit(limit)
+    .offset(offset);
+  const nextOffset = items.length === limit ? offset + limit : undefined;
   json(
     response,
     200,
-    nextCursor === undefined ? { items } : { items, nextCursor },
+    nextOffset === undefined ? { items } : { items, nextOffset },
     requestId,
   );
 }
@@ -566,6 +1235,43 @@ async function handleRequest(
       { status: "error", reason: "unauthorized" },
       requestId,
     );
+    return;
+  }
+
+  if (
+    path === "/auth/status" ||
+    path === "/auth/login" ||
+    path === "/auth/callback"
+  ) {
+    await handleAuth(request, response, requestId);
+    return;
+  }
+
+  if (path === "/setup/status") {
+    if (request.method !== "GET") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    await handleSetupStatus(response, requestId);
+    return;
+  }
+
+  if (path === "/setup/init") {
+    if (request.method !== "POST") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    await handleSetupInit(response, requestId);
     return;
   }
 
@@ -597,6 +1303,11 @@ async function handleRequest(
     return;
   }
 
+  if (path === "/settings") {
+    await handleSettings(request, response, requestId);
+    return;
+  }
+
   if (request.method !== "GET") {
     json(
       response,
@@ -604,6 +1315,31 @@ async function handleRequest(
       { status: "error", reason: "method not allowed" },
       requestId,
     );
+    return;
+  }
+
+  if (path === "/summary") {
+    await handleSummary(response, requestId);
+    return;
+  }
+
+  if (path === "/repositories") {
+    await handleRepositories(response, requestId);
+    return;
+  }
+
+  if (path === "/logs") {
+    await handleLogs(request, response, requestId);
+    return;
+  }
+
+  if (path === "/vector") {
+    await handleVector(response, requestId);
+    return;
+  }
+
+  if (path === "/config") {
+    await handleConfig(response, requestId);
     return;
   }
 
@@ -680,6 +1416,7 @@ process.once("SIGINT", () => void shutdown("SIGINT"));
 process.once("SIGTERM", () => void shutdown("SIGTERM"));
 void startEventStream()
   .then(() => {
+    startRuntimeSettings();
     server.listen(config.port, config.host, () =>
       logger.info({ host: config.host, port: config.port }, "API listening"),
     );

@@ -12,10 +12,18 @@ export default defineConfig({
     // SMB does not support inotify-style watchers; poll instead.
     watch: { usePolling: true, interval: 300 },
     proxy: {
+      "/auth": proxyTarget,
+      "/setup": proxyTarget,
       "/health": proxyTarget,
       "/tasks": proxyTarget,
+      "/summary": proxyTarget,
       "/results": proxyTarget,
       "/providers": proxyTarget,
+      "/repositories": proxyTarget,
+      "/logs": proxyTarget,
+      "/vector": proxyTarget,
+      "/config": proxyTarget,
+      "/settings": proxyTarget,
       "/events": { target: proxyTarget, changeOrigin: true, ws: false },
     },
   },

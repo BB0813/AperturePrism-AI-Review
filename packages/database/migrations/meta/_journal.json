@@ -36,6 +36,13 @@
       "when": 1787020993898,
       "tag": "0004_pretty_nomad",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1787080000000,
+      "tag": "0006_system_settings",
+      "breakpoints": true
     }
   ]
 }
