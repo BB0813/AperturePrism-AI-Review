@@ -1,5 +1,7 @@
 export * from "./decision.js";
 export * from "./embed.js";
+export * from "./eval-data.js";
+export * from "./eval-runner.js";
 export * from "./eval.js";
 export * from "./judge.js";
 export * from "./normalize.js";
