@@ -145,6 +145,10 @@ const environmentSchema = z.object({
   EMBEDDING_MODEL: z.string().min(1).default("nvidia/nv-embed-v1"),
   /** Optional bearer token guarding the WebUI-facing API routes (/tasks, /results, /providers, /events). */
   WEBUI_API_TOKEN: z.string().min(1).optional(),
+  /** Per-IP webhook request budget per minute (in-memory token bucket). */
+  WEBHOOK_RATE_LIMIT: z.coerce.number().int().positive().default(60),
+  /** Per-IP budget for protected API routes per minute. */
+  API_RATE_LIMIT: z.coerce.number().int().positive().default(300),
 });
 
 export type AppConfig = Readonly<{
@@ -167,6 +171,8 @@ export type AppConfig = Readonly<{
   qqOfficialGatewayUrl: string | undefined;
   qqOfficialIntents: number;
   webuiApiToken: string | undefined;
+  webhookRateLimit: number;
+  apiRateLimit: number;
   embedding: Readonly<{
     baseUrl: string | undefined;
     apiKey: string | undefined;
@@ -203,6 +209,8 @@ export function loadConfig(environment: NodeJS.ProcessEnv): AppConfig {
     qqOfficialGatewayUrl: parsed.QQ_OFFICIAL_GATEWAY_URL,
     qqOfficialIntents: parsed.QQ_OFFICIAL_INTENTS,
     webuiApiToken: parsed.WEBUI_API_TOKEN,
+    webhookRateLimit: parsed.WEBHOOK_RATE_LIMIT,
+    apiRateLimit: parsed.API_RATE_LIMIT,
     embedding: Object.freeze({
       baseUrl: parsed.EMBEDDING_BASE_URL,
       apiKey: parsed.EMBEDDING_API_KEY,

@@ -1,5 +1,6 @@
 import type { GradedIssueAnalysis } from "../../../packages/contracts/src/index.js";
 import type { LeasedTask } from "../../../packages/domain/src/index.js";
+import type { RelatedIssueRow } from "../../../packages/duplicate-detection/src/index.js";
 import { GitHubApiError } from "../../../packages/github-adapter/src/index.js";
 import type {
   IssueAnalysisOutcome,
@@ -21,9 +22,12 @@ export type IssueAnalysisServices = {
     context: IssueContext,
     signal: AbortSignal,
   ) => Promise<IssueAnalysisOutcome>;
+  /** Read-only RAG recall; index failure degrades to an empty list. */
+  recallRelated: (context: IssueContext) => Promise<RelatedIssueRow[]>;
   publishFinal: (
     task: LeasedTask,
     analysis: GradedIssueAnalysis,
+    related: readonly RelatedIssueRow[],
     signal: AbortSignal,
   ) => Promise<void>;
   recordUsage: (
@@ -34,9 +38,10 @@ export type IssueAnalysisServices = {
 
 /**
  * The vertical issue-analysis flow: context -> placeholder -> analyze ->
- * record usage -> publish final analysis. Invalid contract output fails with
- * a retryable category; permanent GitHub problems (missing object, auth) are
- * marked so the engine does not retry them forever.
+ * record usage -> recall related issues (RAG, degrade-safe) -> publish final
+ * analysis. Invalid contract output fails with a retryable category;
+ * permanent GitHub problems (missing object, auth) are marked so the engine
+ * does not retry them forever.
  */
 export function createIssueAnalysisHandler(
   services: IssueAnalysisServices,
@@ -55,7 +60,15 @@ export function createIssueAnalysisHandler(
       if (outcome.outcome === "invalid")
         return { outcome: "failed", errorCategory: "invalid_output" };
 
-      await services.publishFinal(task, outcome.analysis, signal);
+      let related: RelatedIssueRow[] = [];
+      try {
+        related = await services.recallRelated(context);
+      } catch {
+        // The index is an enhancement, never a blocker for the core analysis.
+        related = [];
+      }
+
+      await services.publishFinal(task, outcome.analysis, related, signal);
       return { outcome: "completed" };
     } catch (error) {
       if (error instanceof GitHubApiError) {

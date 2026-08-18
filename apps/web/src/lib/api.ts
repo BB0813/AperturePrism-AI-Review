@@ -11,8 +11,7 @@ export type ReadyHealth = {
 };
 
 export type HealthResult =
-  | { kind: "live"; status: "ok" }
-  | { kind: "ready"; data: ReadyHealth };
+  { kind: "live"; status: "ok" } | { kind: "ready"; data: ReadyHealth };
 
 export type TaskSummary = {
   id: string;
@@ -68,7 +67,11 @@ export type ProviderOverview = {
 };
 
 export type Summary = {
-  tasks: { total: number; byStatus: Record<string, number>; byType: Record<string, number> };
+  tasks: {
+    total: number;
+    byStatus: Record<string, number>;
+    byType: Record<string, number>;
+  };
   results: { issue: number; pr: number };
 };
 
@@ -117,7 +120,11 @@ export type DeliveryEntry = {
   receivedAt: string;
 };
 export type AuditLog = { events: LogEvent[]; deliveries: DeliveryEntry[] };
-export type HistoryPage = { events: LogEvent[]; deliveries: DeliveryEntry[]; nextOffset?: number };
+export type HistoryPage = {
+  events: LogEvent[];
+  deliveries: DeliveryEntry[];
+  nextOffset?: number;
+};
 
 /** Diagnostic bundle: recent events + webhook deliveries. */
 export async function fetchLogs(): Promise<AuditLog> {
@@ -125,13 +132,20 @@ export async function fetchLogs(): Promise<AuditLog> {
 }
 
 /** Offset-paginated historical task events (newest first). */
-export async function fetchLogHistory(offset: number, limit = 50): Promise<HistoryPage> {
-  return (await getJson(`/logs?history=1&offset=${offset}&limit=${limit}`)) as HistoryPage;
+export async function fetchLogHistory(
+  offset: number,
+  limit = 50,
+): Promise<HistoryPage> {
+  return (await getJson(
+    `/logs?history=1&offset=${offset}&limit=${limit}`,
+  )) as HistoryPage;
 }
 
 /** Events created after a bookmark (resume-from-breakpoint). */
 export async function fetchLogsSince(since: string): Promise<AuditLog> {
-  return (await getJson(`/logs?since=${encodeURIComponent(since)}`)) as AuditLog;
+  return (await getJson(
+    `/logs?since=${encodeURIComponent(since)}`,
+  )) as AuditLog;
 }
 
 export type VectorStats = {
@@ -156,6 +170,65 @@ export async function triggerIndexRun(): Promise<void> {
     headers: { accept: "application/json", ...authHeaders() },
   });
   if (!response.ok) throw new Error(`trigger index ${response.status}`);
+}
+
+export type IndexPassSummary = {
+  pass: number;
+  rebuild: boolean;
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  repos: number;
+  indexed: number;
+  skippedUnchanged: number;
+  embedded: number;
+  errors: string[];
+};
+
+export type IndexStatus = {
+  lastPass: IndexPassSummary | null;
+  pendingTrigger: boolean;
+  pendingRebuild: boolean;
+};
+
+/** Index-worker health: last pass summary + pending trigger/rebuild flags. */
+export async function fetchIndexStatus(): Promise<IndexStatus> {
+  return (await getJson("/index/status")) as IndexStatus;
+}
+
+/** Full index rebuild: clears issue_documents and re-indexes everything. */
+export async function rebuildIndex(): Promise<void> {
+  const response = await fetch("/index/rebuild", {
+    method: "POST",
+    headers: { accept: "application/json", ...authHeaders() },
+  });
+  if (!response.ok) throw new Error(`rebuild index ${response.status}`);
+}
+
+export type RelatedIssue = {
+  id: string;
+  repositoryId: string | null;
+  repositoryFullName: string | null;
+  issueNumber: number;
+  score: number;
+  reasons: string[];
+};
+
+/** Read-only RAG recall: candidates similar to a lead issue. */
+export async function fetchRelatedIssues(input: {
+  title: string;
+  body: string;
+  topK?: number;
+}): Promise<{ candidates: RelatedIssue[]; degraded?: boolean }> {
+  const params = new URLSearchParams({
+    title: input.title,
+    body: input.body,
+    topK: String(input.topK ?? 5),
+  });
+  return (await getJson(`/index/related?${params.toString()}`)) as {
+    candidates: RelatedIssue[];
+    degraded?: boolean;
+  };
 }
 
 export type RuntimeConfig = {
@@ -249,7 +322,10 @@ async function getJson(url: string): Promise<unknown> {
   });
   if (response.status === 401) throw new Error("unauthorized");
   if (!response.ok) {
-    const reason = response.status === 404 ? "not found" : `request failed with ${response.status}`;
+    const reason =
+      response.status === 404
+        ? "not found"
+        : `request failed with ${response.status}`;
     throw new Error(reason);
   }
   return response.json();
@@ -267,7 +343,10 @@ async function putJson(url: string, body: unknown): Promise<void> {
   });
   if (response.status === 401) throw new Error("unauthorized");
   if (!response.ok) {
-    const reason = response.status === 404 ? "not found" : `request failed with ${response.status}`;
+    const reason =
+      response.status === 404
+        ? "not found"
+        : `request failed with ${response.status}`;
     throw new Error(reason);
   }
 }
@@ -287,7 +366,8 @@ export async function fetchTasks(options?: {
 }): Promise<TaskList> {
   const params = new URLSearchParams();
   if (options?.limit) params.set("limit", String(options.limit));
-  if (options?.offset !== undefined) params.set("offset", String(options.offset));
+  if (options?.offset !== undefined)
+    params.set("offset", String(options.offset));
   const query = params.toString();
   return (await getJson(`/tasks${query ? `?${query}` : ""}`)) as TaskList;
 }

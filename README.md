@@ -10,7 +10,7 @@
 ## 当前进度
 
 - **已完成**：M0–M7（工程基线 → Webhook → 任务引擎 → 多模型路由 → Issue 分析 → 重复检测 → PR Review MVP），以及 QQ 机器人渠道（NTQQ + 官方开放平台）。
-- **进行中 / 下一步**：M8 WebUI —— 概览 / **Issue / PR 结果页**（结构化结果已持久化到 `subject_results`，`/results` API）/ 任务列表（cursor 分页）/ 任务详情（生命周期时间线 + attempts）/ **Provider 页**；已接入 Bearer 认证与 SSE 任务事件实时推送（`/events`）。再往后 M9 索引与 RAG。
+- **已完成**：M8 WebUI（深色控制台 + Bearer/OAuth 认证 + SSE 实时推送 + 断线回放）、M9 索引与 RAG（index-worker 内容哈希去重/批量 embedding/状态与重建 + `/index/*` 只读接口 + Issue 分析相关 Issue 召回）、M11 生产加固（scheduler 租约回收、生产 compose、迁移/备份脚本、速率限制、runbook）。
 - 关键链路已在 NAS 隔离测试环境（postgres+redis）以真实 GitHub 与真实模型验证：
   - Issue 全纵向：webhook 幂等 → GitHub 拉取 → 多模型分析 → 评级 → 幂等评论发布。
   - 重复检测全链路：全文+信号+向量(pgvector)召回 → deepseek 裁决 → 服务端裁决。
@@ -29,9 +29,9 @@
 | M6 | 重复 Issue 检测（标准化/召回/裁决/评测），NAS 实测通过 | ✅ 已完成 |
 | M7 | PR Review MVP：diff 解析/行映射、大小与预算降级、结构化 finding/严重度策略、受限修复、幂等发布 | ✅ 已完成 |
 | M10 | QQ 机器人（NTQQ：OneBot 11 / Satori / Milky；官方 api-v2） | ✅ 已完成 |
-| M8 | WebUI 与增量事件（SSE）——提前开发 | 🚧 进行中（标签/任务列表/详情时间线已就位） |
-| M9 | 索引与 RAG | ⏳ 待开发 |
-| M11 | 生产加固与发布 | ⏳ 待开发 |
+| M8 | WebUI 与增量事件（SSE）——提前开发 | ✅ 已完成（认证/路由保护/SSE 推送与断线回放/任务与结果页） |
+| M9 | 索引与 RAG | ✅ 已完成（index-worker 哈希去重/批量 embedding/状态与重建 + 只读召回接口 + 分析接入相关 Issue） |
+| M11 | 生产加固与发布 | ✅ 已完成（scheduler/速率限制/生产 compose/迁移备份/runbook） |
 
 > 阶段编号沿用模块化开发计划，实现顺序以仓库为准；WebUI（M8）按需求提前到 M7 之前。
 
@@ -71,7 +71,7 @@ npm run build
 
 ## WebUI 功能对齐路线
 
-参考产品（Sakura-AI）的功能清单，AperturePrism 采用「能整合的整合、能写出的写出」，**逐项对齐工作留到 M8 / M9 / M11 完成后**回头慢慢补齐。当前状态：
+参考产品（Sakura-AI）的功能清单，AperturePrism 采用「能整合的整合、能写出的写出」。**M8 / M9 / M11 已完成**，剩余与 Agent 能力 / 用户体系绑定的功能（专家团队、Skills、互助、用户管理、配置备份）继续按此表逐项评估。当前状态：
 
 | 参考功能 | 当前状态 | 落点 / 计划 |
 | --- | --- | --- |
@@ -83,15 +83,15 @@ npm run build
 | Issue 分析 | ✅ 已上线 | 结果页（Issue）+ 富结果卡 |
 | 审查队列 | ✅ 已上线 | 任务队列（筛选 + 详情） |
 | 已安装仓库 | ✅ 已上线 | 仓库列表 + 统计 |
-| 向量存储 & 数据库 | ✅ 已上线 | 向量存储页（issue_documents 统计） |
+| 向量存储 & 数据库 | ✅ 已上线 | 向量存储页（issue_documents 统计 + 索引触发 / 重建 / 最近轮次） |
 | 审查策略 / AI 配置 | ✅ 已整合 | 「模型路由」页 + 系统设置热更新 |
 | 全局配置 | ✅ 已整合 | 「系统配置」页 |
 | 标签配置 | 🚧 部分 | Issue 结果内展示建议标签；编辑留待后续 |
-| 安全管理 | 🚧 部分 | Webhook 开关 / 密钥热更新；细粒度权限留待 M11 |
+| 安全管理 | 🚧 部分 | Webhook 开关 / 密钥热更新 / API 与 Webhook 速率限制；细粒度权限留待后续 |
 | 系统配置 | ✅ 已上线 | 含 Bot 设置 / 接入状态 |
 | 安装向导 | ✅ 已上线 | `/setup` 环境检测 + 一键初始化 |
 | 关于 | ✅ 已上线 | 官网 https://www.aprism.top + 模块/范围说明 |
-| 仓库扫描 | ⏳ 计划 | 对齐 M9 索引与 RAG 后上线 |
+| 仓库扫描 | ✅ 已上线 | index-worker 定时扫描 + `/index/run`、`/index/rebuild`、`/index/status` |
 | Agent 专家团队 | ⏳ 计划 | 依赖 Agent 能力，M11 后评估 |
 | Agent Skills | ⏳ 计划 | 依赖 Agent 能力，M11 后评估 |
 | 仓库互助 | ⏳ 计划 | 与 Agent/知识库绑定，M11 后评估 |

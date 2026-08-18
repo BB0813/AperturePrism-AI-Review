@@ -61,4 +61,24 @@ describe("issue comment templates", () => {
     expect(comment).toContain("P0 → needs_triage");
     expect(comment).toContain("评级调整");
   });
+
+  it("appends a related-issues section that only references, never auto-links", () => {
+    const graded = applyGradingRules(result);
+    const related = [
+      {
+        id: "d1",
+        repositoryId: "r1",
+        repositoryFullName: "owner/repo",
+        issueNumber: 42,
+        score: 12.5,
+        reasons: ["text", "signal"] as const,
+      },
+    ];
+    const comment = buildIssueAnalysisComment(graded, related);
+
+    expect(comment).toContain("可能相关的历史 Issue");
+    expect(comment).toContain("https://github.com/owner/repo/issues/42");
+    expect(comment).toContain("仅供参考，不自动关联");
+    expect(comment).not.toContain("close");
+  });
 });

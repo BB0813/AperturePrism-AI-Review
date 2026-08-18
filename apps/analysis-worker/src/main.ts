@@ -41,6 +41,11 @@ import {
 } from "../../../packages/pr-review/src/index.js";
 import { createOpenAICompatibleAdapter } from "../../../packages/model-router/src/index.js";
 import {
+  extractIssueSignals,
+  recallCandidatesWithRepos,
+  type SqlTag,
+} from "../../../packages/duplicate-detection/src/index.js";
+import {
   createLogger,
   withCorrelation,
 } from "../../../packages/observability/src/index.js";
@@ -55,7 +60,11 @@ import {
 } from "../../../packages/task-engine/src/index.js";
 import { createIssueAnalysisHandler } from "./handler.js";
 import { createPrReviewHandler } from "./pr-review-handler.js";
-import { runWorkerLoop, type TaskEngineOperations, type TaskHandler } from "./loop.js";
+import {
+  runWorkerLoop,
+  type TaskEngineOperations,
+  type TaskHandler,
+} from "./loop.js";
 
 const leaseDurationMs = 60_000;
 const heartbeatIntervalMs = 20_000;
@@ -278,7 +287,28 @@ async function main(): Promise<void> {
         context,
       ),
 
-    publishFinal: async (task, analysis) => {
+    recallRelated: async (context) => {
+      try {
+        return await recallCandidatesWithRepos(
+          database.sql as unknown as SqlTag,
+          {
+            title: context.issue.title,
+            body: context.issue.body,
+            signals: extractIssueSignals({
+              title: context.issue.title,
+              body: context.issue.body,
+              labels: context.issue.labels,
+            }),
+            topK: 5,
+          },
+        );
+      } catch (error) {
+        logger.warn({ err: error }, "related-issue recall skipped");
+        return [];
+      }
+    },
+
+    publishFinal: async (task, analysis, related) => {
       const { payload, identity } = issueIdentity(task);
       await publishIssueComment({
         store: publicationStore,
@@ -293,7 +323,7 @@ async function main(): Promise<void> {
           payload.subjectNumber,
           payload.subjectRevision,
         ),
-        body: buildIssueAnalysisComment(analysis),
+        body: buildIssueAnalysisComment(analysis, related),
       });
       await persistSubjectResult({
         taskId: task.id,
@@ -355,7 +385,15 @@ async function main(): Promise<void> {
       await publishAssessment({
         store: publicationStore,
         github: {
-          publishReview: ({ installationId, owner, name, pullNumber, revision, body, event }) =>
+          publishReview: ({
+            installationId,
+            owner,
+            name,
+            pullNumber,
+            revision,
+            body,
+            event,
+          }) =>
             githubClient.createPullRequestReview({
               installationId,
               owner,

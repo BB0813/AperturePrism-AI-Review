@@ -1,4 +1,5 @@
 import type { GradedIssueAnalysis } from "../../../packages/contracts/src/index.js";
+import type { RelatedIssueRow } from "../../../packages/duplicate-detection/src/index.js";
 
 const severityLabels: Readonly<Record<string, string>> = {
   S0: "S0（灾难性）",
@@ -38,6 +39,7 @@ export function buildPlaceholderComment(): string {
 
 export function buildIssueAnalysisComment(
   analysis: GradedIssueAnalysis,
+  related: readonly RelatedIssueRow[] = [],
 ): string {
   const { result, adjustments } = analysis;
   const lines: string[] = [
@@ -80,6 +82,17 @@ export function buildIssueAnalysisComment(
     for (const item of adjustments) {
       lines.push(
         `- ${item.field}: ${item.from} → ${item.to}（${item.reason}）`,
+      );
+    }
+  }
+
+  if (related.length > 0) {
+    lines.push("", "### 可能相关的历史 Issue（仅供参考，不自动关联）", "");
+    for (const item of related.slice(0, 5)) {
+      const repo = item.repositoryFullName ?? "unknown/repo";
+      const reason = item.reasons.includes("signal") ? "信号" : "文本";
+      lines.push(
+        `- [#${item.issueNumber}](https://github.com/${repo}/issues/${item.issueNumber}) · ${repo}（${reason} 相似）`,
       );
     }
   }

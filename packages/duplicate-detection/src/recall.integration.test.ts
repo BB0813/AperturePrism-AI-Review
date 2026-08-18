@@ -6,9 +6,11 @@ import {
 import {
   EMBEDDING_DIMENSION,
   extractIssueSignals,
+  getDocumentHash,
   indexIssueDocument,
   recallCandidates,
   recallCandidatesByVector,
+  recallCandidatesWithRepos,
   type SqlTag,
 } from "./index.js";
 
@@ -39,6 +41,74 @@ describeIntegration("duplicate recall PostgreSQL integration", () => {
       signals: extractIssueSignals({ title, body, labels: [] }),
     });
   }
+
+  it("tracks content hashes and reports unchanged documents for re-embed skip", async () => {
+    const number = 9;
+    const signals = extractIssueSignals({
+      title: "hash",
+      body: "fixed",
+      labels: [],
+    });
+    const hash = "abc123hash";
+    await indexIssueDocument(client.sql as unknown as SqlTag, {
+      repositoryId: null,
+      issueNumber: number,
+      title: `${prefix}-hash`,
+      body: "fixed body",
+      signals,
+      contentHash: hash,
+      embedding: embedding(1),
+    });
+
+    const doc = await getDocumentHash(client.sql as unknown as SqlTag, {
+      repositoryId: null,
+      issueNumber: number,
+    });
+    expect(doc?.contentHash).toBe(hash);
+    expect(doc?.hasEmbedding).toBe(true);
+
+    // An unchanged hash with an existing embedding must not require re-embed.
+    const doc2 = await getDocumentHash(client.sql as unknown as SqlTag, {
+      repositoryId: null,
+      issueNumber: number,
+    });
+    expect(doc2?.contentHash).toBe(hash);
+    expect(doc2?.hasEmbedding).toBe(true);
+  });
+
+  it("recalls candidates with repository full names via the read-only API", async () => {
+    const repositoryId = null;
+    await indexIssueDocument(client.sql as unknown as SqlTag, {
+      repositoryId,
+      issueNumber: 10,
+      title: `${prefix}-repos`,
+      body: "HTTP_522 gateway timeout in the loader module",
+      signals: extractIssueSignals({
+        title: `${prefix}-repos`,
+        body: "HTTP_522 gateway timeout in the loader module",
+        labels: [],
+      }),
+      contentHash: "repo-hash-10",
+    });
+
+    const lead = extractIssueSignals({
+      title: "loader timeout",
+      body: "HTTP_522 in the loader module",
+      labels: [],
+    });
+    const rows = await recallCandidatesWithRepos(
+      client.sql as unknown as SqlTag,
+      {
+        title: "loader timeout",
+        body: "HTTP_522 in the loader module",
+        signals: lead,
+        topK: 5,
+      },
+    );
+    const hit = rows.find((r) => r.issueNumber === 10);
+    expect(hit).toBeDefined();
+    expect(hit?.reasons.length).toBeGreaterThan(0);
+  });
 
   it("recalls a matching candidate by shared error code and full text", async () => {
     await index(

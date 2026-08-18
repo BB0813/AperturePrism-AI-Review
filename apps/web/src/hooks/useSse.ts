@@ -21,8 +21,8 @@ const MAX_EVENTS = 50;
 
 /**
  * Connects to the API `/events` SSE stream. Auto-reconnects with a short
- * backoff, keeps only the last screenful of events, flags gaps from the `id`
- * sequence (so a reconnect can later trigger a server-side replay), and tracks
+ * backoff, resumes from the last seen event (`?since=`) so missed events are
+ * replayed by the server, dedupes replay/live overlap, and tracks
  * connecting/online/offline so the UI never silently stalls.
  */
 export function useSse(url: string): SseState {
@@ -31,12 +31,18 @@ export function useSse(url: string): SseState {
   const [events, setEvents] = useState<StreamedEvent[]>([]);
   const [hasGap, setHasGap] = useState(false);
   const expectedRef = useRef(0);
+  const lastSeenAtRef = useRef<string | null>(null);
+  const seenKeysRef = useRef<Set<string>>(new Set());
 
   const pushEvent = useCallback((type: string, seq: number, data: unknown) => {
-    if (expectedRef.current !== 0 && seq !== expectedRef.current) setHasGap(true);
+    if (seq > 0 && expectedRef.current !== 0 && seq !== expectedRef.current)
+      setHasGap(true);
     expectedRef.current = seq + 1;
     setLastSeq(seq);
-    setEvents((prev) => [...prev.slice(-(MAX_EVENTS - 1)), { seq, type, data }]);
+    setEvents((prev) => [
+      ...prev.slice(-(MAX_EVENTS - 1)),
+      { seq, type, data },
+    ]);
   }, []);
 
   useEffect(() => {
@@ -47,7 +53,11 @@ export function useSse(url: string): SseState {
     const connect = () => {
       if (disposed) return;
       setStatus("connecting");
-      es = new EventSource(url);
+      const since = lastSeenAtRef.current;
+      const target = since
+        ? `${url}${url.includes("?") ? "&" : "?"}since=${encodeURIComponent(since)}`
+        : url;
+      es = new EventSource(target);
       es.onopen = () => {
         if (!disposed) setStatus("online");
       };
@@ -63,7 +73,27 @@ export function useSse(url: string): SseState {
       });
       es.onmessage = (raw) => {
         const message = raw as MessageEvent<string>;
-        pushEvent(message.lastEventId || "message", seqOf(message), safeParse(message.data));
+        const data = safeParse(message.data);
+        // Replay/live overlap can deliver the same row twice; dedupe task
+        // events by their stable identity so the UI never double-counts.
+        if (
+          data &&
+          typeof data === "object" &&
+          "taskId" in data &&
+          "eventType" in data
+        ) {
+          const record = data as {
+            taskId: string;
+            eventType: string;
+            createdAt?: string;
+          };
+          const key = `${record.taskId}:${record.eventType}:${record.createdAt ?? ""}`;
+          if (seenKeysRef.current.has(key)) return;
+          seenKeysRef.current.add(key);
+          if (seenKeysRef.current.size > 2000) seenKeysRef.current.clear();
+          if (record.createdAt) lastSeenAtRef.current = record.createdAt;
+        }
+        pushEvent(message.lastEventId || "message", seqOf(message), data);
       };
     };
 

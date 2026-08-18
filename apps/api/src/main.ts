@@ -1,10 +1,15 @@
-import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
 import {
   createServer,
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { and, asc, desc, eq, gt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, or } from "drizzle-orm";
 import { loadConfig } from "../../../packages/config/src/index.js";
 import {
   analysisTasks,
@@ -35,6 +40,12 @@ import {
   SSE_HEADERS,
 } from "../../../packages/event-stream/src/index.js";
 import { PR_REVIEW_POLICY_VERSION } from "../../../packages/pr-review/src/index.js";
+import {
+  extractIssueSignals,
+  normalizedIndexText,
+  recallCandidatesWithRepos,
+  type SqlTag,
+} from "../../../packages/duplicate-detection/src/index.js";
 import {
   createLogger,
   withCorrelation,
@@ -78,14 +89,17 @@ function parseSessionToken(token: string): string | null {
   if (dot === -1) return null;
   const payload = token.slice(0, dot);
   const sig = token.slice(dot + 1);
-  const expected = createHmac("sha256", sessionKey())
-    .update(payload)
-    .digest();
+  const expected = createHmac("sha256", sessionKey()).update(payload).digest();
   const received = Buffer.from(sig);
-  if (expected.length !== received.length || !timingSafeEqual(expected, received))
+  if (
+    expected.length !== received.length ||
+    !timingSafeEqual(expected, received)
+  )
     return null;
   try {
-    const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as {
+    const data = JSON.parse(
+      Buffer.from(payload, "base64url").toString("utf8"),
+    ) as {
       login?: unknown;
       exp?: unknown;
     };
@@ -99,7 +113,10 @@ function parseSessionToken(token: string): string | null {
 
 /* ---------- runtime settings (hot-reload overrides) ---------- */
 const SETTINGS_POLL_MS = 8_000;
-const SECRET_SETTING_KEYS = new Set(["webui_api_token", "github_webhook_secret"]);
+const SECRET_SETTING_KEYS = new Set([
+  "webui_api_token",
+  "github_webhook_secret",
+]);
 const ALLOWED_SETTING_KEYS = new Set([
   "webui_api_token",
   "github_webhook_secret",
@@ -154,6 +171,38 @@ function webhookEnabled(): boolean {
 /** Open SSE connections so shutdown can end them and exit cleanly. */
 const sseClients = new Set<ServerResponse>();
 
+/* ---------- per-IP in-memory rate limiting (sliding token bucket) ---------- */
+const RATE_WINDOW_MS = 60_000;
+const rateBuckets = new Map<string, { tokens: number; last: number }>();
+
+/**
+ * Returns true when the client has exceeded the per-minute budget. The bucket
+ * refills fully each window; the map is pruned once it grows beyond a bound so
+ * a hostile flood of source IPs cannot leak memory indefinitely.
+ */
+function rateLimited(ip: string, limit: number, now: number): boolean {
+  if (rateBuckets.size > 10_000) {
+    for (const [key, bucket] of rateBuckets) {
+      if (now - bucket.last >= RATE_WINDOW_MS) rateBuckets.delete(key);
+    }
+  }
+  const bucket = rateBuckets.get(ip);
+  if (!bucket || now - bucket.last >= RATE_WINDOW_MS) {
+    rateBuckets.set(ip, { tokens: Math.max(limit - 1, 0), last: now });
+    return false;
+  }
+  if (bucket.tokens <= 0) return true;
+  bucket.tokens -= 1;
+  return false;
+}
+
+function clientIp(request: IncomingMessage): string {
+  const forwarded = request.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.length > 0)
+    return forwarded.split(",")[0]!.trim();
+  return request.socket.remoteAddress ?? "unknown";
+}
+
 /** Routes that require the WebUI bearer token when it is configured. */
 const protectedPaths = [
   "/tasks",
@@ -163,7 +212,7 @@ const protectedPaths = [
   "/repositories",
   "/logs",
   "/vector",
-  "/index/run",
+  "/index",
   "/config",
   "/settings",
   "/events",
@@ -193,9 +242,7 @@ function isAuthorized(request: IncomingMessage): boolean {
 }
 
 const requiresAuth = (path: string): boolean =>
-  protectedPaths.some(
-    (base) => path === base || path.startsWith(`${base}/`),
-  );
+  protectedPaths.some((base) => path === base || path.startsWith(`${base}/`));
 
 function json(
   response: ServerResponse,
@@ -323,10 +370,60 @@ function broadcastSse(seq: number, type: string, data: unknown): void {
   for (const client of sseClients) client.write(frame);
 }
 
-/** Keeps an SSE connection open; frames are broadcast by the shared relay. */
-function handleSse(response: ServerResponse): void {
+/**
+ * Keeps an SSE connection open; frames are broadcast by the shared relay.
+ * `?since=<iso>` replays historical task events created after the bookmark
+ * before going live, so a reconnect can backfill events missed while offline.
+ */
+async function handleSse(
+  request: IncomingMessage,
+  response: ServerResponse,
+): Promise<void> {
   response.writeHead(200, SSE_HEADERS);
   response.write(": connected\n\n");
+
+  const url = new URL(request.url ?? "/", "http://localhost");
+  const sinceRaw = url.searchParams.get("since");
+  if (sinceRaw && !Number.isNaN(Date.parse(sinceRaw))) {
+    try {
+      const since = new Date(sinceRaw);
+      const rows = await database.db
+        .select({
+          id: taskEvents.id,
+          taskId: taskEvents.taskId,
+          eventType: taskEvents.eventType,
+          data: taskEvents.data,
+          createdAt: taskEvents.createdAt,
+        })
+        .from(taskEvents)
+        .where(gt(taskEvents.createdAt, since))
+        .orderBy(asc(taskEvents.createdAt))
+        .limit(500);
+      for (const row of rows) {
+        sseSeq += 1;
+        response.write(
+          serializeSseEvent({
+            seq: sseSeq,
+            type: "task",
+            data: {
+              taskId: row.taskId,
+              eventType: row.eventType,
+              data: row.data,
+              createdAt: row.createdAt,
+              replayed: true,
+            },
+          }),
+        );
+      }
+      logger.debug(
+        { replayed: rows.length, since: sinceRaw },
+        "SSE replay sent",
+      );
+    } catch (error) {
+      logger.warn({ err: error }, "SSE replay failed; going live");
+    }
+  }
+
   sseClients.add(response);
   response.on("close", () => {
     sseClients.delete(response);
@@ -407,7 +504,9 @@ async function pumpTaskEvents(): Promise<void> {
       createdAt: taskEvents.createdAt,
     })
     .from(taskEvents)
-    .where(eventWatermark ? gt(taskEvents.createdAt, eventWatermark) : undefined)
+    .where(
+      eventWatermark ? gt(taskEvents.createdAt, eventWatermark) : undefined,
+    )
     .orderBy(asc(taskEvents.createdAt))
     .limit(200);
   let newest: Date | null = eventWatermark;
@@ -431,7 +530,8 @@ async function pumpTaskEvents(): Promise<void> {
         createdAt: row.createdAt,
       },
     };
-    if (eventPublisher) await eventPublisher.publish(EVENT_CHANNEL, JSON.stringify(evt));
+    if (eventPublisher)
+      await eventPublisher.publish(EVENT_CHANNEL, JSON.stringify(evt));
     if (!newest || row.createdAt > newest) newest = row.createdAt;
   }
   if (newest) eventWatermark = newest;
@@ -498,8 +598,16 @@ async function handleTasks(
   // A well-formed task id is a UUID. Guard the detail lookup so a short or
   // malformed id (e.g. /tasks/1) returns 404 instead of a Postgres uuid parse
   // error bubbling up as a 500.
-  if (id && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
-    json(response, 404, { status: "error", reason: "task not found" }, requestId);
+  if (
+    id &&
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+  ) {
+    json(
+      response,
+      404,
+      { status: "error", reason: "task not found" },
+      requestId,
+    );
     return;
   }
 
@@ -537,7 +645,12 @@ async function handleTasks(
     .limit(1);
   const row = rows[0];
   if (!row) {
-    json(response, 404, { status: "error", reason: "task not found" }, requestId);
+    json(
+      response,
+      404,
+      { status: "error", reason: "task not found" },
+      requestId,
+    );
     return;
   }
   const [timeline, attempts] = await Promise.all([
@@ -662,7 +775,9 @@ async function handleRepositories(
       SELECT repository_full_name, count(*)::int AS c FROM subject_results GROUP BY repository_full_name
     `,
   ]);
-  const taskByRepo = new Map(taskCounts.map((r) => [r.repository_id, Number(r.c)]));
+  const taskByRepo = new Map(
+    taskCounts.map((r) => [r.repository_id, Number(r.c)]),
+  );
   const resultByName = new Map(
     resultCounts.map((r) => [r.repository_full_name, Number(r.c)]),
   );
@@ -670,7 +785,13 @@ async function handleRepositories(
   // separate webhook deliveries); merge by full name for a clean list.
   const byName = new Map<
     string,
-    { id: string; owner: string; taskCount: number; resultCount: number; createdAt: Date }
+    {
+      id: string;
+      owner: string;
+      taskCount: number;
+      resultCount: number;
+      createdAt: Date;
+    }
   >();
   for (const repo of repos) {
     const fullName = `${repo.owner}/${repo.name}`;
@@ -748,7 +869,9 @@ async function handleLogs(
     json(
       response,
       200,
-      nextOffset === undefined ? { events, deliveries: [] } : { events, deliveries: [], nextOffset },
+      nextOffset === undefined
+        ? { events, deliveries: [] }
+        : { events, deliveries: [], nextOffset },
       requestId,
     );
     return;
@@ -802,7 +925,9 @@ async function handleVector(
   requestId: string,
 ): Promise<void> {
   const [stats, repoCoverage, lastIndex] = await Promise.all([
-    database.sql<{ docs: number; with_embedding: number; with_signals: number }[]>`
+    database.sql<
+      { docs: number; with_embedding: number; with_signals: number }[]
+    >`
       SELECT count(*)::int AS docs,
              count(embedding)::int AS with_embedding,
              count(*) FILTER (WHERE cardinality(error_codes) > 0)::int AS with_signals
@@ -826,7 +951,9 @@ async function handleVector(
       withSignals: row?.with_signals ?? 0,
       repositoryCoverage: repoCoverage[0]?.repositories ?? 0,
       embeddingModel: config.embedding.model,
-      embeddingConfigured: Boolean(config.embedding.baseUrl && config.embedding.apiKey),
+      embeddingConfigured: Boolean(
+        config.embedding.baseUrl && config.embedding.apiKey,
+      ),
       lastIndexedAt: lastIndex[0]?.at ?? null,
     },
     requestId,
@@ -849,7 +976,123 @@ async function handleIndexRun(
     json(response, 200, { status: "ok", triggered: true }, requestId);
   } catch (error) {
     logger.warn({ err: error }, "index trigger failed");
-    json(response, 500, { status: "error", reason: "trigger_failed" }, requestId);
+    json(
+      response,
+      500,
+      { status: "error", reason: "trigger_failed" },
+      requestId,
+    );
+  }
+}
+
+/** Index health: last worker pass summary + pending trigger/rebuild flags. */
+async function handleIndexStatus(
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const [rows, pending] = await Promise.all([
+    database.db
+      .select({ key: systemSettings.key, value: systemSettings.value })
+      .from(systemSettings)
+      .where(eq(systemSettings.key, "index_last_pass"))
+      .limit(1),
+    database.db
+      .select({ key: systemSettings.key })
+      .from(systemSettings)
+      .where(
+        or(
+          eq(systemSettings.key, "index_trigger"),
+          eq(systemSettings.key, "index_rebuild"),
+        ),
+      )
+      .limit(5),
+  ]);
+  const raw = rows[0]?.value;
+  let lastPass: unknown = null;
+  if (raw) {
+    try {
+      lastPass = JSON.parse(raw);
+    } catch {
+      lastPass = null;
+    }
+  }
+  const keys = new Set(pending.map((row) => row.key));
+  json(
+    response,
+    200,
+    {
+      lastPass,
+      pendingTrigger: keys.has("index_trigger"),
+      pendingRebuild: keys.has("index_rebuild"),
+    },
+    requestId,
+  );
+}
+
+/** Full index rebuild: clears issue_documents and triggers a fresh pass. */
+async function handleIndexRebuild(
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  try {
+    await database.db.delete(issueDocuments);
+    await database.db
+      .insert(systemSettings)
+      .values({ key: "index_rebuild", value: new Date().toISOString() })
+      .onConflictDoUpdate({
+        target: systemSettings.key,
+        set: { value: new Date().toISOString(), updatedAt: new Date() },
+      });
+    json(response, 200, { status: "ok", rebuilt: true }, requestId);
+  } catch (error) {
+    logger.warn({ err: error }, "index rebuild failed");
+    json(
+      response,
+      500,
+      { status: "error", reason: "rebuild_failed" },
+      requestId,
+    );
+  }
+}
+
+/** Read-only RAG recall: candidates similar to a lead issue, never decides. */
+async function handleIndexRelated(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const url = new URL(request.url ?? "/", "http://localhost");
+  const title = url.searchParams.get("title") ?? "";
+  const body = url.searchParams.get("body") ?? "";
+  const topK = Math.min(
+    Math.max(Number(url.searchParams.get("topK")) || 5, 1),
+    20,
+  );
+  if (title.length === 0 && body.length === 0) {
+    json(
+      response,
+      400,
+      { status: "error", reason: "title or body required" },
+      requestId,
+    );
+    return;
+  }
+  try {
+    const signals = extractIssueSignals({ title, body, labels: [] });
+    const candidates = await recallCandidatesWithRepos(
+      database.sql as unknown as SqlTag,
+      {
+        title: normalizedIndexText({ title, body: "" }),
+        body: normalizedIndexText({ title, body }),
+        signals,
+        topK,
+      },
+    );
+    json(response, 200, { candidates }, requestId);
+  } catch (error) {
+    // Index unavailable is a degrade-not-fail condition for the caller.
+    logger.warn({ err: error }, "index recall failed");
+    json(response, 200, { candidates: [], degraded: true }, requestId);
   }
 }
 
@@ -867,13 +1110,19 @@ async function handleConfig(
       port: config.port,
       logLevel: config.logLevel,
       githubWebhookConfigured: Boolean(config.githubWebhookSecret),
-      githubAppConfigured: Boolean(config.githubAppId && config.githubAppPrivateKeyPath),
+      githubAppConfigured: Boolean(
+        config.githubAppId && config.githubAppPrivateKeyPath,
+      ),
       webuiAuthEnabled: Boolean(config.webuiApiToken),
       modelProviders,
       embeddingModel: config.embedding.model,
-      embeddingConfigured: Boolean(config.embedding.baseUrl && config.embedding.apiKey),
+      embeddingConfigured: Boolean(
+        config.embedding.baseUrl && config.embedding.apiKey,
+      ),
       qqBotProtocols: Object.keys(config.qqBotProtocols),
-      qqOfficialConfigured: Boolean(config.qqOfficialAppId && config.qqOfficialAppSecret),
+      qqOfficialConfigured: Boolean(
+        config.qqOfficialAppId && config.qqOfficialAppSecret,
+      ),
       oauthConfigured: oauthConfigured(),
       oauthEnabled: oauthConfigured() && webuiToken().length === 0,
     },
@@ -893,7 +1142,12 @@ async function handleSettings(
     try {
       parsed = JSON.parse(body.toString("utf8"));
     } catch {
-      json(response, 400, { status: "error", reason: "invalid JSON" }, requestId);
+      json(
+        response,
+        400,
+        { status: "error", reason: "invalid JSON" },
+        requestId,
+      );
       return;
     }
     const key = typeof parsed.key === "string" ? parsed.key : null;
@@ -941,7 +1195,7 @@ async function handleSettings(
     return {
       key,
       hasValue,
-      value: masked ? "••••••••" : (hasValue ? (row?.value ?? "") : ""),
+      value: masked ? "••••••••" : hasValue ? (row?.value ?? "") : "",
       updatedAt: row?.updatedAt ?? null,
     };
   });
@@ -999,19 +1253,25 @@ async function handleAuth(
       return;
     }
     try {
-      const tokenRes = await fetch("https://github.com/login/oauth/access_token", {
-        method: "POST",
-        headers: {
-          accept: "application/json",
-          "content-type": "application/json",
+      const tokenRes = await fetch(
+        "https://github.com/login/oauth/access_token",
+        {
+          method: "POST",
+          headers: {
+            accept: "application/json",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            client_id: oauthClientId,
+            client_secret: oauthClientSecret,
+            code,
+          }),
         },
-        body: JSON.stringify({
-          client_id: oauthClientId,
-          client_secret: oauthClientSecret,
-          code,
-        }),
-      });
-      const tokenJson = (await tokenRes.json()) as { access_token?: string; error?: string };
+      );
+      const tokenJson = (await tokenRes.json()) as {
+        access_token?: string;
+        error?: string;
+      };
       if (typeof tokenJson.access_token !== "string")
         throw new Error(tokenJson.error ?? "no_access_token");
       const userRes = await fetch("https://api.github.com/user", {
@@ -1065,12 +1325,25 @@ async function handleSetupStatus(
     const h = await checkDatabase(database.sql, config.healthCheckTimeoutMs);
     dbOk = h.status === "ok";
     tablesReady = dbOk
-      ? await tableCount(["analysis_tasks", "task_events", "subject_results", "system_settings", "model_role_policies", "provider_accounts"])
+      ? await tableCount([
+          "analysis_tasks",
+          "task_events",
+          "subject_results",
+          "system_settings",
+          "model_role_policies",
+          "provider_accounts",
+        ])
       : 0;
     if (dbOk) {
       const [p, pol] = await Promise.all([
-        database.db.select({ id: providerAccounts.id }).from(providerAccounts).limit(100),
-        database.db.select({ id: modelRolePolicies.id }).from(modelRolePolicies).limit(100),
+        database.db
+          .select({ id: providerAccounts.id })
+          .from(providerAccounts)
+          .limit(100),
+        database.db
+          .select({ id: modelRolePolicies.id })
+          .from(modelRolePolicies)
+          .limit(100),
       ]);
       providerCount = p.length;
       policyCount = pol.length;
@@ -1084,12 +1357,20 @@ async function handleSetupStatus(
     200,
     {
       database: { ok: dbOk, tablesReady, tablesTotal: 6 },
-      provider: { count: providerCount, providerKey, model: "deepseek-v4-flash" },
+      provider: {
+        count: providerCount,
+        providerKey,
+        model: "deepseek-v4-flash",
+      },
       policies: { count: policyCount, required: DEFAULT_POLICIES.length },
       githubWebhookConfigured: Boolean(config.githubWebhookSecret),
-      githubAppConfigured: Boolean(config.githubAppId && config.githubAppPrivateKeyPath),
+      githubAppConfigured: Boolean(
+        config.githubAppId && config.githubAppPrivateKeyPath,
+      ),
       oauthConfigured: oauthConfigured(),
-      embeddingConfigured: Boolean(config.embedding.baseUrl && config.embedding.apiKey),
+      embeddingConfigured: Boolean(
+        config.embedding.baseUrl && config.embedding.apiKey,
+      ),
       initialized:
         dbOk && tablesReady === 6 && policyCount >= DEFAULT_POLICIES.length,
     },
@@ -1142,18 +1423,16 @@ async function handleSetupInit(
         status: "ok",
         created: created.length,
         roles: created,
-        skipped: created.length === 0 ? "model provider/account not configured" : undefined,
+        skipped:
+          created.length === 0
+            ? "model provider/account not configured"
+            : undefined,
       },
       requestId,
     );
   } catch (error) {
     logger.warn({ err: error }, "setup init failed");
-    json(
-      response,
-      500,
-      { status: "error", reason: "init_failed" },
-      requestId,
-    );
+    json(response, 500, { status: "error", reason: "init_failed" }, requestId);
   }
 }
 
@@ -1214,7 +1493,12 @@ async function handleResults(
   // /results?type=issue|pr
   const type = url.searchParams.get("type");
   if (type !== "issue" && type !== "pr") {
-    json(response, 400, { status: "error", reason: "type=issue|pr required" }, requestId);
+    json(
+      response,
+      400,
+      { status: "error", reason: "type=issue|pr required" },
+      requestId,
+    );
     return;
   }
   const limitRaw = Number(url.searchParams.get("limit"));
@@ -1252,14 +1536,27 @@ async function handleRequest(
     request.url ?? "/",
     `http://${request.headers.host ?? "localhost"}`,
   ).pathname;
+  const ip = clientIp(request);
+  const now = Date.now();
+
+  // Webhook flood protection is independent of the WebUI API budget.
+  if (
+    path === "/github/webhook" &&
+    rateLimited(ip, config.webhookRateLimit, now)
+  ) {
+    json(response, 429, { status: "error", reason: "rate_limited" }, requestId);
+    requestLogger.warn({ ip }, "webhook rate limited");
+    return;
+  }
+
+  if (requiresAuth(path) && rateLimited(ip, config.apiRateLimit, now)) {
+    json(response, 429, { status: "error", reason: "rate_limited" }, requestId);
+    requestLogger.warn({ ip, path }, "api rate limited");
+    return;
+  }
 
   if (requiresAuth(path) && !isAuthorized(request)) {
-    json(
-      response,
-      401,
-      { status: "error", reason: "unauthorized" },
-      requestId,
-    );
+    json(response, 401, { status: "error", reason: "unauthorized" }, requestId);
     return;
   }
 
@@ -1324,7 +1621,7 @@ async function handleRequest(
       );
       return;
     }
-    handleSse(response);
+    handleSse(request, response);
     return;
   }
 
@@ -1333,7 +1630,7 @@ async function handleRequest(
     return;
   }
 
-  if (path === "/index/run") {
+  if (path === "/index/run" || path === "/index/rebuild") {
     if (request.method !== "POST") {
       json(
         response,
@@ -1343,7 +1640,39 @@ async function handleRequest(
       );
       return;
     }
-    await handleIndexRun(response, requestId);
+    if (path === "/index/rebuild") {
+      await handleIndexRebuild(response, requestId);
+    } else {
+      await handleIndexRun(response, requestId);
+    }
+    return;
+  }
+
+  if (path === "/index/status") {
+    if (request.method !== "GET") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    await handleIndexStatus(response, requestId);
+    return;
+  }
+
+  if (path === "/index/related") {
+    if (request.method !== "GET") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    await handleIndexRelated(request, response, requestId);
     return;
   }
 

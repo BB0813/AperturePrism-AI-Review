@@ -1,20 +1,32 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchVectorStats, triggerIndexRun, type VectorStats } from "../lib/api";
+import {
+  fetchIndexStatus,
+  fetchVectorStats,
+  rebuildIndex,
+  triggerIndexRun,
+  type IndexPassSummary,
+  type VectorStats,
+} from "../lib/api";
 import { RefreshIcon } from "../components/icons";
 import { LoadingRows, fmtTime } from "../components/ui";
 
 export function VectorPage() {
   const [stats, setStats] = useState<VectorStats | null>(null);
+  const [index, setIndex] = useState<IndexPassSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [triggering, setTriggering] = useState(false);
+  const [rebuilding, setRebuilding] = useState(false);
   const [triggerMsg, setTriggerMsg] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
-    fetchVectorStats()
-      .then(setStats)
+    Promise.all([fetchVectorStats(), fetchIndexStatus().catch(() => null)])
+      .then(([statsData, indexData]) => {
+        setStats(statsData);
+        setIndex(indexData?.lastPass ?? null);
+      })
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : "failed to load vector stats");
         setStats(null);
@@ -38,6 +50,20 @@ export function VectorPage() {
     }
   };
 
+  const runRebuild = async () => {
+    setRebuilding(true);
+    setTriggerMsg(null);
+    try {
+      await rebuildIndex();
+      setTriggerMsg("已清空索引并触发重建，index-worker 将重新扫描全部仓库。");
+      setTimeout(load, 4000);
+    } catch (err) {
+      setTriggerMsg(`重建失败：${err instanceof Error ? err.message : err}`);
+    } finally {
+      setRebuilding(false);
+    }
+  };
+
   return (
     <div className="stack">
       <div className="page-head">
@@ -46,8 +72,11 @@ export function VectorPage() {
           <p className="page-desc">重复 Issue 检测的向量索引（issue_documents）与 Embedding 状态</p>
         </div>
         <div className="actions">
-          <button className="btn btn-primary" onClick={runIndex} disabled={triggering}>
+          <button className="btn btn-primary" onClick={runIndex} disabled={triggering || rebuilding}>
             {triggering ? "触发中…" : "开始索引"}
+          </button>
+          <button className="btn" onClick={runRebuild} disabled={rebuilding || triggering}>
+            {rebuilding ? "重建中…" : "重建索引"}
           </button>
           <button className="btn" onClick={load} disabled={loading}>
             <RefreshIcon size={16} />
@@ -94,6 +123,30 @@ export function VectorPage() {
             <p className="faint" style={{ marginTop: 12, fontSize: 12 }}>
               pgvector 4096 维先于 ANN 索引上限（2000），当前以精确顺序扫描召回，规模较小时可接受。
             </p>
+          </section>
+
+          <section className="panel">
+            <div className="panel-title"><h2>最近索引轮次</h2></div>
+            {index ? (
+              <dl className="kv">
+                <dt>轮次</dt><dd className="mono">#{index.pass}{index.rebuild ? "（重建）" : ""}</dd>
+                <dt>完成时间</dt><dd className="mono">{fmtTime(index.finishedAt)}</dd>
+                <dt>耗时</dt><dd className="mono">{(index.durationMs / 1000).toFixed(1)}s</dd>
+                <dt>扫描仓库</dt><dd className="mono">{index.repos}（索引 {index.indexed} 条 · 未变化跳过 {index.skippedUnchanged} · 新向量 {index.embedded}）</dd>
+                <dt>错误</dt>
+                <dd>
+                  {index.errors.length === 0 ? (
+                    <span className="pill pill-ok">无</span>
+                  ) : (
+                    <ul style={{ margin: 0, paddingLeft: 16 }}>
+                      {index.errors.map((item, i) => <li key={i} className="mono" style={{ fontSize: 12 }}>{item}</li>)}
+                    </ul>
+                  )}
+                </dd>
+              </dl>
+            ) : (
+              <p className="faint" style={{ margin: 0 }}>尚未完成任何索引轮次（index-worker 启动或触发后刷新）。</p>
+            )}
           </section>
         </div>
       )}

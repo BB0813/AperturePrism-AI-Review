@@ -90,7 +90,6 @@ export function LogOverviewPage() {
         })
         .catch(() => undefined);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadInitial]);
 
   // Convert live SSE task frames into LogEvent rows.

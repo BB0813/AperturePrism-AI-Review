@@ -103,6 +103,10 @@ function makeServices(overrides: Partial<IssueAnalysisServices> = {}): {
       calls.push("analyze");
       return validOutcome;
     },
+    recallRelated: async () => {
+      calls.push("recallRelated");
+      return [];
+    },
     publishFinal: async () => {
       calls.push("publishFinal");
     },
@@ -129,8 +133,24 @@ describe("issue analysis handler", () => {
       "publishPlaceholder",
       "analyze",
       "recordUsage",
+      "recallRelated",
       "publishFinal",
     ]);
+  });
+
+  it("degrades gracefully when the related-issue recall fails", async () => {
+    const { services, calls } = makeServices({
+      recallRelated: async () => {
+        throw new Error("index down");
+      },
+    });
+    const handler = createIssueAnalysisHandler(services);
+
+    const result = await handler(leasedTask(), neverAbort);
+
+    // The recall failure must not block the core flow or the final publish.
+    expect(result).toEqual({ outcome: "completed" });
+    expect(calls()).toContain("publishFinal");
   });
 
   it("fails with invalid_output and skips the final publish on invalid analysis", async () => {

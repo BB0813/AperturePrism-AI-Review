@@ -1,0 +1,98 @@
+# Production deployment. Secrets come from .env.production (never committed).
+#   docker compose -f docker/docker-compose.prod.yml --env-file .env.production up -d
+# Apply migrations before starting app containers:
+#   npm run db:migrate   (or scripts/migrate.mjs)
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-apertureprism}
+      POSTGRES_USER: ${POSTGRES_USER:-apertureprism}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - apertureprism-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-apertureprism}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - apertureprism-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: api
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+    ports:
+      - "${API_PORT:-3000}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  analysis-worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: analysis-worker
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  index-worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: index-worker
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      INDEX_INTERVAL_MS: ${INDEX_INTERVAL_MS:-600000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  scheduler:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: scheduler
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  apertureprism-postgres:
+  apertureprism-redis:

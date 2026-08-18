@@ -289,6 +289,8 @@ export const issueDocuments = pgTable(
     hasStackTrace: boolean("has_stack_trace").default(false).notNull(),
     hasReproduction: boolean("has_reproduction").default(false).notNull(),
     embedding: pgVector4096("embedding"),
+    /** sha256 of normalized text+signals; unchanged docs skip re-embedding. */
+    contentHash: text("content_hash"),
     indexedAt: timestamp("indexed_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

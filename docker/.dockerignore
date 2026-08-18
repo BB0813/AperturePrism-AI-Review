@@ -1,0 +1,11 @@
+node_modules
+dist
+.git
+archive
+.marking
+apps/web
+*.log
+.secrets
+.env
+.env.production
+backups

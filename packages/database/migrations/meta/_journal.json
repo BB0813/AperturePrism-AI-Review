@@ -50,6 +50,13 @@
       "when": 1787120000000,
       "tag": "0007_repositories_installation",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1787130000000,
+      "tag": "0008_issue_documents_content_hash",
+      "breakpoints": true
     }
   ]
 }
