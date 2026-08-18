@@ -22,6 +22,13 @@
       "when": 1786942861144,
       "tag": "0002_bizarre_omega_flight",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787018356465,
+      "tag": "0003_burly_masque",
+      "breakpoints": true
     }
   ]
 }

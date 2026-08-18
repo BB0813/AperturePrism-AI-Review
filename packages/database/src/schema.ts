@@ -1,4 +1,5 @@
 import {
+  boolean,
   index,
   integer,
   jsonb,
@@ -244,6 +245,42 @@ export const externalPublications = pgTable(
   (table) => [
     uniqueIndex("external_publications_idempotency_unique").on(
       table.idempotencyKey,
+    ),
+  ],
+);
+
+/**
+ * Normalized issue documents for duplicate recall. `title`/`body` are the
+ * canonical (template-cleaned) text used by the full-text search index; the
+ * `*Signals` arrays are the structured error/version/module/language features
+ * used by the signal-overlap recall. An embedding column is deferred until a
+ * working embedding model is configured (vector recall, M6 later).
+ */
+export const issueDocuments = pgTable(
+  "issue_documents",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    repositoryId: uuid("repository_id").references(() => repositories.id),
+    issueNumber: integer("issue_number").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    versions: text("versions").array().notNull().default([]),
+    errorCodes: text("error_codes").array().notNull().default([]),
+    paths: text("paths").array().notNull().default([]),
+    languages: text("languages").array().notNull().default([]),
+    hasStackTrace: boolean("has_stack_trace").default(false).notNull(),
+    hasReproduction: boolean("has_reproduction").default(false).notNull(),
+    indexedAt: timestamp("indexed_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("issue_documents_repo_issue_unique").on(
+      table.repositoryId,
+      table.issueNumber,
     ),
   ],
 );

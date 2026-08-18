@@ -44,7 +44,9 @@ export function normalizeTitle(title: string): string {
 }
 
 export function normalizeVersion(text: string): string {
-  return (text.match(/\d+(?:\.\d+){1,3}(?:[-+][0-9A-Za-z.-]+)?/u) ?? [])[0] ?? "";
+  return (
+    (text.match(/\d+(?:\.\d+){1,3}(?:[-+][0-9A-Za-z.-]+)?/u) ?? [])[0] ?? ""
+  );
 }
 
 /**
