@@ -24,6 +24,7 @@ import {
   serializeSseEvent,
   SSE_HEADERS,
 } from "../../../packages/event-stream/src/index.js";
+import { PR_REVIEW_POLICY_VERSION } from "../../../packages/pr-review/src/index.js";
 import {
   createLogger,
   withCorrelation,
@@ -95,10 +96,14 @@ async function handleWebhook(
       deliveryId,
       JSON.parse(body.toString("utf8")),
     );
+    const policyVersion =
+      normalized.eventName === "pull_request"
+        ? PR_REVIEW_POLICY_VERSION
+        : ISSUE_ANALYSIS_POLICY_VERSION;
     const result = await ingestGitHubWebhook(
       database.db,
       normalized,
-      ISSUE_ANALYSIS_POLICY_VERSION,
+      policyVersion,
     );
     const duplicate = result.outcome === "delivery_duplicate";
     json(

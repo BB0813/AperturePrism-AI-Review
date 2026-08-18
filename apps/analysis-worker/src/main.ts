@@ -16,6 +16,7 @@ import {
   ModelInvocationError,
   type ModelCandidate,
   type ModelProviderAdapter,
+  type ModelRole,
 } from "../../../packages/domain/src/index.js";
 import { createGitHubClient } from "../../../packages/github-adapter/src/index.js";
 import {
@@ -30,6 +31,13 @@ import {
   type IssueContext,
   type PublicationStore,
 } from "../../../packages/issue-analysis/src/index.js";
+import {
+  buildPrContext,
+  parsePrReviewTaskPayload,
+  publishAssessment,
+  reviewPullRequest,
+  type PrReviewContext,
+} from "../../../packages/pr-review/src/index.js";
 import { createOpenAICompatibleAdapter } from "../../../packages/model-router/src/index.js";
 import {
   createLogger,
@@ -45,7 +53,8 @@ import {
   startTask,
 } from "../../../packages/task-engine/src/index.js";
 import { createIssueAnalysisHandler } from "./handler.js";
-import { runWorkerLoop, type TaskEngineOperations } from "./loop.js";
+import { createPrReviewHandler } from "./pr-review-handler.js";
+import { runWorkerLoop, type TaskEngineOperations, type TaskHandler } from "./loop.js";
 
 const leaseDurationMs = 60_000;
 const heartbeatIntervalMs = 20_000;
@@ -58,6 +67,8 @@ const analysisRetryPolicy = {
   baseDelayMs: 1_000,
   maxDelayMs: 30_000,
 };
+const reviewDeadlineMs = 300_000;
+const reviewRetryPolicy = analysisRetryPolicy;
 
 const config = loadConfig(process.env);
 const logger = createLogger(config.logLevel);
@@ -87,11 +98,11 @@ const engine: TaskEngineOperations = {
   },
 };
 
-async function loadIssueCandidates(): Promise<ModelCandidate[]> {
+async function loadCandidates(role: ModelRole): Promise<ModelCandidate[]> {
   const rows = await database.db
     .select({ candidates: modelRolePolicies.candidates })
     .from(modelRolePolicies)
-    .where(eq(modelRolePolicies.role, "issue_analysis"))
+    .where(eq(modelRolePolicies.role, role))
     .orderBy(desc(modelRolePolicies.createdAt))
     .limit(1);
   const row = rows[0];
@@ -207,15 +218,18 @@ async function main(): Promise<void> {
     );
   }
 
-  const candidates = await loadIssueCandidates();
-  if (candidates.length === 0)
+  const issueCandidates = await loadCandidates("issue_analysis");
+  if (issueCandidates.length === 0)
     logger.warn(
       "no issue_analysis model candidates configured in the database",
     );
+  const reviewCandidates = await loadCandidates("pr_review");
+  if (reviewCandidates.length === 0)
+    logger.warn("no pr_review model candidates configured in the database");
   if (adapters.size === 0)
     logger.warn("MODEL_PROVIDER_BASE_URLS is empty; model calls will fail");
 
-  const handler = createIssueAnalysisHandler({
+  const issueHandler = createIssueAnalysisHandler({
     buildContext: async (task, signal) => {
       if (!github) throw new Error("GitHub App is not configured");
       const { payload, identity } = issueIdentity(task);
@@ -255,7 +269,7 @@ async function main(): Promise<void> {
       analyzeIssue(
         {
           adapters,
-          candidates,
+          candidates: issueCandidates,
           deadlineMs: analysisDeadlineMs,
           retryPolicy: analysisRetryPolicy,
           signal,
@@ -297,6 +311,82 @@ async function main(): Promise<void> {
     },
   });
 
+  const prReviewHandler = createPrReviewHandler({
+    buildContext: async (task, signal) => {
+      if (!github) throw new Error("GitHub App is not configured");
+      const { payload, identity } = prIdentity(task);
+      return buildPrContext(
+        github,
+        {
+          installationId: payload.installationId,
+          owner: identity.owner,
+          name: identity.name,
+          pullNumber: payload.subjectNumber,
+        },
+        undefined,
+        signal,
+      );
+    },
+
+    review: (context: PrReviewContext, signal) =>
+      reviewPullRequest(
+        {
+          adapters,
+          candidates: reviewCandidates,
+          deadlineMs: reviewDeadlineMs,
+          retryPolicy: reviewRetryPolicy,
+          signal,
+        },
+        context.rendered,
+      ),
+
+    publishFinal: async (task, review) => {
+      const { payload, identity } = prIdentity(task);
+      const githubClient = assertGithub(github);
+      await publishAssessment({
+        store: publicationStore,
+        github: {
+          publishReview: ({ installationId, owner, name, pullNumber, revision, body, event }) =>
+            githubClient.createPullRequestReview({
+              installationId,
+              owner,
+              name,
+              pullNumber,
+              commitId: revision,
+              body,
+              event,
+            }),
+        },
+        taskId: task.id,
+        installationId: payload.installationId,
+        owner: identity.owner,
+        name: identity.name,
+        pullNumber: payload.subjectNumber,
+        revision: payload.subjectRevision,
+        review,
+      });
+    },
+
+    recordUsage: async (task, outcome) => {
+      const lastAttempt = outcome.attempts.at(-1);
+      await recordAttemptUsage(database.db, {
+        taskId: task.id,
+        workerId,
+        attemptNumber: task.attemptNumber,
+        inputTokens: outcome.usage.inputTokens,
+        outputTokens: outcome.usage.outputTokens,
+        durationMs: outcome.durationMs,
+        provider: lastAttempt?.candidate.provider ?? "",
+        model: lastAttempt?.candidate.model ?? "",
+      });
+    },
+  });
+
+  const handler: TaskHandler = (task, signal) => {
+    if (task.taskType === "pr_review") return prReviewHandler(task, signal);
+    return issueHandler(task, signal);
+  };
+
   await runWorkerLoop({
     engine,
     handler,
@@ -314,6 +404,17 @@ async function main(): Promise<void> {
   });
   await database.close();
   logger.info({ workerId }, "analysis worker stopped");
+}
+
+function prIdentity(task: { payload: unknown }) {
+  const payload = parsePrReviewTaskPayload(task.payload);
+  if (!payload) throw new Error("task payload is missing PR identity");
+  const identity = repositoryOwnerName(payload.repositoryFullName);
+  if (!identity)
+    throw new Error(
+      `invalid repository name in payload: ${payload.repositoryFullName}`,
+    );
+  return { payload, identity };
 }
 
 function assertGithub(github: ReturnType<typeof createGitHubClient> | null) {

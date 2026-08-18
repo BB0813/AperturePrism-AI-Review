@@ -249,4 +249,82 @@ describe("GitHub API client", () => {
       expect((error as GitHubApiError).category).toBe("canceled");
     }
   });
+
+  it("fetches and maps a pull request", async () => {
+    const { client, calls } = clientWith(
+      withToken(() =>
+        jsonResponse({
+          number: 9,
+          title: "modernize imports",
+          body: "migrate",
+          state: "open",
+          head: { sha: "abc123", ref: "feature/x" },
+          changed_files: 3,
+          additions: 12,
+          deletions: 4,
+        }),
+      ),
+    );
+    const pullRequest = await client.getPullRequest({
+      installationId: "42",
+      owner: "o",
+      name: "r",
+      number: 9,
+    });
+    expect(pullRequest).toEqual({
+      number: 9,
+      title: "modernize imports",
+      body: "migrate",
+      state: "open",
+      headSha: "abc123",
+      headRef: "feature/x",
+      changedFiles: 3,
+      additions: 12,
+      deletions: 4,
+    });
+    expect(calls[1]?.url).toBe(
+      "https://api.github.test/repos/o/r/pulls/9",
+    );
+  });
+
+  it("fetches the pull request diff as text with a diff accept header", async () => {
+    const { client, calls } = clientWith(
+      withToken(() => new Response("diff --git a/x b/x\n", { status: 200 })),
+    );
+    const diff = await client.getPullRequestDiff({
+      installationId: "42",
+      owner: "o",
+      name: "r",
+      number: 9,
+    });
+    expect(diff.startsWith("diff --git")).toBe(true);
+    const headers = calls[1]?.init.headers as Record<string, string>;
+    expect(headers.accept).toBe("application/vnd.github.diff");
+  });
+
+  it("submits a pull request review with head commit and event", async () => {
+    const { client, calls } = clientWith(
+      withToken(() => jsonResponse({ id: 77 })),
+    );
+    const review = await client.createPullRequestReview({
+      installationId: "42",
+      owner: "o",
+      name: "r",
+      pullNumber: 9,
+      commitId: "abc123",
+      body: "looks good",
+      event: "APPROVE",
+    });
+    expect(review.id).toBe(77);
+    const call = calls.at(-1);
+    expect(call?.url).toBe(
+      "https://api.github.test/repos/o/r/pulls/9/reviews",
+    );
+    expect(call?.init.method).toBe("POST");
+    expect(JSON.parse(String(call?.init.body))).toEqual({
+      commit_id: "abc123",
+      body: "looks good",
+      event: "APPROVE",
+    });
+  });
 });

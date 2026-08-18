@@ -26,6 +26,18 @@ export type GitHubCreatedComment = {
   htmlUrl: string;
 };
 
+export type GitHubPullRequest = {
+  number: number;
+  title: string;
+  body: string;
+  state: "open" | "closed";
+  headSha: string;
+  headRef: string;
+  changedFiles: number;
+  additions: number;
+  deletions: number;
+};
+
 export type GitHubErrorCategory =
   | "rate_limited"
   | "authentication_failed"
@@ -86,6 +98,25 @@ export type GitHubClient = {
     },
     signal?: AbortSignal,
   ) => Promise<GitHubIssue>;
+  getPullRequest: (
+    input: {
+      installationId: string;
+      owner: string;
+      name: string;
+      number: number;
+    },
+    signal?: AbortSignal,
+  ) => Promise<GitHubPullRequest>;
+  /** Returns the raw unified diff text of a pull request. */
+  getPullRequestDiff: (
+    input: {
+      installationId: string;
+      owner: string;
+      name: string;
+      number: number;
+    },
+    signal?: AbortSignal,
+  ) => Promise<string>;
   listIssueComments: (
     input: {
       installationId: string;
@@ -115,6 +146,19 @@ export type GitHubClient = {
     },
     signal?: AbortSignal,
   ) => Promise<GitHubCreatedComment>;
+  /** Submits an immutable PR review tied to a commit (head) SHA. */
+  createPullRequestReview: (
+    input: {
+      installationId: string;
+      owner: string;
+      name: string;
+      pullNumber: number;
+      commitId: string;
+      body: string;
+      event: "COMMENT" | "APPROVE" | "REQUEST_CHANGES";
+    },
+    signal?: AbortSignal,
+  ) => Promise<{ id: number }>;
 };
 
 function signAppJwt(
@@ -191,6 +235,9 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
       token: string;
       body?: unknown | undefined;
       signal?: AbortSignal | undefined;
+      /** Override the Accept header, e.g. for a diff (text/plain). */
+      accept?: string | undefined;
+      rawText?: boolean | undefined;
     },
   ): Promise<T> => {
     let response: Response;
@@ -198,7 +245,7 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
       response = await fetchImpl(`${baseUrl}${path}`, {
         method: init.method,
         headers: {
-          accept: "application/vnd.github+json",
+          accept: init.accept ?? "application/vnd.github+json",
           "x-github-api-version": "2022-11-28",
           authorization: `Bearer ${init.token}`,
           ...(init.body === undefined
@@ -221,6 +268,7 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
     if (!response.ok) {
       throw categorizeStatus(response.status, retryAfterMs(response.headers));
     }
+    if (init.rawText) return (await response.text()) as T;
     if (response.status === 204) return null as T;
     try {
       return (await response.json()) as T;
@@ -264,6 +312,32 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
       return mapIssue(issue);
     },
 
+    getPullRequest: async ({ installationId, owner, name, number }, signal) => {
+      const token = await getInstallationToken(installationId, signal);
+      const pullRequest = await request<Record<string, unknown>>(
+        `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${number}`,
+        { method: "GET", token, signal },
+      );
+      return mapPullRequest(pullRequest);
+    },
+
+    getPullRequestDiff: async (
+      { installationId, owner, name, number },
+      signal,
+    ) => {
+      const token = await getInstallationToken(installationId, signal);
+      return request<string>(
+        `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${number}`,
+        {
+          method: "GET",
+          token,
+          accept: "application/vnd.github.diff",
+          rawText: true,
+          signal,
+        },
+      );
+    },
+
     listIssueComments: async (
       { installationId, owner, name, number },
       signal,
@@ -304,6 +378,23 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
       );
       return mapComment(comment);
     },
+
+    createPullRequestReview: async (
+      { installationId, owner, name, pullNumber, commitId, body, event },
+      signal,
+    ) => {
+      const token = await getInstallationToken(installationId, signal);
+      const review = await request<Record<string, unknown>>(
+        `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${pullNumber}/reviews`,
+        {
+          method: "POST",
+          token,
+          body: { commit_id: commitId, body, event },
+          signal,
+        },
+      );
+      return { id: numberValue(review.id) };
+    },
   };
 }
 
@@ -317,6 +408,27 @@ function stringOrNull(value: unknown): string | null {
 
 function numberValue(value: unknown): number {
   return typeof value === "number" ? value : 0;
+}
+
+function mapPullRequest(value: Record<string, unknown>): GitHubPullRequest {
+  const head = objectOr(value.head);
+  return {
+    number: numberValue(value.number),
+    title: stringValue(value.title),
+    body: stringValue(value.body),
+    state: value.state === "closed" ? "closed" : "open",
+    headSha: stringValue(head.sha),
+    headRef: stringValue(head.ref),
+    changedFiles: numberValue(value.changed_files),
+    additions: numberValue(value.additions),
+    deletions: numberValue(value.deletions),
+  };
+}
+
+function objectOr(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function mapIssue(value: Record<string, unknown>): GitHubIssue {
