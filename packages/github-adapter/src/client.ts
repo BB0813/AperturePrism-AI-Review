@@ -281,20 +281,38 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
     }
   };
 
+  /**
+   * The installation access_tokens endpoint intermittently returns 401 even
+   * with a valid App JWT (observed repeatedly on the live test repo). Re-sign
+   * a fresh JWT and retry once before giving up, so a transient rejection
+   * never fails the whole operation.
+   */
   const getInstallationToken = async (
     installationId: string,
     signal?: AbortSignal,
+    attempt = 0,
   ): Promise<string> => {
-    const response = await request<{ token: string }>(
-      `/app/installations/${encodeURIComponent(installationId)}/access_tokens`,
-      {
-        method: "POST",
-        token: signAppJwt(options.appId, options.privateKeyPem, now()),
-        body: {},
-        signal,
-      },
-    );
-    return response.token;
+    try {
+      const response = await request<{ token: string }>(
+        `/app/installations/${encodeURIComponent(installationId)}/access_tokens`,
+        {
+          method: "POST",
+          token: signAppJwt(options.appId, options.privateKeyPem, now()),
+          body: {},
+          signal,
+        },
+      );
+      return response.token;
+    } catch (error) {
+      if (
+        attempt === 0 &&
+        error instanceof GitHubApiError &&
+        error.category === "authentication_failed"
+      ) {
+        return getInstallationToken(installationId, signal, 1);
+      }
+      throw error;
+    }
   };
 
   return {
