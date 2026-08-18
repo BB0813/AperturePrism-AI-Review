@@ -15,6 +15,7 @@ import {
   completeTask,
   createAnalysisTask,
   failTask,
+  recordAttemptUsage,
   startTask,
 } from "./index.js";
 
@@ -65,6 +66,16 @@ describeIntegration("task state PostgreSQL integration", () => {
         workerId: "worker-complete",
       }),
     ).toBe(true);
+    await recordAttemptUsage(client.db, {
+      taskId: created.task.id,
+      workerId: "worker-complete",
+      attemptNumber: 1,
+      inputTokens: 120,
+      outputTokens: 45,
+      durationMs: 250,
+      provider: "provider-a",
+      model: "model-a",
+    });
     expect(
       await completeTask(client.db, {
         taskId: created.task.id,
@@ -103,8 +114,28 @@ describeIntegration("task state PostgreSQL integration", () => {
       "task.created",
       "task.leased",
       "task.started",
+      "task.analysis_usage",
       "task.publishing",
       "task.completed",
+    ]);
+    const usageEvents = await client.db
+      .select({ data: taskEvents.data })
+      .from(taskEvents)
+      .where(
+        sql`${taskEvents.taskId} = ${created.task.id}
+          and ${taskEvents.eventType} = 'task.analysis_usage'`,
+      );
+    expect(usageEvents).toEqual([
+      {
+        data: expect.objectContaining({
+          attemptNumber: 1,
+          inputTokens: 120,
+          outputTokens: 45,
+          durationMs: 250,
+          provider: "provider-a",
+          model: "model-a",
+        }),
+      },
     ]);
     expect(
       await cancelTask(client.db, {
