@@ -1,5 +1,6 @@
 export * from "./decision.js";
 export * from "./embed.js";
+export * from "./eval.js";
 export * from "./judge.js";
 export * from "./normalize.js";
 export * from "./recall.js";
