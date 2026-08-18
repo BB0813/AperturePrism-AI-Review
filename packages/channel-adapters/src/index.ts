@@ -1,6 +1,7 @@
 export * from "./command.js";
 export * from "./connector.js";
 export * from "./milky.js";
+export * from "./officialqq.js";
 export * from "./onebot.js";
 export * from "./satori.js";
 export * from "./segments.js";

@@ -124,6 +124,20 @@ const environmentSchema = z.object({
       { message: "QQ_BOT_PROTOCOLS must be a JSON object of protocol configs" },
     )
     .optional(),
+  /** Official QQ open-platform bot (api-v2) access credentials. */
+  QQ_OFFICIAL_APP_ID: z.string().min(1).optional(),
+  /** Official QQ open-platform AppSecret, used to refresh the access token. */
+  QQ_OFFICIAL_APP_SECRET: z.string().min(1).optional(),
+  /** Official QQ WebSocket gateway. */
+  QQ_OFFICIAL_GATEWAY_URL: z.string().min(1).optional(),
+  /**
+   * Bitmask of intents the official bot subscribes to. Defaults to the value
+   * that enables C2C and GROUP_AT message events (1 << 25).
+   */
+  QQ_OFFICIAL_INTENTS: z.coerce
+    .number()
+    .int()
+    .default(1 << 25),
 });
 
 export type AppConfig = Readonly<{
@@ -141,6 +155,10 @@ export type AppConfig = Readonly<{
   modelProviderBaseUrls: Readonly<Record<string, string>>;
   credentialMasterKey: string | undefined;
   qqBotProtocols: Readonly<Partial<Record<string, QqBotProtocolConfig>>>;
+  qqOfficialAppId: string | undefined;
+  qqOfficialAppSecret: string | undefined;
+  qqOfficialGatewayUrl: string | undefined;
+  qqOfficialIntents: number;
 }>;
 
 export function loadConfig(environment: NodeJS.ProcessEnv): AppConfig {
@@ -167,6 +185,10 @@ export function loadConfig(environment: NodeJS.ProcessEnv): AppConfig {
     ),
     credentialMasterKey: parsed.CREDENTIAL_MASTER_KEY,
     qqBotProtocols: Object.freeze(parseQqBotProtocols(parsed.QQ_BOT_PROTOCOLS)),
+    qqOfficialAppId: parsed.QQ_OFFICIAL_APP_ID,
+    qqOfficialAppSecret: parsed.QQ_OFFICIAL_APP_SECRET,
+    qqOfficialGatewayUrl: parsed.QQ_OFFICIAL_GATEWAY_URL,
+    qqOfficialIntents: parsed.QQ_OFFICIAL_INTENTS,
   });
 }
 

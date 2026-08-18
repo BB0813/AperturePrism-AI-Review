@@ -1,5 +1,10 @@
-/** Third-party NTQQ bot protocols this adapter layer can normalize. */
-export const channelProtocols = ["onebot11", "satori", "milky"] as const;
+/** Third-party NTQQ and official QQ open-platform protocols this layer can normalize. */
+export const channelProtocols = [
+  "onebot11",
+  "satori",
+  "milky",
+  "officialqq",
+] as const;
 export type ChannelProtocol = (typeof channelProtocols)[number];
 
 export type ChannelScene = "group" | "private" | "temp";
