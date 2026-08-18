@@ -29,6 +29,7 @@ describeIntegration("duplicate recall PostgreSQL integration", () => {
   afterAll(async () => {
     if (!client) return;
     await client.sql`delete from issue_documents where title like ${`${prefix}%`}`;
+    await client.sql`delete from repositories where name = ${prefix}`;
     await client.close();
   });
 
@@ -42,34 +43,57 @@ describeIntegration("duplicate recall PostgreSQL integration", () => {
     });
   }
 
+  /** Creates a repositories row so issue_documents gets a real repo FK. */
+  async function createRepository(): Promise<string> {
+    const rows = await client.sql<{ id: string }[]>`
+      insert into repositories (github_id, owner, name)
+      values (${`gh-${prefix}-${Math.random().toString(36).slice(2, 8)}`}, ${"test-owner"}, ${prefix})
+      on conflict do nothing
+      returning id`;
+    if (rows[0]?.id) return String(rows[0].id);
+    const existing = await client.sql<{ id: string }[]>`
+      select id from repositories where name = ${prefix} limit 1`;
+    return String(existing[0]?.id ?? "");
+  }
+
   it("tracks content hashes and reports unchanged documents for re-embed skip", async () => {
+    const repositoryId = await createRepository();
     const number = 9;
-    const signals = extractIssueSignals({
-      title: "hash",
-      body: "fixed",
-      labels: [],
-    });
+    const signals = extractIssueSignals({ title: "hash", body: "fixed", labels: [] });
     const hash = "abc123hash";
     await indexIssueDocument(client.sql as unknown as SqlTag, {
-      repositoryId: null,
+      repositoryId,
       issueNumber: number,
       title: `${prefix}-hash`,
       body: "fixed body",
       signals,
       contentHash: hash,
-      embedding: embedding(1),
     });
 
     const doc = await getDocumentHash(client.sql as unknown as SqlTag, {
-      repositoryId: null,
+      repositoryId,
       issueNumber: number,
     });
     expect(doc?.contentHash).toBe(hash);
-    expect(doc?.hasEmbedding).toBe(true);
+    expect(doc?.hasEmbedding).toBe(false);
 
-    // An unchanged hash with an existing embedding must not require re-embed.
+    // Re-indexing with the same hash and an embedding marks it as embedded.
+    // Use a vector distinct from embedding() so it does not tie with the
+    // exact-distance recall test's candidates (#3/#4).
+    const distinct = Array.from({ length: EMBEDDING_DIMENSION }, (_, i) =>
+      i === 0 ? 1 : i === 1 ? 1 : 0,
+    );
+    await indexIssueDocument(client.sql as unknown as SqlTag, {
+      repositoryId,
+      issueNumber: number,
+      title: `${prefix}-hash`,
+      body: "fixed body",
+      signals,
+      contentHash: hash,
+      embedding: distinct,
+    });
     const doc2 = await getDocumentHash(client.sql as unknown as SqlTag, {
-      repositoryId: null,
+      repositoryId,
       issueNumber: number,
     });
     expect(doc2?.contentHash).toBe(hash);
@@ -77,7 +101,7 @@ describeIntegration("duplicate recall PostgreSQL integration", () => {
   });
 
   it("recalls candidates with repository full names via the read-only API", async () => {
-    const repositoryId = null;
+    const repositoryId = await createRepository();
     await indexIssueDocument(client.sql as unknown as SqlTag, {
       repositoryId,
       issueNumber: 10,
@@ -107,6 +131,7 @@ describeIntegration("duplicate recall PostgreSQL integration", () => {
     );
     const hit = rows.find((r) => r.issueNumber === 10);
     expect(hit).toBeDefined();
+    expect(hit?.repositoryFullName).toBe("test-owner/" + prefix);
     expect(hit?.reasons.length).toBeGreaterThan(0);
   });
 

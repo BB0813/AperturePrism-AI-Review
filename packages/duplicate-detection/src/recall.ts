@@ -103,9 +103,9 @@ export async function getDocumentHash(
   const rows = await sql`
     select content_hash as "contentHash", (embedding is not null) as "hasEmbedding"
     from issue_documents
-    where repository_id is null is ${input.repositoryId === null}
-      and repository_id = ${input.repositoryId}
-      and issue_number = ${input.issueNumber}
+    where issue_number = ${input.issueNumber}
+      and (repository_id = ${input.repositoryId}::uuid
+           or (${input.repositoryId}::uuid is null and repository_id is null))
     limit 1`;
   const row = rows[0];
   if (!row) return null;
