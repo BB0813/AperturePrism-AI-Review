@@ -13,3 +13,5 @@ Thumbs.db
 archive/
 # Marking tool local database
 .marking/
+# Local secrets (GitHub App private key, master key, tokens)
+.secrets/
