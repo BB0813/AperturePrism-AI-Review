@@ -13,6 +13,9 @@ export default defineConfig({
     watch: { usePolling: true, interval: 300 },
     proxy: {
       "/health": proxyTarget,
+      "/tasks": proxyTarget,
+      "/results": proxyTarget,
+      "/providers": proxyTarget,
       "/events": { target: proxyTarget, changeOrigin: true, ws: false },
     },
   },

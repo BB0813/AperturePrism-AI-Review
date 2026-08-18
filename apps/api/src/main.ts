@@ -177,6 +177,15 @@ async function handleWebhook(
 let sseSeq = 0;
 /** Watermark of the last task_events row already dispatched. */
 let eventWatermark: Date | null = null;
+/**
+ * Ids of task_events rows already dispatched. task_events has no monotonic
+ * cursor column, and many events share the same createdAt millisecond, so a
+ * pure createdAt watermark would re-emit the same rows every pump until a
+ * newer event arrives. Deduping by row id keeps the relay exactly-once.
+ */
+const dispatchedEventIds = new Set<string>();
+/** Bound on dispatchedEventIds so the watermark alone drives long-running pumps. */
+const DISPATCHED_ID_CAP = 5_000;
 let eventSubscriber: Awaited<ReturnType<typeof redis.duplicate>> | null = null;
 let eventPublisher: Awaited<ReturnType<typeof redis.duplicate>> | null = null;
 let hbTimer: ReturnType<typeof setInterval> | null = null;
@@ -265,6 +274,7 @@ async function startEventStream(): Promise<void> {
 async function pumpTaskEvents(): Promise<void> {
   const rows = await database.db
     .select({
+      id: taskEvents.id,
       taskId: taskEvents.taskId,
       eventType: taskEvents.eventType,
       data: taskEvents.data,
@@ -274,7 +284,16 @@ async function pumpTaskEvents(): Promise<void> {
     .where(eventWatermark ? gt(taskEvents.createdAt, eventWatermark) : undefined)
     .orderBy(asc(taskEvents.createdAt))
     .limit(200);
+  let newest: Date | null = eventWatermark;
   for (const row of rows) {
+    if (dispatchedEventIds.has(row.id)) continue;
+    dispatchedEventIds.add(row.id);
+    if (dispatchedEventIds.size > DISPATCHED_ID_CAP) {
+      // Drop the oldest ids so the set stays bounded; the createdAt watermark
+      // may briefly re-emit a colliding batch, which the client tolerates.
+      const oldest = dispatchedEventIds.values().next().value;
+      if (oldest !== undefined) dispatchedEventIds.delete(oldest);
+    }
     sseSeq += 1;
     const evt = {
       seq: sseSeq,
@@ -287,9 +306,9 @@ async function pumpTaskEvents(): Promise<void> {
       },
     };
     if (eventPublisher) await eventPublisher.publish(EVENT_CHANNEL, JSON.stringify(evt));
+    if (!newest || row.createdAt > newest) newest = row.createdAt;
   }
-  if (rows.length > 0 && rows[rows.length - 1]?.createdAt)
-    eventWatermark = rows[rows.length - 1]?.createdAt ?? null;
+  if (newest) eventWatermark = newest;
 }
 
 async function stopEventStream(): Promise<void> {
