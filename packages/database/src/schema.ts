@@ -1,5 +1,6 @@
 import {
   boolean,
+  customType,
   index,
   integer,
   jsonb,
@@ -22,6 +23,22 @@ export const taskStatus = pgEnum("task_status", [
   "failed",
   "canceled",
 ]);
+
+export const pgVector4096 = customType<{ data: number[]; driverData: string }>({
+  dataType() {
+    return "vector(4096)";
+  },
+  toDriver(value) {
+    return `[${value.join(",")}]`;
+  },
+  fromDriver(value) {
+    if (Array.isArray(value)) return value;
+    const str = String(value);
+    return str.startsWith("[")
+      ? JSON.parse(str)
+      : JSON.parse(`[${str.slice(1, -1)}]`);
+  },
+});
 
 export const repositories = pgTable(
   "repositories",
@@ -253,8 +270,8 @@ export const externalPublications = pgTable(
  * Normalized issue documents for duplicate recall. `title`/`body` are the
  * canonical (template-cleaned) text used by the full-text search index; the
  * `*Signals` arrays are the structured error/version/module/language features
- * used by the signal-overlap recall. An embedding column is deferred until a
- * working embedding model is configured (vector recall, M6 later).
+ * used by the signal-overlap recall. `embedding` holds the 4096-d vector
+ * (nvidia/nv-embed-v1) for vector similarity recall.
  */
 export const issueDocuments = pgTable(
   "issue_documents",
@@ -270,6 +287,7 @@ export const issueDocuments = pgTable(
     languages: text("languages").array().notNull().default([]),
     hasStackTrace: boolean("has_stack_trace").default(false).notNull(),
     hasReproduction: boolean("has_reproduction").default(false).notNull(),
+    embedding: pgVector4096("embedding"),
     indexedAt: timestamp("indexed_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

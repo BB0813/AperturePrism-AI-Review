@@ -1,6 +1,6 @@
 {
-  "id": "eeac340b-3c63-45dc-a8a5-5e5036f0c261",
-  "prevId": "4f6e41cd-660e-43a2-821b-c5391e9b1ab8",
+  "id": "6ec2be9a-6063-4cf9-8664-237f11840a00",
+  "prevId": "eeac340b-3c63-45dc-a8a5-5e5036f0c261",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -436,6 +436,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
+        },
+        "embedding": {
+          "name": "embedding",
+          "type": "vector(4096)",
+          "primaryKey": false,
+          "notNull": false
         },
         "indexed_at": {
           "name": "indexed_at",

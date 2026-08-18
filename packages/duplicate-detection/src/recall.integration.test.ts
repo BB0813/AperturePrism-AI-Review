@@ -4,9 +4,11 @@ import {
   type DatabaseClient,
 } from "../../../packages/database/src/index.js";
 import {
+  EMBEDDING_DIMENSION,
   extractIssueSignals,
   indexIssueDocument,
   recallCandidates,
+  recallCandidatesByVector,
   type SqlTag,
 } from "./index.js";
 
@@ -85,5 +87,38 @@ describeIntegration("duplicate recall PostgreSQL integration", () => {
       topK: 10,
     });
     expect(rows).toHaveLength(0);
+  });
+
+  function embedding(seed: number): number[] {
+    return Array.from({ length: EMBEDDING_DIMENSION }, (_, i) =>
+      i === 0 ? seed : 0,
+    );
+  }
+
+  it("recalls the nearest vector by exact cosine distance", async () => {
+    await indexIssueDocument(client.sql as unknown as SqlTag, {
+      repositoryId: null,
+      issueNumber: 3,
+      title: `${prefix}-vnear`,
+      body: "",
+      signals: extractIssueSignals({ title: "near", body: "same", labels: [] }),
+      embedding: embedding(1),
+    });
+    await indexIssueDocument(client.sql as unknown as SqlTag, {
+      repositoryId: null,
+      issueNumber: 4,
+      title: `${prefix}-vfar`,
+      body: "",
+      signals: extractIssueSignals({ title: "far", body: "other", labels: [] }),
+      embedding: embedding(-1),
+    });
+
+    const rows = await recallCandidatesByVector({
+      sql: client.sql as unknown as SqlTag,
+      embedding: embedding(1),
+      topK: 2,
+    });
+    expect(rows[0]?.issueNumber).toBe(3);
+    expect(rows[0]?.distance).toBeLessThan(rows[1]?.distance ?? 2);
   });
 });
