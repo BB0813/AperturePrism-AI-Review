@@ -4,8 +4,10 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
+import { desc, eq, lt } from "drizzle-orm";
 import { loadConfig } from "../../../packages/config/src/index.js";
 import {
+  analysisTasks,
   checkDatabase,
   checkRedis,
   closeRedisClient,
@@ -160,6 +162,81 @@ function handleSse(response: ServerResponse): void {
   });
 }
 
+/** Column set shared by the list and detail views (payload is heavy). */
+const taskSummaryColumns = {
+  id: analysisTasks.id,
+  taskType: analysisTasks.taskType,
+  repositoryId: analysisTasks.repositoryId,
+  subjectNumber: analysisTasks.subjectNumber,
+  subjectRevision: analysisTasks.subjectRevision,
+  policyVersion: analysisTasks.policyVersion,
+  status: analysisTasks.status,
+  priority: analysisTasks.priority,
+  attemptCount: analysisTasks.attemptCount,
+  maxAttempts: analysisTasks.maxAttempts,
+  lastErrorCategory: analysisTasks.lastErrorCategory,
+  createdAt: analysisTasks.createdAt,
+  updatedAt: analysisTasks.updatedAt,
+} as const;
+
+/**
+ * Lists tasks (cursor-paginated by creation time, newest first) or returns a
+ * single task by id. Public reads for the WebUI; no secrets are exposed (the
+ * task payload is only included in the detail view).
+ */
+async function handleTasks(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const url = new URL(
+    request.url ?? "/",
+    `http://${request.headers.host ?? "localhost"}`,
+  );
+  const path = url.pathname;
+  const id = path.startsWith("/tasks/")
+    ? decodeURIComponent(path.slice("/tasks/".length)).trim()
+    : null;
+
+  if (!id) {
+    const limitRaw = Number(url.searchParams.get("limit"));
+    const limit = Number.isFinite(limitRaw)
+      ? Math.min(Math.max(Math.trunc(limitRaw), 1), 200)
+      : 50;
+    const beforeRaw = url.searchParams.get("before");
+    const before =
+      beforeRaw && !Number.isNaN(Date.parse(beforeRaw)) ? new Date(beforeRaw) : null;
+    const items = await database.db
+      .select(taskSummaryColumns)
+      .from(analysisTasks)
+      .where(before ? lt(analysisTasks.createdAt, before) : undefined)
+      .orderBy(desc(analysisTasks.createdAt))
+      .limit(limit);
+    const last = items.at(-1)?.createdAt;
+    const nextCursor =
+      items.length === limit && last ? last.toISOString() : undefined;
+    json(
+      response,
+      200,
+      nextCursor === undefined ? { items } : { items, nextCursor },
+      requestId,
+    );
+    return;
+  }
+
+  const rows = await database.db
+    .select({ ...taskSummaryColumns, payload: analysisTasks.payload })
+    .from(analysisTasks)
+    .where(eq(analysisTasks.id, id))
+    .limit(1);
+  const row = rows[0];
+  if (!row) {
+    json(response, 404, { status: "error", reason: "task not found" }, requestId);
+    return;
+  }
+  json(response, 200, row, requestId);
+}
+
 async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
@@ -206,6 +283,11 @@ async function handleRequest(
       { status: "error", reason: "method not allowed" },
       requestId,
     );
+    return;
+  }
+
+  if (path === "/tasks" || path.startsWith("/tasks/")) {
+    await handleTasks(request, response, requestId);
     return;
   }
 
