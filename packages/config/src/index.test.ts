@@ -30,4 +30,33 @@ describe("loadConfig", () => {
       ZodError,
     );
   });
+
+  it("parses QQ bot protocol config and drops invalid entries", () => {
+    const config = loadConfig({
+      ...validEnvironment,
+      QQ_BOT_PROTOCOLS: JSON.stringify({
+        onebot11: {
+          baseUrl: "http://127.0.0.1:3000",
+          accessToken: "t",
+          gatewayUrl: "ws://x",
+        },
+        satori: { baseUrl: "http://127.0.0.1:3100" },
+        broken: { baseUrl: "" },
+      }),
+    });
+    expect(config.qqBotProtocols).toEqual({
+      onebot11: {
+        baseUrl: "http://127.0.0.1:3000",
+        accessToken: "t",
+        gatewayUrl: "ws://x",
+      },
+      satori: { baseUrl: "http://127.0.0.1:3100" },
+    });
+  });
+
+  it("rejects malformed QQ_BOT_PROTOCOLS JSON", () => {
+    expect(() =>
+      loadConfig({ ...validEnvironment, QQ_BOT_PROTOCOLS: "not json" }),
+    ).toThrow("QQ_BOT_PROTOCOLS must be a JSON object");
+  });
 });

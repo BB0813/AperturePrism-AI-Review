@@ -2,6 +2,33 @@ import { z } from "zod";
 
 export * from "./credentials.js";
 
+export function isProtocolConfig(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const entry = value as Record<string, unknown>;
+  if (typeof entry.baseUrl !== "string" || entry.baseUrl.length === 0)
+    return false;
+  if (
+    entry.accessToken !== undefined &&
+    entry.accessToken !== null &&
+    typeof entry.accessToken !== "string"
+  )
+    return false;
+  if (
+    entry.gatewayUrl !== undefined &&
+    entry.gatewayUrl !== null &&
+    typeof entry.gatewayUrl !== "string"
+  )
+    return false;
+  return true;
+}
+
+export type QqBotProtocolConfig = {
+  baseUrl: string;
+  accessToken?: string;
+  /** WebSocket endpoint for a forward connection (message events). */
+  gatewayUrl?: string;
+};
+
 const environmentSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
@@ -73,6 +100,30 @@ const environmentSchema = z.object({
       message: "CREDENTIAL_MASTER_KEY must be 32 bytes encoded as base64",
     })
     .optional(),
+  /**
+   * JSON object configuring NTQQ bot gateways per protocol, e.g.
+   * {"onebot11":{"baseUrl":"http://127.0.0.1:3000","accessToken":"...","gatewayUrl":"ws://127.0.0.1:3001"}}
+   * Supported protocols: onebot11, satori, milky.
+   */
+  QQ_BOT_PROTOCOLS: z
+    .string()
+    .refine(
+      (value) => {
+        if (value.length === 0) return true;
+        try {
+          const parsed: unknown = JSON.parse(value);
+          return (
+            typeof parsed === "object" &&
+            parsed !== null &&
+            !Array.isArray(parsed)
+          );
+        } catch {
+          return false;
+        }
+      },
+      { message: "QQ_BOT_PROTOCOLS must be a JSON object of protocol configs" },
+    )
+    .optional(),
 });
 
 export type AppConfig = Readonly<{
@@ -89,6 +140,7 @@ export type AppConfig = Readonly<{
   githubApiBaseUrl: string | undefined;
   modelProviderBaseUrls: Readonly<Record<string, string>>;
   credentialMasterKey: string | undefined;
+  qqBotProtocols: Readonly<Partial<Record<string, QqBotProtocolConfig>>>;
 }>;
 
 export function loadConfig(environment: NodeJS.ProcessEnv): AppConfig {
@@ -114,5 +166,31 @@ export function loadConfig(environment: NodeJS.ProcessEnv): AppConfig {
         : {},
     ),
     credentialMasterKey: parsed.CREDENTIAL_MASTER_KEY,
+    qqBotProtocols: Object.freeze(parseQqBotProtocols(parsed.QQ_BOT_PROTOCOLS)),
   });
+}
+
+function parseQqBotProtocols(
+  raw: string | undefined,
+): Record<string, QqBotProtocolConfig> {
+  if (!raw || raw.length === 0) return {};
+  const parsed: unknown = JSON.parse(raw);
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+    return {};
+  const result: Record<string, QqBotProtocolConfig> = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    if (!isProtocolConfig(value)) continue;
+    const accessToken = value.accessToken;
+    const gatewayUrl = value.gatewayUrl;
+    result[key] = {
+      baseUrl: value.baseUrl,
+      ...(accessToken === undefined || accessToken === null
+        ? {}
+        : { accessToken }),
+      ...(gatewayUrl === undefined || gatewayUrl === null
+        ? {}
+        : { gatewayUrl }),
+    };
+  }
+  return result;
 }
