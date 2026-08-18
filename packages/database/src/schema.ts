@@ -47,6 +47,7 @@ export const repositories = pgTable(
     githubId: text("github_id").notNull(),
     owner: text("owner").notNull(),
     name: text("name").notNull(),
+    installationId: text("installation_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

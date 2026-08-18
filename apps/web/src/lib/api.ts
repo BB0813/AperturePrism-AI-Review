@@ -141,11 +141,21 @@ export type VectorStats = {
   repositoryCoverage: number;
   embeddingModel: string;
   embeddingConfigured: boolean;
+  lastIndexedAt: string | null;
 };
 
 /** Duplicate-index / vector-store stats from issue_documents. */
 export async function fetchVectorStats(): Promise<VectorStats> {
   return (await getJson("/vector")) as VectorStats;
+}
+
+/** Requests an immediate index-worker pass. */
+export async function triggerIndexRun(): Promise<void> {
+  const response = await fetch("/index/run", {
+    method: "POST",
+    headers: { accept: "application/json", ...authHeaders() },
+  });
+  if (!response.ok) throw new Error(`trigger index ${response.status}`);
 }
 
 export type RuntimeConfig = {

@@ -104,12 +104,14 @@ export async function ingestGitHubWebhook(
         githubId: event.repositoryId,
         owner: identity.owner,
         name: identity.name,
+        installationId: event.installationId ?? undefined,
       })
       .onConflictDoUpdate({
         target: schema.repositories.githubId,
         set: {
           owner: identity.owner,
           name: identity.name,
+          installationId: event.installationId ?? undefined,
           updatedAt: new Date(),
         },
       })

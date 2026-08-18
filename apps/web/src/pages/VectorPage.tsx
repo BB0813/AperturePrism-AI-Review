@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchVectorStats, type VectorStats } from "../lib/api";
+import { fetchVectorStats, triggerIndexRun, type VectorStats } from "../lib/api";
 import { RefreshIcon } from "../components/icons";
-import { LoadingRows } from "../components/ui";
+import { LoadingRows, fmtTime } from "../components/ui";
 
 export function VectorPage() {
   const [stats, setStats] = useState<VectorStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [triggering, setTriggering] = useState(false);
+  const [triggerMsg, setTriggerMsg] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -22,6 +24,20 @@ export function VectorPage() {
 
   useEffect(() => load(), [load]);
 
+  const runIndex = async () => {
+    setTriggering(true);
+    setTriggerMsg(null);
+    try {
+      await triggerIndexRun();
+      setTriggerMsg("已触发索引，index-worker 将尽快开始一轮扫描。");
+      setTimeout(load, 4000);
+    } catch (err) {
+      setTriggerMsg(`触发失败：${err instanceof Error ? err.message : err}`);
+    } finally {
+      setTriggering(false);
+    }
+  };
+
   return (
     <div className="stack">
       <div className="page-head">
@@ -30,12 +46,21 @@ export function VectorPage() {
           <p className="page-desc">重复 Issue 检测的向量索引（issue_documents）与 Embedding 状态</p>
         </div>
         <div className="actions">
+          <button className="btn btn-primary" onClick={runIndex} disabled={triggering}>
+            {triggering ? "触发中…" : "开始索引"}
+          </button>
           <button className="btn" onClick={load} disabled={loading}>
             <RefreshIcon size={16} />
             刷新
           </button>
         </div>
       </div>
+
+      {triggerMsg ? (
+        <p className={`state ${triggerMsg.startsWith("已") ? "state-ok" : "state-error"}`} style={{ margin: 0 }}>
+          {triggerMsg}
+        </p>
+      ) : null}
 
       {error ? (
         <div className="panel"><p className="state state-error">加载失败：{error}</p></div>
@@ -56,6 +81,7 @@ export function VectorPage() {
             <dl className="kv">
               <dt>模型</dt><dd className="mono">{stats.embeddingModel}</dd>
               <dt>维度</dt><dd className="mono">4096</dd>
+              <dt>最近索引</dt><dd className="mono">{stats.lastIndexedAt ? fmtTime(stats.lastIndexedAt) : "尚未索引"}</dd>
               <dt>状态</dt>
               <dd>
                 {stats.embeddingConfigured ? (

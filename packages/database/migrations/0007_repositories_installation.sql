@@ -1,0 +1,2 @@
+ALTER TABLE "repositories" ADD COLUMN IF NOT EXISTS "installation_id" text;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "repositories_installation_idx" ON "repositories" USING btree ("installation_id");

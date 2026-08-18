@@ -20,6 +20,7 @@ function makeGithub(): GitHubClient {
     getIssue: async () => {
       throw new Error("unused");
     },
+    listIssues: async () => [],
     listIssueComments: async () => [],
     createIssueComment: async () => ({ id: 1, htmlUrl: "" }),
     updateIssueComment: async () => ({ id: 1, htmlUrl: "" }),

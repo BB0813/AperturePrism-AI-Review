@@ -98,6 +98,18 @@ export type GitHubClient = {
     },
     signal?: AbortSignal,
   ) => Promise<GitHubIssue>;
+  /** Lists repository issues (PRs excluded), newest first, paged. */
+  listIssues: (
+    input: {
+      installationId: string;
+      owner: string;
+      name: string;
+      state?: "open" | "closed" | "all";
+      perPage?: number;
+      page?: number;
+    },
+    signal?: AbortSignal,
+  ) => Promise<GitHubIssue[]>;
   getPullRequest: (
     input: {
       installationId: string;
@@ -375,6 +387,27 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
         signal,
       );
       return mapIssue(issue);
+    },
+
+    listIssues: async (
+      { installationId, owner, name, state = "all", perPage = 100, page = 1 },
+      signal,
+    ) => {
+      const query = new URLSearchParams({
+        state,
+        per_page: String(perPage),
+        page: String(page),
+      }).toString();
+      const items = await authorized<Record<string, unknown>[]>(
+        installationId,
+        {
+          method: "GET",
+          path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues?${query}`,
+        },
+        signal,
+      );
+      // The issues endpoint also returns pull requests; skip them.
+      return items.filter((item) => !item.pull_request).map(mapIssue);
     },
 
     getPullRequest: async ({ installationId, owner, name, number }, signal) => {

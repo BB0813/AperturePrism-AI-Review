@@ -163,6 +163,7 @@ const protectedPaths = [
   "/repositories",
   "/logs",
   "/vector",
+  "/index/run",
   "/config",
   "/settings",
   "/events",
@@ -800,7 +801,7 @@ async function handleVector(
   response: ServerResponse,
   requestId: string,
 ): Promise<void> {
-  const [stats, repoCoverage] = await Promise.all([
+  const [stats, repoCoverage, lastIndex] = await Promise.all([
     database.sql<{ docs: number; with_embedding: number; with_signals: number }[]>`
       SELECT count(*)::int AS docs,
              count(embedding)::int AS with_embedding,
@@ -810,6 +811,9 @@ async function handleVector(
     database.sql<{ repositories: number }[]>`
       SELECT count(DISTINCT repository_id)::int AS repositories
       FROM issue_documents WHERE repository_id IS NOT NULL
+    `,
+    database.sql<{ at: Date | null }[]>`
+      SELECT max(indexed_at) AS at FROM issue_documents
     `,
   ]);
   const row = stats[0];
@@ -823,9 +827,30 @@ async function handleVector(
       repositoryCoverage: repoCoverage[0]?.repositories ?? 0,
       embeddingModel: config.embedding.model,
       embeddingConfigured: Boolean(config.embedding.baseUrl && config.embedding.apiKey),
+      lastIndexedAt: lastIndex[0]?.at ?? null,
     },
     requestId,
   );
+}
+
+/** Requests an immediate index pass by writing the index_trigger setting. */
+async function handleIndexRun(
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  try {
+    await database.db
+      .insert(systemSettings)
+      .values({ key: "index_trigger", value: new Date().toISOString() })
+      .onConflictDoUpdate({
+        target: systemSettings.key,
+        set: { value: new Date().toISOString(), updatedAt: new Date() },
+      });
+    json(response, 200, { status: "ok", triggered: true }, requestId);
+  } catch (error) {
+    logger.warn({ err: error }, "index trigger failed");
+    json(response, 500, { status: "error", reason: "trigger_failed" }, requestId);
+  }
 }
 
 /** Non-secret runtime configuration snapshot (no keys, no secrets). */
@@ -1305,6 +1330,20 @@ async function handleRequest(
 
   if (path === "/settings") {
     await handleSettings(request, response, requestId);
+    return;
+  }
+
+  if (path === "/index/run") {
+    if (request.method !== "POST") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    await handleIndexRun(response, requestId);
     return;
   }
 
