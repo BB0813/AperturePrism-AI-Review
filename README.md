@@ -65,8 +65,8 @@ npm run build
   - NTQQ 第三方 Bot 协议：OneBot 11、Satori、Milky
 
    - [OneBot 11](https://github.com/botuniverse/onebot-11)
-- [Satori](https://satori.chat/zh-CN/protocol/)
-- [Milky](https://milky.ntqqrev.org/)
+   - [Satori](https://satori.chat/zh-CN/protocol/)
+   - [Milky](https://milky.ntqqrev.org/)
 
 
   -[官方 QQ 开放平台机器人（api-v2）](https://bot.q.qq.com/wiki/develop/api-v2/)
