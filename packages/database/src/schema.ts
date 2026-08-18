@@ -1,0 +1,249 @@
+import {
+  index,
+  integer,
+  jsonb,
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+  varchar,
+} from "drizzle-orm/pg-core";
+
+export const taskStatus = pgEnum("task_status", [
+  "queued",
+  "leased",
+  "running",
+  "publishing",
+  "completed",
+  "retry_wait",
+  "failed",
+  "canceled",
+]);
+
+export const repositories = pgTable(
+  "repositories",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    githubId: text("github_id").notNull(),
+    owner: text("owner").notNull(),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [uniqueIndex("repositories_github_id_unique").on(table.githubId)],
+);
+
+export const githubInstallations = pgTable(
+  "github_installations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    githubInstallationId: text("github_installation_id").notNull(),
+    accountLogin: text("account_login").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("github_installations_external_id_unique").on(
+      table.githubInstallationId,
+    ),
+  ],
+);
+
+export const webhookDeliveries = pgTable(
+  "webhook_deliveries",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    deliveryId: text("delivery_id").notNull(),
+    eventName: varchar("event_name", { length: 100 }).notNull(),
+    payload: jsonb("payload").notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    processingStatus: varchar("processing_status", { length: 20 })
+      .default("received")
+      .notNull(),
+    taskId: uuid("task_id"),
+    outcomeReason: varchar("outcome_reason", { length: 100 }),
+  },
+  (table) => [
+    uniqueIndex("webhook_deliveries_delivery_id_unique").on(table.deliveryId),
+  ],
+);
+
+export const analysisTasks = pgTable(
+  "analysis_tasks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    taskType: varchar("task_type", { length: 50 }).notNull(),
+    repositoryId: uuid("repository_id").references(() => repositories.id),
+    subjectNumber: integer("subject_number"),
+    subjectRevision: text("subject_revision").notNull(),
+    policyVersion: text("policy_version").notNull(),
+    dedupeKey: text("dedupe_key").notNull(),
+    status: taskStatus("status").default("queued").notNull(),
+    priority: integer("priority").default(0).notNull(),
+    payload: jsonb("payload").notNull(),
+    pendingPayload: jsonb("pending_payload"),
+    leaseOwner: text("lease_owner"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
+    attemptCount: integer("attempt_count").default(0).notNull(),
+    maxAttempts: integer("max_attempts").default(3).notNull(),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    lastErrorCategory: varchar("last_error_category", { length: 100 }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("analysis_tasks_dedupe_key_unique").on(table.dedupeKey),
+    index("analysis_tasks_claim_idx").on(
+      table.status,
+      table.nextAttemptAt,
+      table.priority,
+    ),
+    index("analysis_tasks_lease_expiry_idx").on(table.leaseExpiresAt),
+  ],
+);
+
+export const taskAttempts = pgTable(
+  "task_attempts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => analysisTasks.id),
+    attemptNumber: integer("attempt_number").notNull(),
+    workerId: text("worker_id").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    errorCategory: varchar("error_category", { length: 100 }),
+  },
+  (table) => [
+    uniqueIndex("task_attempts_task_number_unique").on(
+      table.taskId,
+      table.attemptNumber,
+    ),
+  ],
+);
+
+export const taskEvents = pgTable(
+  "task_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => analysisTasks.id),
+    eventType: varchar("event_type", { length: 100 }).notNull(),
+    data: jsonb("data").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("task_events_task_created_idx").on(table.taskId, table.createdAt),
+  ],
+);
+
+export const outboxEvents = pgTable(
+  "outbox_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    topic: varchar("topic", { length: 100 }).notNull(),
+    aggregateId: uuid("aggregate_id").notNull(),
+    payload: jsonb("payload").notNull(),
+    availableAt: timestamp("available_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("outbox_events_publish_idx").on(table.publishedAt, table.availableAt),
+  ],
+);
+
+export const providerAccounts = pgTable(
+  "provider_accounts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    provider: varchar("provider", { length: 100 }).notNull(),
+    name: text("name").notNull(),
+    encryptedCredential: text("encrypted_credential").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("provider_accounts_provider_name_unique").on(
+      table.provider,
+      table.name,
+    ),
+  ],
+);
+
+export const modelRolePolicies = pgTable(
+  "model_role_policies",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    role: varchar("role", { length: 100 }).notNull(),
+    version: text("version").notNull(),
+    candidates: jsonb("candidates").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("model_role_policies_role_version_unique").on(
+      table.role,
+      table.version,
+    ),
+  ],
+);
+
+export const externalPublications = pgTable(
+  "external_publications",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => analysisTasks.id),
+    idempotencyKey: text("idempotency_key").notNull(),
+    externalObjectId: text("external_object_id"),
+    channel: varchar("channel", { length: 50 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("external_publications_idempotency_unique").on(
+      table.idempotencyKey,
+    ),
+  ],
+);

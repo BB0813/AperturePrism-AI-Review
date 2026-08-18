@@ -1,0 +1,18 @@
+{
+  "name": "@apertureprism/analysis-worker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "dependencies": {
+    "@apertureprism/config": "0.1.0",
+    "@apertureprism/database": "0.1.0",
+    "@apertureprism/domain": "0.1.0",
+    "@apertureprism/observability": "0.1.0",
+    "@apertureprism/task-engine": "0.1.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "dev": "node --watch dist/main.js"
+  }
+}

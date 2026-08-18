@@ -1,0 +1,15 @@
+{
+  "name": "@apertureprism/database",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts",
+    "db:migrate": "drizzle-kit migrate --config drizzle.config.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

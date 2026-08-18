@@ -1,0 +1,171 @@
+import type { LeasedTask } from "../../../packages/domain/src/index.js";
+
+export type WorkerTaskOutcome =
+  { outcome: "completed" } | { outcome: "failed"; errorCategory: string };
+
+/**
+ * Everything the loop needs from the task engine. Keeping these as injected
+ * operations means the loop never issues its own UPDATE against a task.
+ */
+export type TaskEngineOperations = {
+  claim: () => Promise<LeasedTask | null>;
+  start: (task: LeasedTask) => Promise<boolean>;
+  heartbeat: (task: LeasedTask) => Promise<boolean>;
+  beginPublishing: (task: LeasedTask) => Promise<boolean>;
+  complete: (task: LeasedTask) => Promise<boolean>;
+  fail: (task: LeasedTask, errorCategory: string) => Promise<void>;
+};
+
+export type TaskHandler = (
+  task: LeasedTask,
+  signal: AbortSignal,
+) => Promise<WorkerTaskOutcome>;
+
+export type WorkerLoopOptions = {
+  engine: TaskEngineOperations;
+  handler: TaskHandler;
+  /** Interval between heartbeats while a task is executing. */
+  heartbeatIntervalMs: number;
+  /** Delay before polling again when the queue is empty. */
+  idleDelayMs: number;
+  shutdownSignal: AbortSignal;
+  sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
+  onEvent?: (event: WorkerEvent) => void;
+};
+
+export type WorkerEvent =
+  | { type: "claimed"; taskId: string; attemptNumber: number }
+  | { type: "idle" }
+  | { type: "completed"; taskId: string }
+  | { type: "failed"; taskId: string; errorCategory: string }
+  | { type: "lease_lost"; taskId: string }
+  | { type: "shutdown" };
+
+function delay(ms: number, signal: AbortSignal): Promise<void> {
+  if (ms <= 0 || signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(finish, ms);
+    function finish() {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", finish);
+      resolve();
+    }
+    signal.addEventListener("abort", finish, { once: true });
+  });
+}
+
+/**
+ * Keeps the lease alive while the handler runs. A lost lease aborts the work
+ * so two workers never publish for the same attempt.
+ */
+function startHeartbeat(
+  engine: TaskEngineOperations,
+  task: LeasedTask,
+  intervalMs: number,
+  onLost: () => void,
+): () => void {
+  const timer = setInterval(() => {
+    void engine
+      .heartbeat(task)
+      .then((held) => {
+        if (!held) onLost();
+      })
+      .catch(() => onLost());
+  }, intervalMs);
+  return () => clearInterval(timer);
+}
+
+/**
+ * Processes one claimed task through the engine's state machine. Returns false
+ * when the queue was empty so the caller can back off.
+ */
+export async function runOnce(options: WorkerLoopOptions): Promise<boolean> {
+  const { engine, handler, shutdownSignal, onEvent } = options;
+  const task = await engine.claim();
+  if (!task) {
+    onEvent?.({ type: "idle" });
+    return false;
+  }
+  onEvent?.({
+    type: "claimed",
+    taskId: task.id,
+    attemptNumber: task.attemptNumber,
+  });
+
+  if (!(await engine.start(task))) {
+    onEvent?.({ type: "lease_lost", taskId: task.id });
+    return true;
+  }
+
+  const controller = new AbortController();
+  const abortForShutdown = () => controller.abort();
+  if (shutdownSignal.aborted) controller.abort();
+  shutdownSignal.addEventListener("abort", abortForShutdown, { once: true });
+  let leaseLost = false;
+  const stopHeartbeat = startHeartbeat(
+    engine,
+    task,
+    options.heartbeatIntervalMs,
+    () => {
+      leaseLost = true;
+      controller.abort();
+    },
+  );
+
+  try {
+    const result = await handler(task, controller.signal);
+    if (leaseLost) {
+      onEvent?.({ type: "lease_lost", taskId: task.id });
+      return true;
+    }
+
+    if (result.outcome === "failed") {
+      await engine.fail(task, result.errorCategory);
+      onEvent?.({
+        type: "failed",
+        taskId: task.id,
+        errorCategory: result.errorCategory,
+      });
+      return true;
+    }
+
+    // Publishing is a distinct state so a crash mid-publish stays recoverable.
+    if (!(await engine.beginPublishing(task))) {
+      onEvent?.({ type: "lease_lost", taskId: task.id });
+      return true;
+    }
+    if (!(await engine.complete(task))) {
+      onEvent?.({ type: "lease_lost", taskId: task.id });
+      return true;
+    }
+    onEvent?.({ type: "completed", taskId: task.id });
+    return true;
+  } catch (error) {
+    const errorCategory =
+      controller.signal.aborted && !leaseLost
+        ? "canceled"
+        : error instanceof Error && error.name === "AbortError"
+          ? "canceled"
+          : "handler_error";
+    if (!leaseLost) await engine.fail(task, errorCategory);
+    onEvent?.({ type: "failed", taskId: task.id, errorCategory });
+    return true;
+  } finally {
+    stopHeartbeat();
+    shutdownSignal.removeEventListener("abort", abortForShutdown);
+  }
+}
+
+/**
+ * Runs until shutdown is requested. The in-flight task is always finished or
+ * explicitly failed before returning, so no attempt is left dangling.
+ */
+export async function runWorkerLoop(options: WorkerLoopOptions): Promise<void> {
+  const sleep = options.sleep ?? delay;
+  while (!options.shutdownSignal.aborted) {
+    const worked = await runOnce(options);
+    if (!worked && !options.shutdownSignal.aborted)
+      await sleep(options.idleDelayMs, options.shutdownSignal);
+  }
+  options.onEvent?.({ type: "shutdown" });
+}

@@ -1,0 +1,9 @@
+node_modules
+archive
+coverage
+dist
+.turbo
+pnpm-lock.yaml
+package-lock.json
+README.md
+docs

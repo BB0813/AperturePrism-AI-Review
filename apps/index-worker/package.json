@@ -1,0 +1,11 @@
+{
+  "name": "@apertureprism/index-worker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "dev": "node --watch dist/main.js"
+  }
+}
