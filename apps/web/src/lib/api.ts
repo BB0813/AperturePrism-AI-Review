@@ -53,6 +53,18 @@ export type TaskDetail = TaskSummary & {
   attempts: TaskAttempt[];
 };
 
+export type ModelPolicy = {
+  role: string;
+  version: string;
+  candidates: { provider: string; model: string; accountName: string }[];
+  createdAt: string;
+};
+
+export type ProviderOverview = {
+  policies: ModelPolicy[];
+  accounts: string[];
+};
+
 async function getJson(url: string): Promise<unknown> {
   const response = await fetch(url, { headers: { accept: "application/json" } });
   if (!response.ok) throw new Error(`request failed with ${response.status}`);
@@ -82,4 +94,34 @@ export async function fetchTasks(options?: {
 /** Fetches a single task with its timeline and attempts. */
 export async function fetchTaskDetail(id: string): Promise<TaskDetail> {
   return (await getJson(`/tasks/${encodeURIComponent(id)}`)) as TaskDetail;
+}
+
+/** Fetches model role policies + provider account names (no secrets). */
+export async function fetchProviders(): Promise<ProviderOverview> {
+  return (await getJson("/providers")) as ProviderOverview;
+}
+
+export type SubjectResult = {
+  subjectType: "issue" | "pr";
+  subjectNumber: number;
+  repositoryFullName: string;
+  revision: string;
+  result: unknown;
+  published: boolean;
+  createdAt: string;
+};
+
+export type ResultList = {
+  items: SubjectResult[];
+  nextCursor?: string;
+};
+
+/** Lists persisted issue/PR results, newest first, cursor-paginated. */
+export async function fetchResults(
+  type: "issue" | "pr",
+  before?: string,
+): Promise<ResultList> {
+  const params = new URLSearchParams({ type });
+  if (before) params.set("before", before);
+  return (await getJson(`/results?${params.toString()}`)) as ResultList;
 }

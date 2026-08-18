@@ -11,6 +11,7 @@ import {
   externalPublications,
   modelRolePolicies,
   providerAccounts,
+  subjectResults,
 } from "../../../packages/database/src/index.js";
 import {
   ModelInvocationError,
@@ -294,6 +295,14 @@ async function main(): Promise<void> {
         ),
         body: buildIssueAnalysisComment(analysis),
       });
+      await persistSubjectResult({
+        taskId: task.id,
+        subjectType: "issue",
+        subjectNumber: payload.subjectNumber,
+        repositoryFullName: payload.repositoryFullName,
+        revision: payload.subjectRevision,
+        result: analysis,
+      });
     },
 
     recordUsage: async (task, outcome) => {
@@ -365,6 +374,14 @@ async function main(): Promise<void> {
         revision: payload.subjectRevision,
         review,
       });
+      await persistSubjectResult({
+        taskId: task.id,
+        subjectType: "pr",
+        subjectNumber: payload.subjectNumber,
+        repositoryFullName: payload.repositoryFullName,
+        revision: payload.subjectRevision,
+        result: review,
+      });
     },
 
     recordUsage: async (task, outcome) => {
@@ -415,6 +432,29 @@ function prIdentity(task: { payload: unknown }) {
       `invalid repository name in payload: ${payload.repositoryFullName}`,
     );
   return { payload, identity };
+}
+
+/** Persists a structured issue/PR result once per task (idempotent on taskId). */
+async function persistSubjectResult(input: {
+  taskId: string;
+  subjectType: "issue" | "pr";
+  subjectNumber: number;
+  repositoryFullName: string;
+  revision: string;
+  result: unknown;
+}): Promise<void> {
+  await database.db
+    .insert(subjectResults)
+    .values({
+      taskId: input.taskId,
+      subjectType: input.subjectType,
+      subjectNumber: input.subjectNumber,
+      repositoryFullName: input.repositoryFullName,
+      revision: input.revision,
+      result: input.result,
+      published: true,
+    })
+    .onConflictDoNothing({ target: subjectResults.taskId });
 }
 
 function assertGithub(github: ReturnType<typeof createGitHubClient> | null) {

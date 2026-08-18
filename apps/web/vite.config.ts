@@ -9,6 +9,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
+    // SMB does not support inotify-style watchers; poll instead.
+    watch: { usePolling: true, interval: 300 },
     proxy: {
       "/health": proxyTarget,
       "/events": { target: proxyTarget, changeOrigin: true, ws: false },

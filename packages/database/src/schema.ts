@@ -302,3 +302,32 @@ export const issueDocuments = pgTable(
     ),
   ],
 );
+
+/** Persisted structured result of an issue analysis or PR review run. */
+export const subjectResults = pgTable(
+  "subject_results",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    subjectType: varchar("subject_type", { length: 20 }).notNull(),
+    subjectNumber: integer("subject_number").notNull(),
+    repositoryFullName: text("repository_full_name").notNull(),
+    revision: text("revision").notNull(),
+    taskId: uuid("task_id").references(() => analysisTasks.id),
+    result: jsonb("result").notNull(),
+    published: boolean("published").default(false).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("subject_results_task_unique").on(table.taskId),
+    index("subject_results_type_number_idx").on(
+      table.subjectType,
+      table.subjectNumber,
+      table.createdAt,
+    ),
+  ],
+);

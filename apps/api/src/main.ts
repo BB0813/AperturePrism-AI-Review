@@ -4,7 +4,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { asc, desc, eq, lt } from "drizzle-orm";
+import { and, asc, desc, eq, lt } from "drizzle-orm";
 import { loadConfig } from "../../../packages/config/src/index.js";
 import {
   analysisTasks,
@@ -14,6 +14,9 @@ import {
   createDatabaseClient,
   createRedisClient,
   ingestGitHubWebhook,
+  modelRolePolicies,
+  providerAccounts,
+  subjectResults,
   taskAttempts,
   taskEvents,
 } from "../../../packages/database/src/index.js";
@@ -262,6 +265,123 @@ async function handleTasks(
   json(response, 200, { ...row, timeline, attempts }, requestId);
 }
 
+/** Model role policies + configured provider account names (never the keys). */
+async function handleProviders(
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const [policies, accounts] = await Promise.all([
+    database.db
+      .select({
+        role: modelRolePolicies.role,
+        version: modelRolePolicies.version,
+        candidates: modelRolePolicies.candidates,
+        createdAt: modelRolePolicies.createdAt,
+      })
+      .from(modelRolePolicies)
+      .orderBy(asc(modelRolePolicies.role)),
+    database.db
+      .select({ name: providerAccounts.name })
+      .from(providerAccounts)
+      .orderBy(asc(providerAccounts.name)),
+  ]);
+  json(
+    response,
+    200,
+    { policies, accounts: accounts.map((account) => account.name) },
+    requestId,
+  );
+}
+
+const resultColumns = {
+  subjectType: subjectResults.subjectType,
+  subjectNumber: subjectResults.subjectNumber,
+  repositoryFullName: subjectResults.repositoryFullName,
+  revision: subjectResults.revision,
+  result: subjectResults.result,
+  published: subjectResults.published,
+  createdAt: subjectResults.createdAt,
+} as const;
+
+/**
+ * Lists persisted results by type (`/results?type=issue|pr`) or all revisions
+ * for one subject (`/results/:type/:number`). Used by the WebUI result pages.
+ */
+async function handleResults(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const url = new URL(
+    request.url ?? "/",
+    `http://${request.headers.host ?? "localhost"}`,
+  );
+  const path = url.pathname;
+
+  // /results/:type/:number -> all revisions of one subject
+  if (path.startsWith("/results/")) {
+    const parts = path.split("/").filter(Boolean);
+    const type = parts[1];
+    const number = Number(parts[2]);
+    if ((type !== "issue" && type !== "pr") || !Number.isInteger(number)) {
+      json(
+        response,
+        400,
+        { status: "error", reason: "invalid result path" },
+        requestId,
+      );
+      return;
+    }
+    const items = await database.db
+      .select(resultColumns)
+      .from(subjectResults)
+      .where(
+        and(
+          eq(subjectResults.subjectType, type),
+          eq(subjectResults.subjectNumber, number),
+        ),
+      )
+      .orderBy(desc(subjectResults.createdAt))
+      .limit(50);
+    json(response, 200, { items }, requestId);
+    return;
+  }
+
+  // /results?type=issue|pr
+  const type = url.searchParams.get("type");
+  if (type !== "issue" && type !== "pr") {
+    json(response, 400, { status: "error", reason: "type=issue|pr required" }, requestId);
+    return;
+  }
+  const limitRaw = Number(url.searchParams.get("limit"));
+  const limit = Number.isFinite(limitRaw)
+    ? Math.min(Math.max(Math.trunc(limitRaw), 1), 100)
+    : 25;
+  const beforeRaw = url.searchParams.get("before");
+  const before =
+    beforeRaw && !Number.isNaN(Date.parse(beforeRaw)) ? new Date(beforeRaw) : null;
+  const items = await database.db
+    .select(resultColumns)
+    .from(subjectResults)
+    .where(
+      and(
+        eq(subjectResults.subjectType, type),
+        before ? lt(subjectResults.createdAt, before) : undefined,
+      ),
+    )
+    .orderBy(desc(subjectResults.createdAt))
+    .limit(limit);
+  const last = items.at(-1)?.createdAt;
+  const nextCursor =
+    items.length === limit && last ? last.toISOString() : undefined;
+  json(
+    response,
+    200,
+    nextCursor === undefined ? { items } : { items, nextCursor },
+    requestId,
+  );
+}
+
 async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
@@ -313,6 +433,16 @@ async function handleRequest(
 
   if (path === "/tasks" || path.startsWith("/tasks/")) {
     await handleTasks(request, response, requestId);
+    return;
+  }
+
+  if (path === "/providers") {
+    await handleProviders(response, requestId);
+    return;
+  }
+
+  if (path === "/results" || path.startsWith("/results/")) {
+    await handleResults(request, response, requestId);
     return;
   }
 

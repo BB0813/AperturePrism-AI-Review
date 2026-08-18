@@ -1,7 +1,8 @@
 import { useSse } from "./hooks/useSse";
 import { navigate, tabOf, useHashRoute } from "./hooks/useHash";
-import { InfoPage } from "./pages/InfoPage";
 import { Overview } from "./pages/Overview";
+import { ProviderPage } from "./pages/ProviderPage";
+import { ResultsPage } from "./pages/ResultsPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { TasksPage } from "./pages/TasksPage";
 
@@ -13,6 +14,7 @@ const STATUS_LABEL = {
 
 const TABS = [
   { path: "/", label: "概览" },
+  { path: "/issues", label: "Issue" },
   { path: "/tasks", label: "任务" },
   { path: "/pr", label: "PR" },
   { path: "/provider", label: "Provider" },
@@ -52,10 +54,12 @@ export function App() {
           <Overview />
         ) : active === "/tasks" ? (
           <TasksPage />
+        ) : active === "/issues" ? (
+          <ResultsPage type="issue" label="Issue" />
         ) : active === "/pr" ? (
-          <InfoPage title="PR" note="PR 结果页待接入（任务引擎接线后展示）。" />
+          <ResultsPage type="pr" label="PR" />
         ) : (
-          <InfoPage title="Provider" note="模型 Provider 与策略管理将在此展示。" />
+          <ProviderPage />
         )}
       </main>
     </div>

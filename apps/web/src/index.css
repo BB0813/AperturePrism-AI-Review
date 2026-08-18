@@ -342,3 +342,42 @@ button {
   white-space: pre-wrap;
   word-break: break-all;
 }
+
+.results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.result {
+  border: 1px solid #262b36;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.result-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.result-subject {
+  font-weight: 600;
+}
+
+.result-rev {
+  color: #4aa8ff;
+  font-size: 12px;
+}
+
+.result-summary {
+  margin: 8px 0 0;
+  color: #c7cdd8;
+  font-size: 13px;
+  line-height: 1.5;
+}

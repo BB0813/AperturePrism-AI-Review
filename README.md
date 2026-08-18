@@ -10,7 +10,7 @@
 ## 当前进度
 
 - **已完成**：M0–M7（工程基线 → Webhook → 任务引擎 → 多模型路由 → Issue 分析 → 重复检测 → PR Review MVP），以及 QQ 机器人渠道（NTQQ + 官方开放平台）。
-- **进行中 / 下一步**：M8 WebUI —— 概览/任务/PR/Provider 四个标签（hash 路由）、任务列表（cursor 分页）、任务详情（生命周期时间线 + attempts）已就位；后续接入 PR/Issue 结果页、选题认证与 SSE 任务事件推送。再往后 M9 索引与 RAG。
+- **进行中 / 下一步**：M8 WebUI —— 概览 / **Issue / PR 结果页**（结构化结果已持久化到 `subject_results`，`/results` API）/ 任务列表（cursor 分页）/ 任务详情（生命周期时间线 + attempts）/ **Provider 页**；后续接入认证与 SSE 任务事件推送。再往后 M9 索引与 RAG。
 - 关键链路已在 NAS 隔离测试环境（postgres+redis）以真实 GitHub 与真实模型验证：
   - Issue 全纵向：webhook 幂等 → GitHub 拉取 → 多模型分析 → 评级 → 幂等评论发布。
   - 重复检测全链路：全文+信号+向量(pgvector)召回 → deepseek 裁决 → 服务端裁决。
