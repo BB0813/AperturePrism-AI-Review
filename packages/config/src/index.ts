@@ -143,6 +143,8 @@ const environmentSchema = z.object({
   /** Separate embedding API key; if unset, EMBEDDING_BASE_URL is ignored. */
   EMBEDDING_API_KEY: z.string().min(1).optional(),
   EMBEDDING_MODEL: z.string().min(1).default("nvidia/nv-embed-v1"),
+  /** Optional bearer token guarding the WebUI-facing API routes (/tasks, /results, /providers, /events). */
+  WEBUI_API_TOKEN: z.string().min(1).optional(),
 });
 
 export type AppConfig = Readonly<{
@@ -164,6 +166,7 @@ export type AppConfig = Readonly<{
   qqOfficialAppSecret: string | undefined;
   qqOfficialGatewayUrl: string | undefined;
   qqOfficialIntents: number;
+  webuiApiToken: string | undefined;
   embedding: Readonly<{
     baseUrl: string | undefined;
     apiKey: string | undefined;
@@ -199,6 +202,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv): AppConfig {
     qqOfficialAppSecret: parsed.QQ_OFFICIAL_APP_SECRET,
     qqOfficialGatewayUrl: parsed.QQ_OFFICIAL_GATEWAY_URL,
     qqOfficialIntents: parsed.QQ_OFFICIAL_INTENTS,
+    webuiApiToken: parsed.WEBUI_API_TOKEN,
     embedding: Object.freeze({
       baseUrl: parsed.EMBEDDING_BASE_URL,
       apiKey: parsed.EMBEDDING_API_KEY,

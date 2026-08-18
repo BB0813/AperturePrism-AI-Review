@@ -234,6 +234,44 @@ button:disabled {
   cursor: default;
 }
 
+.logout {
+  font-size: 12px;
+  padding: 6px 12px;
+}
+
+.login-wrap {
+  max-width: 420px;
+  margin: 10vh auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.login {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.login input {
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 11px 12px;
+  font: inherit;
+  font-size: 14px;
+}
+
+.login input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.login button {
+  margin-top: 4px;
+}
+
 /* ---------- tables ---------- */
 .table {
   width: 100%;

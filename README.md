@@ -49,6 +49,7 @@ npm run build
 ## 配置（本地 `.env`，不入 git）
 
 - 数据库 / Redis / 日志 / 健康检查
+- WebUI：`WEBUI_API_TOKEN`（可选 Bearer 令牌，保护 `/tasks`、`/results`、`/providers`、`/events`；不设则开放）
 - GitHub App：`GITHUB_APP_ID`、`GITHUB_APP_PRIVATE_KEY_PATH`、`GITHUB_WEBHOOK_SECRET`
 - 模型：`MODEL_PROVIDER_BASE_URLS`（review 模型）+ `CREDENTIAL_MASTER_KEY`（加密存 provider 密钥到数据库）
 - Embedding（与 review 模型**独立**配置 API 与 Key）：

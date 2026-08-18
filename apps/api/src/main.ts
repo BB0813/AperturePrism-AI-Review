@@ -1,10 +1,10 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import {
   createServer,
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { and, asc, desc, eq, lt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, lt } from "drizzle-orm";
 import { loadConfig } from "../../../packages/config/src/index.js";
 import {
   analysisTasks,
@@ -27,7 +27,6 @@ import {
 } from "../../../packages/github-adapter/src/index.js";
 import { ISSUE_ANALYSIS_POLICY_VERSION } from "../../../packages/issue-analysis/src/index.js";
 import {
-  heartbeatEvent,
   serializeSseEvent,
   SSE_HEADERS,
 } from "../../../packages/event-stream/src/index.js";
@@ -44,6 +43,33 @@ const redis = createRedisClient(config.redisUrl);
 
 /** Open SSE connections so shutdown can end them and exit cleanly. */
 const sseClients = new Set<ServerResponse>();
+
+/** Routes that require the WebUI bearer token when it is configured. */
+const protectedPaths = ["/tasks", "/results", "/providers", "/events"];
+const EVENT_CHANNEL = "apertureprism:task:events";
+
+/** Auth is disabled when WEBUI_API_TOKEN is unset (open dev / intranet mode). */
+function isAuthorized(request: IncomingMessage): boolean {
+  if (!config.webuiApiToken) return true;
+  let token: string | null = null;
+  const header = request.headers.authorization;
+  if (typeof header === "string" && header.startsWith("Bearer "))
+    token = header.slice(7);
+  if (token === null) {
+    const url = new URL(request.url ?? "/", "http://localhost");
+    token = url.searchParams.get("token");
+  }
+  if (token === null || token.length === 0) return false;
+  return (
+    token.length === config.webuiApiToken.length &&
+    timingSafeEqual(Buffer.from(token), Buffer.from(config.webuiApiToken))
+  );
+}
+
+const requiresAuth = (path: string): boolean =>
+  protectedPaths.some(
+    (base) => path === base || path.startsWith(`${base}/`),
+  );
 
 function json(
   response: ServerResponse,
@@ -147,24 +173,145 @@ async function handleWebhook(
   }
 }
 
-/**
- * Keeps an SSE connection open, emitting a heartbeat every interval so
- * clients can detect liveness and so a responsive UI exists before the
- * transactional outbox / task-event publisher lands in a later M8 step.
- */
+/** Monotonic sequence for SSE frames so clients can detect gaps. */
+let sseSeq = 0;
+/** Watermark of the last task_events row already dispatched. */
+let eventWatermark: Date | null = null;
+let eventSubscriber: Awaited<ReturnType<typeof redis.duplicate>> | null = null;
+let eventPublisher: Awaited<ReturnType<typeof redis.duplicate>> | null = null;
+let hbTimer: ReturnType<typeof setInterval> | null = null;
+let pumpTimer: ReturnType<typeof setInterval> | null = null;
+
+/** Writes one SSE frame to every open client. */
+function broadcastSse(seq: number, type: string, data: unknown): void {
+  const frame = serializeSseEvent({ seq, type, data });
+  for (const client of sseClients) client.write(frame);
+}
+
+/** Keeps an SSE connection open; frames are broadcast by the shared relay. */
 function handleSse(response: ServerResponse): void {
   response.writeHead(200, SSE_HEADERS);
   response.write(": connected\n\n");
   sseClients.add(response);
-  let seq = 0;
-  const timer = setInterval(() => {
-    seq += 1;
-    response.write(serializeSseEvent(heartbeatEvent(seq)));
-  }, 15_000);
   response.on("close", () => {
-    clearInterval(timer);
     sseClients.delete(response);
   });
+}
+
+/**
+ * The event relay: poll `task_events` for new lifecycle events, publish them to
+ * Redis, and forward every published frame to the open SSE clients. Best-effort:
+ * if Redis or the database is unavailable the relay degrades to heartbeats only
+ * and the API still starts.
+ */
+async function startEventStream(): Promise<void> {
+  let relay = false;
+  try {
+    eventSubscriber = redis.duplicate();
+    eventSubscriber.on("error", () => undefined);
+    eventSubscriber.on("message", (_channel, message) => {
+      try {
+        const parsed = JSON.parse(message) as {
+          seq: number;
+          type: string;
+          data: unknown;
+        };
+        const frame = serializeSseEvent(parsed);
+        for (const client of sseClients) client.write(frame);
+      } catch {
+        // ignore malformed frames
+      }
+    });
+    await eventSubscriber.connect();
+    await eventSubscriber.subscribe(EVENT_CHANNEL);
+
+    eventPublisher = redis.duplicate();
+    eventPublisher.on("error", () => undefined);
+    await eventPublisher.connect();
+    relay = true;
+  } catch (error) {
+    logger.warn({ err: error }, "event relay disabled: Redis unavailable");
+    eventSubscriber?.disconnect();
+    eventPublisher?.disconnect();
+    eventSubscriber = null;
+    eventPublisher = null;
+  }
+
+  try {
+    const max = await database.db
+      .select({ at: taskEvents.createdAt })
+      .from(taskEvents)
+      .orderBy(desc(taskEvents.createdAt))
+      .limit(1);
+    eventWatermark = max[0]?.at ?? null;
+  } catch {
+    eventWatermark = null;
+  }
+
+  hbTimer = setInterval(() => {
+    sseSeq += 1;
+    broadcastSse(sseSeq, "heartbeat", { at: new Date().toISOString() });
+  }, 15_000);
+
+  if (relay) {
+    pumpTimer = setInterval(() => {
+      void pumpTaskEvents().catch((error: unknown) => {
+        logger.warn({ err: error }, "task event pump failed");
+      });
+    }, 1_000);
+  }
+}
+
+async function pumpTaskEvents(): Promise<void> {
+  const rows = await database.db
+    .select({
+      taskId: taskEvents.taskId,
+      eventType: taskEvents.eventType,
+      data: taskEvents.data,
+      createdAt: taskEvents.createdAt,
+    })
+    .from(taskEvents)
+    .where(eventWatermark ? gt(taskEvents.createdAt, eventWatermark) : undefined)
+    .orderBy(asc(taskEvents.createdAt))
+    .limit(200);
+  for (const row of rows) {
+    sseSeq += 1;
+    const evt = {
+      seq: sseSeq,
+      type: "task",
+      data: {
+        taskId: row.taskId,
+        eventType: row.eventType,
+        data: row.data,
+        createdAt: row.createdAt,
+      },
+    };
+    if (eventPublisher) await eventPublisher.publish(EVENT_CHANNEL, JSON.stringify(evt));
+  }
+  if (rows.length > 0 && rows[rows.length - 1]?.createdAt)
+    eventWatermark = rows[rows.length - 1]?.createdAt ?? null;
+}
+
+async function stopEventStream(): Promise<void> {
+  if (hbTimer) clearInterval(hbTimer);
+  if (pumpTimer) clearInterval(pumpTimer);
+  for (const client of sseClients) client.end();
+  sseClients.clear();
+  if (eventSubscriber) {
+    try {
+      await eventSubscriber.unsubscribe(EVENT_CHANNEL);
+      await eventSubscriber.quit();
+    } catch {
+      eventSubscriber.disconnect();
+    }
+  }
+  if (eventPublisher) {
+    try {
+      await eventPublisher.quit();
+    } catch {
+      eventPublisher.disconnect();
+    }
+  }
 }
 
 /** Column set shared by the list and detail views (payload is heavy). */
@@ -393,6 +540,16 @@ async function handleRequest(
     `http://${request.headers.host ?? "localhost"}`,
   ).pathname;
 
+  if (requiresAuth(path) && !isAuthorized(request)) {
+    json(
+      response,
+      401,
+      { status: "error", reason: "unauthorized" },
+      requestId,
+    );
+    return;
+  }
+
   if (path === "/github/webhook") {
     if (request.method !== "POST") {
       json(
@@ -494,8 +651,7 @@ const server = createServer((request, response) => {
 
 async function shutdown(signal: string): Promise<void> {
   logger.info({ signal }, "shutting down");
-  for (const client of sseClients) client.end();
-  sseClients.clear();
+  await stopEventStream();
   await new Promise<void>((resolve) => server.close(() => resolve()));
   await closeRedisClient(redis);
   await database.close();
@@ -503,6 +659,13 @@ async function shutdown(signal: string): Promise<void> {
 
 process.once("SIGINT", () => void shutdown("SIGINT"));
 process.once("SIGTERM", () => void shutdown("SIGTERM"));
-server.listen(config.port, config.host, () =>
-  logger.info({ host: config.host, port: config.port }, "API listening"),
-);
+void startEventStream()
+  .then(() => {
+    server.listen(config.port, config.host, () =>
+      logger.info({ host: config.host, port: config.port }, "API listening"),
+    );
+  })
+  .catch((error: unknown) => {
+    logger.error({ err: error }, "failed to start event stream");
+    process.exitCode = 1;
+  });

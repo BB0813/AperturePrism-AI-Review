@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchHealth, type ReadyHealth } from "../lib/api";
 import { useSse } from "../hooks/useSse";
+import { eventsUrl } from "../lib/auth";
 
 /** Overview tab: API/dependency health + the live SSE event stream. */
 export function Overview() {
   const [health, setHealth] = useState<ReadyHealth | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
-  const sse = useSse("/events");
+  const sse = useSse(eventsUrl());
 
   const refresh = useCallback(() => {
     setHealthError(null);

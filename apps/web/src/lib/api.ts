@@ -1,3 +1,5 @@
+import { authHeaders } from "./auth";
+
 export type HealthDependency = {
   name: string;
   status: "ok" | "error";
@@ -66,7 +68,10 @@ export type ProviderOverview = {
 };
 
 async function getJson(url: string): Promise<unknown> {
-  const response = await fetch(url, { headers: { accept: "application/json" } });
+  const response = await fetch(url, {
+    headers: { accept: "application/json", ...authHeaders() },
+  });
+  if (response.status === 401) throw new Error("unauthorized");
   if (!response.ok) throw new Error(`request failed with ${response.status}`);
   return response.json();
 }
