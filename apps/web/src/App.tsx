@@ -2,6 +2,7 @@ import { useSse } from "./hooks/useSse";
 import { navigate, tabOf, useHashRoute } from "./hooks/useHash";
 import { InfoPage } from "./pages/InfoPage";
 import { Overview } from "./pages/Overview";
+import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { TasksPage } from "./pages/TasksPage";
 
 const STATUS_LABEL = {
@@ -45,7 +46,9 @@ export function App() {
       </header>
 
       <main>
-        {active === "/" ? (
+        {route.startsWith("/tasks/") && route.length > "/tasks/".length ? (
+          <TaskDetailPage id={route.slice("/tasks/".length)} />
+        ) : active === "/" ? (
           <Overview />
         ) : active === "/tasks" ? (
           <TasksPage />

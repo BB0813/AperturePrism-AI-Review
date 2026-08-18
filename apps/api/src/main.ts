@@ -4,7 +4,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { desc, eq, lt } from "drizzle-orm";
+import { asc, desc, eq, lt } from "drizzle-orm";
 import { loadConfig } from "../../../packages/config/src/index.js";
 import {
   analysisTasks,
@@ -14,6 +14,8 @@ import {
   createDatabaseClient,
   createRedisClient,
   ingestGitHubWebhook,
+  taskAttempts,
+  taskEvents,
 } from "../../../packages/database/src/index.js";
 import {
   normalizeGitHubEvent,
@@ -234,7 +236,30 @@ async function handleTasks(
     json(response, 404, { status: "error", reason: "task not found" }, requestId);
     return;
   }
-  json(response, 200, row, requestId);
+  const [timeline, attempts] = await Promise.all([
+    database.db
+      .select({
+        eventType: taskEvents.eventType,
+        data: taskEvents.data,
+        createdAt: taskEvents.createdAt,
+      })
+      .from(taskEvents)
+      .where(eq(taskEvents.taskId, id))
+      .orderBy(asc(taskEvents.createdAt))
+      .limit(200),
+    database.db
+      .select({
+        attemptNumber: taskAttempts.attemptNumber,
+        workerId: taskAttempts.workerId,
+        startedAt: taskAttempts.startedAt,
+        finishedAt: taskAttempts.finishedAt,
+        errorCategory: taskAttempts.errorCategory,
+      })
+      .from(taskAttempts)
+      .where(eq(taskAttempts.taskId, id))
+      .orderBy(asc(taskAttempts.attemptNumber)),
+  ]);
+  json(response, 200, { ...row, timeline, attempts }, requestId);
 }
 
 async function handleRequest(

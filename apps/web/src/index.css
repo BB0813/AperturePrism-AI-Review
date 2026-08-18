@@ -272,3 +272,73 @@ button {
   font: inherit;
   cursor: pointer;
 }
+
+.row-link {
+  cursor: pointer;
+}
+
+.row-link:hover {
+  background: #1b202a;
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 8px 16px;
+  margin: 8px 0 16px;
+}
+
+.kv dt {
+  color: #9aa3b2;
+  font-size: 12px;
+}
+
+.kv dd {
+  margin: 0;
+}
+
+.card h3 {
+  margin: 18px 0 8px;
+  font-size: 13px;
+  color: #9aa3b2;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tl-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.tl-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4aa8ff;
+  margin-top: 5px;
+  flex-shrink: 0;
+}
+
+.tl-title {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.tl-item pre {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #9aa3b2;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

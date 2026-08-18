@@ -33,6 +33,26 @@ export type TaskList = {
   nextCursor?: string;
 };
 
+export type TaskEvent = {
+  eventType: string;
+  data: unknown;
+  createdAt: string;
+};
+
+export type TaskAttempt = {
+  attemptNumber: number;
+  workerId: string;
+  startedAt: string;
+  finishedAt: string | null;
+  errorCategory: string | null;
+};
+
+export type TaskDetail = TaskSummary & {
+  payload: unknown;
+  timeline: TaskEvent[];
+  attempts: TaskAttempt[];
+};
+
 async function getJson(url: string): Promise<unknown> {
   const response = await fetch(url, { headers: { accept: "application/json" } });
   if (!response.ok) throw new Error(`request failed with ${response.status}`);
@@ -57,4 +77,9 @@ export async function fetchTasks(options?: {
   if (options?.before) params.set("before", options.before);
   const query = params.toString();
   return (await getJson(`/tasks${query ? `?${query}` : ""}`)) as TaskList;
+}
+
+/** Fetches a single task with its timeline and attempts. */
+export async function fetchTaskDetail(id: string): Promise<TaskDetail> {
+  return (await getJson(`/tasks/${encodeURIComponent(id)}`)) as TaskDetail;
 }

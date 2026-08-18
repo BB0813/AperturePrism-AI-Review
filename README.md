@@ -10,7 +10,7 @@
 ## 当前进度
 
 - **已完成**：M0–M7（工程基线 → Webhook → 任务引擎 → 多模型路由 → Issue 分析 → 重复检测 → PR Review MVP），以及 QQ 机器人渠道（NTQQ + 官方开放平台）。
-- **进行中 / 下一步**：M8 WebUI 与增量事件（SSE）——基础已就位（`/events` SSE 端点 + `event-stream` 包），React UI 待续；再往后 M9 索引与 RAG。
+- **进行中 / 下一步**：M8 WebUI —— 概览/任务/PR/Provider 四个标签（hash 路由）、任务列表（cursor 分页）、任务详情（生命周期时间线 + attempts）已就位；后续接入 PR/Issue 结果页、选题认证与 SSE 任务事件推送。再往后 M9 索引与 RAG。
 - 关键链路已在 NAS 隔离测试环境（postgres+redis）以真实 GitHub 与真实模型验证：
   - Issue 全纵向：webhook 幂等 → GitHub 拉取 → 多模型分析 → 评级 → 幂等评论发布。
   - 重复检测全链路：全文+信号+向量(pgvector)召回 → deepseek 裁决 → 服务端裁决。
@@ -29,7 +29,7 @@
 | M6 | 重复 Issue 检测（标准化/召回/裁决/评测），NAS 实测通过 | ✅ 已完成 |
 | M7 | PR Review MVP：diff 解析/行映射、大小与预算降级、结构化 finding/严重度策略、受限修复、幂等发布 | ✅ 已完成 |
 | M10 | QQ 机器人（NTQQ：OneBot 11 / Satori / Milky；官方 api-v2） | ✅ 已完成 |
-| M8 | WebUI 与增量事件（SSE）——提前开发 | 🚧 进行中（SSE 基础已就位） |
+| M8 | WebUI 与增量事件（SSE）——提前开发 | 🚧 进行中（标签/任务列表/详情时间线已就位） |
 | M9 | 索引与 RAG | ⏳ 待开发 |
 | M11 | 生产加固与发布 | ⏳ 待开发 |
 
@@ -67,3 +67,4 @@ npm run build
     - Milky：<https://milky.ntqqrev.org/>
   - 官方 QQ 开放平台机器人（api-v2）：<https://bot.q.qq.com/wiki/develop/api-v2/>
 - 重复检测：向量仅用于召回，最终裁决由服务端策略完成，第一版不自动关闭 Issue。
+- 模型选择（newapi 通道）：`deepseek-chat` 会被路由到推理模型（输出 `think` 块、不支持 `json_object`），结构化输出请用 `deepseek-v4-flash`（实测干净 JSON）。三类角色策略（issue_analysis / duplicate_judgment / pr_review）均已配置为此模型。

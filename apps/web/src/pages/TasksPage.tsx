@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchTasks, type TaskList, type TaskSummary } from "../lib/api";
+import { navigate } from "../hooks/useHash";
 
 const TYPE_LABEL: Record<TaskSummary["taskType"], string> = {
   issue_analysis: "Issue",
@@ -57,7 +58,7 @@ export function TasksPage() {
           </thead>
           <tbody>
             {list.items.map((task) => (
-              <tr key={task.id}>
+              <tr key={task.id} className="row-link" onClick={() => navigate(`/tasks/${task.id}`)}>
                 <td>{TYPE_LABEL[task.taskType] ?? task.taskType}</td>
                 <td>
                   <span className={`status status-${task.status}`}>{task.status}</span>
