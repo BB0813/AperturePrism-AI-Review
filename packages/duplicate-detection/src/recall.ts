@@ -231,6 +231,10 @@ export async function recallCandidatesWithRepos(
     where to_tsvector('simple', d.body || ' ' || d.title) @@ websearch_to_tsquery('simple', ${leadText})
        or d.error_codes && ${input.signals.errorCodes}
        or d.paths && ${input.signals.paths}
+       -- The 'simple' FTS config treats CJK text as a single token, so Chinese
+       -- titles never match. A title-substring hit is a valid recall signal.
+       or (${input.title} <> '' and (d.title ilike '%' || ${input.title} || '%'
+            or d.body ilike '%' || ${input.title} || '%'))
     order by "ftsRank" desc, "signalRank" desc
     limit ${topK}`;
   return rows.map((row) => {
