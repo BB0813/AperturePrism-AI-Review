@@ -20,6 +20,11 @@ import {
 } from "../../../packages/github-adapter/src/index.js";
 import { ISSUE_ANALYSIS_POLICY_VERSION } from "../../../packages/issue-analysis/src/index.js";
 import {
+  heartbeatEvent,
+  serializeSseEvent,
+  SSE_HEADERS,
+} from "../../../packages/event-stream/src/index.js";
+import {
   createLogger,
   withCorrelation,
 } from "../../../packages/observability/src/index.js";
@@ -28,6 +33,9 @@ const config = loadConfig(process.env);
 const logger = createLogger(config.logLevel);
 const database = createDatabaseClient(config.databaseUrl);
 const redis = createRedisClient(config.redisUrl);
+
+/** Open SSE connections so shutdown can end them and exit cleanly. */
+const sseClients = new Set<ServerResponse>();
 
 function json(
   response: ServerResponse,
@@ -127,6 +135,26 @@ async function handleWebhook(
   }
 }
 
+/**
+ * Keeps an SSE connection open, emitting a heartbeat every interval so
+ * clients can detect liveness and so a responsive UI exists before the
+ * transactional outbox / task-event publisher lands in a later M8 step.
+ */
+function handleSse(response: ServerResponse): void {
+  response.writeHead(200, SSE_HEADERS);
+  response.write(": connected\n\n");
+  sseClients.add(response);
+  let seq = 0;
+  const timer = setInterval(() => {
+    seq += 1;
+    response.write(serializeSseEvent(heartbeatEvent(seq)));
+  }, 15_000);
+  response.on("close", () => {
+    clearInterval(timer);
+    sseClients.delete(response);
+  });
+}
+
 async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
@@ -149,6 +177,20 @@ async function handleRequest(
       return;
     }
     await handleWebhook(request, response, requestId);
+    return;
+  }
+
+  if (path === "/events") {
+    if (request.method !== "GET") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    handleSse(response);
     return;
   }
 
@@ -210,6 +252,8 @@ const server = createServer((request, response) => {
 
 async function shutdown(signal: string): Promise<void> {
   logger.info({ signal }, "shutting down");
+  for (const client of sseClients) client.end();
+  sseClients.clear();
   await new Promise<void>((resolve) => server.close(() => resolve()));
   await closeRedisClient(redis);
   await database.close();

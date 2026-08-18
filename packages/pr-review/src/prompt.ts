@@ -1,0 +1,101 @@
+import type {
+  ModelInvocationRequest,
+  ModelMessage,
+} from "../../../packages/domain/src/index.js";
+import { renderHunksText, type RenderedPrContext } from "./context.js";
+
+/** Bump when the prompt semantics change so the idempotency key changes too. */
+export const PR_REVIEW_PROMPT_VERSION = "v1" as const;
+export const PR_REVIEW_POLICY_VERSION =
+  `pr-review-${PR_REVIEW_PROMPT_VERSION}` as const;
+
+const CONTRACT_VERSION = "pr-review/v1";
+
+const systemPrompt = `你是一个严谨的 GitHub Pull Request 代码审查器。你的任务是基于 PR 的 diff，审查变更并输出一份结构化 JSON 审查结果。
+
+输出必须严格符合以下契约（JSON 对象，不要输出任何解释、Markdown 代码块或额外文字）：
+{
+  "contractVersion": "${CONTRACT_VERSION}",
+  "summary": "不超过 3000 字符的一段整体审查总结",
+  "changedFileCount": 整数（变更文件数量,含二进制）,
+  "additions": 整数（新增行数）,
+  "deletions": 整数（删除行数）,
+  "overallTone": "approve | changes_requested | comment",
+  "findings": [{
+    "rule": "稳定的规则标识，如 missing-null-check、missing-error-handling、unbounded-recursion、sql-injection、panic-recovery、off-by-one、race-condition",
+    "severity": "critical | high | medium | low | info",
+    "file": "新文件路径，必须与 diff 中的路径一致",
+    "message": "不超过 2000 字符的简洁说明",
+    "evidence": "来自 diff 的原文摘录，必须真实存在，严禁编造",
+    "impact": "不超过 2000 字符的影响说明",
+    "confidence": 0-1 之间的置信度,
+    "suggestion": "不超过 2000 字符的修复建议",
+    "afterLine": 该问题锚定的新文件行号（1 起），不确定时写 0
+  }],
+  "整体上 findings 最多 50 条"
+}
+
+规则（必须遵守）：
+- findings 只针对 diff 中真实出现的代码，严禁编造不存在的缺陷，证据必须逐字摘自 diff。
+- 只给出高价值、可行动的审查意见；低置信的风格意见不要输出。
+- afterLine 必须是 diff 中新文件行号语义内的行；无法可靠对应行号时用 0，并视情况进入总体总结而非强行给出错误行号。
+- severity 表示影响：只有证据充分时才给 critical/high；speculative 的 downgrade 到 medium 或 low。
+- 如果整体没有问题，给出 approve，findings 可为空数组。
+- 上下文可能被降级（部分文件仅列名），此时要更谨慎，不要对未看到的代码下结论。`;
+
+export function renderPrContextText(context: RenderedPrContext): string {
+  const lines: string[] = [
+    `变更文件数: ${context.diff.files.length}`,
+    `新增行: ${context.diff.additions}，删除行: ${context.diff.deletions}`,
+    "",
+    renderHunksText(context),
+  ];
+  return lines.join("\n");
+}
+
+export function buildPrReviewMessages(
+  context: RenderedPrContext,
+): readonly ModelMessage[] {
+  return [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: renderPrContextText(context) },
+  ];
+}
+
+export function buildPrReviewRequest(
+  context: RenderedPrContext,
+): ModelInvocationRequest {
+  return {
+    messages: buildPrReviewMessages(context),
+    responseFormat: "json",
+    maxOutputTokens: 2_400,
+    temperature: 0.2,
+  };
+}
+
+export function buildPrReviewRepairRequest(
+  context: RenderedPrContext,
+  invalidText: string,
+  issues: readonly string[],
+): ModelInvocationRequest {
+  return {
+    messages: [
+      { role: "system", content: systemPrompt },
+      {
+        role: "user",
+        content: `${renderPrContextText(context)}
+
+你上一次的输出没有通过契约校验，错误如下：
+${issues.map((issue) => `- ${issue}`).join("\n")}
+
+你上一次的输出：
+${invalidText}
+
+请根据错误列表修正，重新只输出一个符合契约的 JSON 对象。`,
+      },
+    ],
+    responseFormat: "json",
+    maxOutputTokens: 2_400,
+    temperature: 0.1,
+  };
+}
