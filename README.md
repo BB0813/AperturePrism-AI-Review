@@ -64,7 +64,9 @@ npm run build
 - QQ 机器人通过独立渠道适配器接入：
   - NTQQ 第三方 Bot 协议：OneBot 11、Satori、Milky
     - [OneBot 11](https://github.com/botuniverse/onebot-11)
-      -[Satori](https://satori.chat/zh-CN/protocol/)
+      
+
+-[Satori](https://satori.chat/zh-CN/protocol/)
     - [Milky](https://milky.ntqqrev.org/)
   - [官方 QQ 开放平台机器人（api-v2）](https://bot.q.qq.com/wiki/develop/api-v2/)
 - 重复检测：向量仅用于召回，最终裁决由服务端策略完成，第一版不自动关闭 Issue。
