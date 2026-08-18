@@ -34,7 +34,7 @@ export function TaskDetailPage(props: { id: string }) {
     <section className="card">
       <p>
         <a
-          className="tab"
+          className="back"
           href="#/tasks"
           onClick={(event) => {
             event.preventDefault();

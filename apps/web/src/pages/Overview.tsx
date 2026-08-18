@@ -56,7 +56,10 @@ function HealthCard(props: {
       </section>
     );
   }
-  const deps = [props.health.dependencies.database, props.health.dependencies.redis];
+  const deps = [
+    { name: "database", status: props.health.dependencies.database.status },
+    { name: "redis", status: props.health.dependencies.redis.status },
+  ];
   return (
     <section className="card">
       <h2>连接状态</h2>

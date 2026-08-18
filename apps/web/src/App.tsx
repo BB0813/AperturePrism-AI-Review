@@ -28,7 +28,10 @@ export function App() {
   return (
     <div className="shell">
       <header className="topbar">
-        <h1>AperturePrism</h1>
+        <div className="brand">
+          <span className="brand-mark">A</span>
+          <span>AperturePrism</span>
+        </div>
         <nav className="tabs">
           {TABS.map((tab) => (
             <a

@@ -315,6 +315,50 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
     }
   };
 
+  /**
+   * Mints an installation token and issues a request, retrying once on a 401:
+   * GitHub intermittently rejects a freshly-minted installation token on the
+   * API call itself (observed repeatedly). A fresh token + one retry covers it.
+   */
+  const authorized = async <T>(
+    installationId: string,
+    init: {
+      method: "GET" | "POST" | "PATCH";
+      path: string;
+      body?: unknown;
+      accept?: string;
+      rawText?: boolean;
+    },
+    signal?: AbortSignal,
+  ): Promise<T> => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const token = await getInstallationToken(installationId, signal);
+      try {
+        return await request<T>(init.path, {
+          method: init.method,
+          token,
+          body: init.body,
+          accept: init.accept,
+          rawText: init.rawText,
+          signal,
+        });
+      } catch (error) {
+        if (
+          attempt === 0 &&
+          error instanceof GitHubApiError &&
+          error.category === "authentication_failed"
+        )
+          continue;
+        throw error;
+      }
+    }
+    throw new GitHubApiError(
+      "authentication_failed",
+      "authorized request failed after retry",
+      401,
+    );
+  };
+
   return {
     getInstallationToken: async (installationId, signal) => ({
       token: await getInstallationToken(installationId, signal),
@@ -322,19 +366,25 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
     }),
 
     getIssue: async ({ installationId, owner, name, number }, signal) => {
-      const token = await getInstallationToken(installationId, signal);
-      const issue = await request<Record<string, unknown>>(
-        `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues/${number}`,
-        { method: "GET", token, signal },
+      const issue = await authorized<Record<string, unknown>>(
+        installationId,
+        {
+          method: "GET",
+          path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues/${number}`,
+        },
+        signal,
       );
       return mapIssue(issue);
     },
 
     getPullRequest: async ({ installationId, owner, name, number }, signal) => {
-      const token = await getInstallationToken(installationId, signal);
-      const pullRequest = await request<Record<string, unknown>>(
-        `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${number}`,
-        { method: "GET", token, signal },
+      const pullRequest = await authorized<Record<string, unknown>>(
+        installationId,
+        {
+          method: "GET",
+          path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${number}`,
+        },
+        signal,
       );
       return mapPullRequest(pullRequest);
     },
@@ -342,28 +392,29 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
     getPullRequestDiff: async (
       { installationId, owner, name, number },
       signal,
-    ) => {
-      const token = await getInstallationToken(installationId, signal);
-      return request<string>(
-        `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${number}`,
+    ) =>
+      authorized<string>(
+        installationId,
         {
           method: "GET",
-          token,
+          path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${number}`,
           accept: "application/vnd.github.diff",
           rawText: true,
-          signal,
         },
-      );
-    },
+        signal,
+      ),
 
     listIssueComments: async (
       { installationId, owner, name, number },
       signal,
     ) => {
-      const token = await getInstallationToken(installationId, signal);
-      const comments = await request<Record<string, unknown>[]>(
-        `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues/${number}/comments`,
-        { method: "GET", token, signal },
+      const comments = await authorized<Record<string, unknown>[]>(
+        installationId,
+        {
+          method: "GET",
+          path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues/${number}/comments`,
+        },
+        signal,
       );
       return comments.map(mapComment);
     },
@@ -372,15 +423,14 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
       { installationId, owner, name, number, body },
       signal,
     ) => {
-      const token = await getInstallationToken(installationId, signal);
-      const comment = await request<Record<string, unknown>>(
-        `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues/${number}/comments`,
+      const comment = await authorized<Record<string, unknown>>(
+        installationId,
         {
           method: "POST",
-          token,
+          path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues/${number}/comments`,
           body: { body },
-          signal,
         },
+        signal,
       );
       return mapComment(comment);
     },
@@ -389,10 +439,14 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
       { installationId, owner, name, commentId, body },
       signal,
     ) => {
-      const token = await getInstallationToken(installationId, signal);
-      const comment = await request<Record<string, unknown>>(
-        `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues/comments/${commentId}`,
-        { method: "PATCH", token, body: { body }, signal },
+      const comment = await authorized<Record<string, unknown>>(
+        installationId,
+        {
+          method: "PATCH",
+          path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues/comments/${commentId}`,
+          body: { body },
+        },
+        signal,
       );
       return mapComment(comment);
     },
@@ -401,15 +455,14 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
       { installationId, owner, name, pullNumber, commitId, body, event },
       signal,
     ) => {
-      const token = await getInstallationToken(installationId, signal);
-      const review = await request<Record<string, unknown>>(
-        `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${pullNumber}/reviews`,
+      const review = await authorized<Record<string, unknown>>(
+        installationId,
         {
           method: "POST",
-          token,
+          path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${pullNumber}/reviews`,
           body: { commit_id: commitId, body, event },
-          signal,
         },
+        signal,
       );
       return { id: numberValue(review.id) };
     },
