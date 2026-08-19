@@ -16,11 +16,18 @@ export function SetupPage() {
   const [error, setError] = useState<string | null>(null);
   const [initResult, setInitResult] = useState<SetupInitResult | null>(null);
   const [busy, setBusy] = useState(false);
+  // Captured from /setup/status while uninitialized; after init the API stops
+  // exposing it, so keep the value locally to display on the completion page.
+  const [webuiToken, setWebuiToken] = useState<string>("");
+  const [copied, setCopied] = useState(false);
 
   const check = useCallback(() => {
     setError(null);
     fetchSetupStatus()
-      .then(setStatus)
+      .then((s) => {
+        setStatus(s);
+        if (s.webuiToken) setWebuiToken(s.webuiToken);
+      })
       .catch((err: unknown) => setError(err instanceof Error ? err.message : "检测失败"));
   }, []);
 
@@ -37,10 +44,21 @@ export function SetupPage() {
       setStep(3);
       const fresh = await fetchSetupStatus();
       setStatus(fresh);
+      if (fresh.webuiToken) setWebuiToken(fresh.webuiToken);
     } catch (err) {
       setError(err instanceof Error ? err.message : "初始化失败");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const copyToken = async () => {
+    try {
+      await navigator.clipboard.writeText(webuiToken);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
     }
   };
 
@@ -133,6 +151,31 @@ export function SetupPage() {
           ) : (
             <p className="state state-ok">系统已就绪。</p>
           )}
+
+          {webuiToken ? (
+            <div className="panel" style={{ borderStyle: "dashed", marginTop: 12 }}>
+              <div className="panel-title">
+                <h3>请保存你的访问密钥</h3>
+                <span className="mono" style={{ fontSize: 12, color: "var(--muted)" }}>WEBUI_API_TOKEN</span>
+              </div>
+              <p className="state state-warn" style={{ marginBottom: 8 }}>
+                密钥只在本次安装期间显示一次，之后登录控制台都需要它。请立即复制并妥善保存。
+              </p>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <code className="jsonbox" style={{ flex: "1 1 260px", margin: 0, wordBreak: "break-all" }}>
+                  {webuiToken}
+                </code>
+                <button className="btn" onClick={copyToken}>
+                  {copied ? "已复制 ✓" : "复制密钥"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="state state-warn">
+              未检测到 WEBUI_API_TOKEN（未配置访问令牌）。请确认部署环境已设置该变量，否则控制台无法鉴权。
+            </p>
+          )}
+
           <div style={{ display: "flex", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
             <button className="btn" onClick={() => setStep(1)}>← 返回检测</button>
             <button className="btn btn-primary" onClick={() => navigate("/")}>进入系统 →</button>

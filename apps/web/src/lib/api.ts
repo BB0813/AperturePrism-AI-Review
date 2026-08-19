@@ -558,6 +558,8 @@ export type SetupStatus = {
   oauthConfigured: boolean;
   embeddingConfigured: boolean;
   initialized: boolean;
+  /** WEBUI_API_TOKEN surfaced only while the system is uninitialized. */
+  webuiToken?: string;
 };
 
 /** Install wizard diagnostics (public endpoint). */

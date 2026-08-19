@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactElement } from "react";
 import { useSse } from "./hooks/useSse";
 import { navigate, tabOf, useHashRoute } from "./hooks/useHash";
 import { eventsUrl, getToken, setToken } from "./lib/auth";
+import { fetchSetupStatus } from "./lib/api";
 import { Login } from "./pages/Login";
 import { Overview } from "./pages/Overview";
 import { LogOverviewPage } from "./pages/LogOverviewPage";
@@ -93,6 +94,19 @@ export function App() {
   const [token, setTokenState] = useState<string>(() => getToken());
   const route = useHashRoute();
   const showSetup = route === "/setup";
+  // Install state: `null` = still probing; `false` = not initialized (wizard
+  // is public); `true` = already installed (wizard requires auth / is hidden).
+  const [setupInstalled, setSetupInstalled] = useState<boolean | null>(null);
+
+  // On the setup route, decide whether the wizard may be shown without auth.
+  // A fresh install keeps it public; once initialized it must be gated behind
+  // the WebUI token so the wizard is hidden by default.
+  useEffect(() => {
+    if (!showSetup) return;
+    fetchSetupStatus()
+      .then((s) => setSetupInstalled(s.initialized))
+      .catch(() => setSetupInstalled(true)); // unknown → treat as installed
+  }, [showSetup]);
 
   // Consume the OAuth callback result carried in the hash (#/?token=… | oauth_error).
   useEffect(() => {
@@ -112,18 +126,24 @@ export function App() {
     }
   }, []);
 
-  if (showSetup) return <SetupPage />;
+  const loginGate = (
+    <Login
+      onAuthenticated={(value) => {
+        setToken(value);
+        setTokenState(value);
+      }}
+    />
+  );
 
-  if (!token) {
-    return (
-      <Login
-        onAuthenticated={(value) => {
-          setToken(value);
-          setTokenState(value);
-        }}
-      />
-    );
+  if (showSetup) {
+    if (setupInstalled === null) return null; // probing install state
+    // Already installed → the wizard is hidden by default and gated behind
+    // the WebUI token; unauthenticated visitors land on the login screen.
+    if (setupInstalled && !token) return loginGate;
+    return <SetupPage />;
   }
+
+  if (!token) return loginGate;
 
   return (
     <AuthedConsole

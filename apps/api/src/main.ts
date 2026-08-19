@@ -1930,6 +1930,8 @@ async function handleSetupStatus(
     dbOk = false;
   }
   const providerKey = Object.keys(config.modelProviderBaseUrls)[0] ?? "";
+  const initialized =
+    dbOk && tablesReady === 6 && policyCount >= DEFAULT_POLICIES.length;
   json(
     response,
     200,
@@ -1949,8 +1951,11 @@ async function handleSetupStatus(
       embeddingConfigured: Boolean(
         config.embedding.baseUrl && config.embedding.apiKey,
       ),
-      initialized:
-        dbOk && tablesReady === 6 && policyCount >= DEFAULT_POLICIES.length,
+      initialized,
+      // The WebUI bearer token is surfaced only while the system is still
+      // uninitialized so a fresh install can record it once. Once installed,
+      // the token is never exposed through this public endpoint.
+      ...(initialized ? {} : { webuiToken: webuiToken() }),
     },
     requestId,
   );

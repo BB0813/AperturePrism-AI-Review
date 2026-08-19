@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchOAuthStatus } from "../lib/api";
+import { fetchOAuthStatus, fetchSetupStatus } from "../lib/api";
 
 /** Full-screen gate shown when no access token is stored. */
 export function Login(props: { onAuthenticated: (token: string) => void }) {
@@ -7,11 +7,16 @@ export function Login(props: { onAuthenticated: (token: string) => void }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [oauthOn, setOauthOn] = useState(false);
+  // The install wizard is only offered on a fresh (uninitialized) install.
+  const [setupOn, setSetupOn] = useState(false);
 
   useEffect(() => {
     fetchOAuthStatus()
       .then((s) => setOauthOn(s.oauthConfigured))
       .catch(() => undefined);
+    fetchSetupStatus()
+      .then((s) => setSetupOn(!s.initialized))
+      .catch(() => setSetupOn(false));
   }, []);
 
   const submit = () => {
@@ -73,9 +78,15 @@ export function Login(props: { onAuthenticated: (token: string) => void }) {
           </button>
         </form>
 
-        <a className="btn btn-ghost btn-block" href="#/setup" style={{ justifyContent: "center" }}>
-          首次使用？进入安装向导
-        </a>
+        {setupOn ? (
+          <a
+            className="btn btn-ghost btn-block"
+            href="#/setup"
+            style={{ justifyContent: "center" }}
+          >
+            首次使用？进入安装向导
+          </a>
+        ) : null}
       </div>
     </div>
   );
