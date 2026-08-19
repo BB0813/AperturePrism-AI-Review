@@ -372,3 +372,24 @@ export const labelRules = pgTable(
   },
   (table) => [uniqueIndex("label_rules_key_unique").on(table.key)],
 );
+
+/**
+ * Users recognized through GitHub OAuth login. Kept lightweight: a login plus
+ * an optional display name for the personal settings page; multi-account role
+ * management can build on this table later.
+ */
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    login: text("login").notNull(),
+    displayName: text("display_name").default("").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [uniqueIndex("users_login_unique").on(table.login)],
+);

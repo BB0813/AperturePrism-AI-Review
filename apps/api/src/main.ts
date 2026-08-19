@@ -1,9 +1,4 @@
-import {
-  createHash,
-  createHmac,
-  randomUUID,
-  timingSafeEqual,
-} from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import {
   createServer,
   type IncomingMessage,
@@ -11,6 +6,7 @@ import {
 } from "node:http";
 import { and, asc, desc, eq, gt, or } from "drizzle-orm";
 import { loadConfig } from "../../../packages/config/src/index.js";
+import { createSessionSigner } from "./session.js";
 import {
   analysisTasks,
   applyBackupSnapshot,
@@ -21,6 +17,8 @@ import {
   createDatabaseClient,
   createRedisClient,
   deleteLabelRule,
+  ensureUser,
+  getUser,
   ingestGitHubWebhook,
   issueDocuments,
   LABEL_RULE_PREFIXES,
@@ -32,6 +30,7 @@ import {
   systemSettings,
   taskAttempts,
   taskEvents,
+  updateDisplayName,
   upsertLabelRule,
   webhookDeliveries,
 } from "../../../packages/database/src/index.js";
@@ -73,48 +72,18 @@ function oauthConfigured(): boolean {
   return Boolean(oauthClientId && oauthClientSecret);
 }
 
-/** Stable HMAC key for signing session tokens (derived from OAuth creds). */
-function sessionKey(): Buffer {
-  return createHash("sha256")
-    .update(`${oauthClientSecret}:${oauthClientId}`)
-    .digest();
-}
+const sessionSigner = createSessionSigner({
+  clientId: oauthClientId,
+  clientSecret: oauthClientSecret,
+  ttlMs: SESSION_TTL_MS,
+});
 
 function signSession(login: string): string {
-  const payload = Buffer.from(
-    JSON.stringify({ login, exp: Date.now() + SESSION_TTL_MS }),
-  ).toString("base64url");
-  const sig = createHmac("sha256", sessionKey())
-    .update(payload)
-    .digest("base64url");
-  return `${payload}.${sig}`;
+  return sessionSigner.sign(login);
 }
 
 function parseSessionToken(token: string): string | null {
-  const dot = token.indexOf(".");
-  if (dot === -1) return null;
-  const payload = token.slice(0, dot);
-  const sig = token.slice(dot + 1);
-  const expected = createHmac("sha256", sessionKey()).update(payload).digest();
-  const received = Buffer.from(sig);
-  if (
-    expected.length !== received.length ||
-    !timingSafeEqual(expected, received)
-  )
-    return null;
-  try {
-    const data = JSON.parse(
-      Buffer.from(payload, "base64url").toString("utf8"),
-    ) as {
-      login?: unknown;
-      exp?: unknown;
-    };
-    if (typeof data.login !== "string") return null;
-    if (typeof data.exp !== "number" || data.exp < Date.now()) return null;
-    return data.login;
-  } catch {
-    return null;
-  }
+  return sessionSigner.parse(token);
 }
 
 /* ---------- runtime settings (hot-reload overrides) ---------- */
@@ -221,6 +190,7 @@ const protectedPaths = [
   "/index",
   "/backup",
   "/label-rules",
+  "/auth/me",
   "/config",
   "/settings",
   "/events",
@@ -1388,6 +1358,10 @@ async function handleAuth(
       });
       const user = (await userRes.json()) as { login?: string };
       if (typeof user.login !== "string") throw new Error("no_login");
+      // Persist the recognized user so the personal settings page can address them.
+      await ensureUser(database.db, user.login).catch((error: unknown) =>
+        logger.warn({ err: error }, "user upsert failed"),
+      );
       const session = signSession(user.login);
       response.writeHead(302, {
         Location: `/#/?token=${encodeURIComponent(session)}`,
@@ -1401,6 +1375,79 @@ async function handleAuth(
   }
 
   json(response, 404, { status: "error", reason: "not_found" }, requestId);
+}
+
+/** Login of the current OAuth session from the Authorization header, if any. */
+function sessionLogin(request: IncomingMessage): string | null {
+  const header = request.headers.authorization;
+  if (typeof header === "string" && header.startsWith("Bearer "))
+    return parseSessionToken(header.slice(7));
+  return null;
+}
+
+/** Personal settings: GET current user, PUT display name. */
+async function handleAccount(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const login = sessionLogin(request);
+
+  if (request.method === "GET") {
+    if (!login) {
+      json(
+        response,
+        200,
+        { login: null, displayName: null, authMethod: "bearer" },
+        requestId,
+      );
+      return;
+    }
+    const user = await getUser(database.db, login);
+    json(
+      response,
+      200,
+      {
+        login,
+        displayName: user?.displayName ?? "",
+        authMethod: "oauth",
+      },
+      requestId,
+    );
+    return;
+  }
+
+  if (request.method === "PUT") {
+    if (!login) {
+      json(
+        response,
+        401,
+        { status: "error", reason: "oauth login required" },
+        requestId,
+      );
+      return;
+    }
+    const body = await readBody(request);
+    let parsed: { displayName?: unknown };
+    try {
+      parsed = JSON.parse(body.toString("utf8"));
+    } catch {
+      json(response, 400, { status: "error", reason: "invalid JSON" }, requestId);
+      return;
+    }
+    const displayName =
+      typeof parsed.displayName === "string" ? parsed.displayName.slice(0, 120) : "";
+    const user = await updateDisplayName(database.db, login, displayName);
+    json(
+      response,
+      200,
+      { status: "ok", login, displayName: user?.displayName ?? "" },
+      requestId,
+    );
+    return;
+  }
+
+  json(response, 405, { status: "error", reason: "method not allowed" }, requestId);
 }
 
 /* ---------- install wizard / one-click init ---------- */
@@ -1672,6 +1719,11 @@ async function handleRequest(
     path === "/auth/callback"
   ) {
     await handleAuth(request, response, requestId);
+    return;
+  }
+
+  if (path === "/auth/me") {
+    await handleAccount(request, response, requestId);
     return;
   }
 

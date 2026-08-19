@@ -12,6 +12,7 @@ import { TasksPage } from "./pages/TasksPage";
 import { ReposPage } from "./pages/ReposPage";
 import { VectorPage } from "./pages/VectorPage";
 import { ConfigPage } from "./pages/ConfigPage";
+import { AccountPage } from "./pages/AccountPage";
 import { AboutPage } from "./pages/AboutPage";
 import { SetupPage } from "./pages/SetupPage";
 import {
@@ -65,6 +66,7 @@ const NAV: NavGroup[] = [
     title: "系统",
     items: [
       { path: "/config", label: "系统配置", icon: GearIcon },
+      { path: "/account", label: "个人设置", icon: SparkleIcon },
       { path: "/about", label: "关于", icon: InfoIcon },
     ],
   },
@@ -134,6 +136,7 @@ function AuthedConsole(props: { onLogout: () => void }) {
   else if (active === "/vector") page = <VectorPage />;
   else if (active === "/provider") page = <ProviderPage />;
   else if (active === "/config") page = <ConfigPage />;
+  else if (active === "/account") page = <AccountPage />;
   else page = <AboutPage />;
 
   return (

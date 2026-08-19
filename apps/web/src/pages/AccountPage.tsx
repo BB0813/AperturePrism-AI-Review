@@ -1,0 +1,114 @@
+import { useCallback, useEffect, useState } from "react";
+import { fetchMe, saveMe, type AccountInfo } from "../lib/api";
+import { GearIcon, RefreshIcon } from "../components/icons";
+import { LoadingRows } from "../components/ui";
+
+export function AccountPage() {
+  const [account, setAccount] = useState<AccountInfo | null>(null);
+  const [draft, setDraft] = useState("");
+  const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    fetchMe()
+      .then((value) => {
+        setAccount(value);
+        setDraft(value.displayName ?? "");
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : "failed to load account");
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => load(), [load]);
+
+  const save = async () => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const updated = await saveMe(draft);
+      setAccount(updated);
+      setDraft(updated.displayName ?? "");
+      setMessage({ text: "显示名已保存。", ok: true });
+    } catch (err) {
+      setMessage({ text: `保存失败：${err instanceof Error ? err.message : err}`, ok: false });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="stack">
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">个人设置</h1>
+          <p className="page-desc">当前登录账号与个性化设置</p>
+        </div>
+        <div className="actions">
+          <button className="btn" onClick={load} disabled={loading}>
+            <RefreshIcon size={16} />
+            刷新
+          </button>
+        </div>
+      </div>
+
+      {error ? (
+        <div className="panel"><p className="state state-error">加载失败：{error}</p></div>
+      ) : loading || !account ? (
+        <div className="panel"><LoadingRows /></div>
+      ) : (
+        <div className="stack">
+          <section className="panel">
+            <div className="panel-title"><h2><GearIcon size={14} /> 账号</h2></div>
+            <dl className="kv">
+              <dt>登录方式</dt>
+              <dd>
+                {account.authMethod === "oauth" ? (
+                  <span className="pill pill-ok">GitHub OAuth</span>
+                ) : (
+                  <span className="pill pill-dim">Bearer 令牌（未绑定账号）</span>
+                )}
+              </dd>
+              <dt>GitHub 登录名</dt>
+              <dd className="mono">{account.login ?? "—"}</dd>
+            </dl>
+            {account.authMethod === "bearer" ? (
+              <p className="faint" style={{ marginTop: 12, fontSize: 12 }}>
+                当前使用 WebUI 访问令牌登录，未关联 GitHub 账号。用 GitHub OAuth 登录后可保存显示名等个人设置。
+              </p>
+            ) : null}
+          </section>
+
+          {account.authMethod === "oauth" ? (
+            <section className="panel">
+              <div className="panel-title"><h2>显示名</h2></div>
+              {message ? (
+                <p className={`state ${message.ok ? "state-ok" : "state-error"}`} style={{ margin: "0 0 12px" }}>
+                  {message.text}
+                </p>
+              ) : null}
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <input
+                  className="input"
+                  style={{ flex: "1 1 260px" }}
+                  value={draft}
+                  maxLength={120}
+                  placeholder="自定义显示名（留空则用登录名）"
+                  onChange={(event) => setDraft(event.target.value)}
+                />
+                <button className="btn btn-primary" onClick={save} disabled={busy}>
+                  {busy ? "保存中…" : "保存"}
+                </button>
+              </div>
+            </section>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}

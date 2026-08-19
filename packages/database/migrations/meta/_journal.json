@@ -64,6 +64,13 @@
       "when": 1787140000000,
       "tag": "0009_label_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1787150000000,
+      "tag": "0010_users",
+      "breakpoints": true
     }
   ]
 }

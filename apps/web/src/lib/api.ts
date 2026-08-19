@@ -371,6 +371,28 @@ export async function fetchOAuthStatus(): Promise<OAuthStatus> {
   return (await response.json()) as OAuthStatus;
 }
 
+export type AccountInfo = {
+  login: string | null;
+  displayName: string | null;
+  authMethod: "oauth" | "bearer";
+};
+
+/** Current account: the OAuth login, or a bearer-identified session. */
+export async function fetchMe(): Promise<AccountInfo> {
+  return (await getJson("/auth/me")) as AccountInfo;
+}
+
+/** Updates the display name of the OAuth user. */
+export async function saveMe(displayName: string): Promise<AccountInfo> {
+  const response = await fetch("/auth/me", {
+    method: "PUT",
+    headers: { "content-type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ displayName }),
+  });
+  if (!response.ok) throw new Error(`save account ${response.status}`);
+  return (await response.json()) as AccountInfo;
+}
+
 export type SetupStatus = {
   database: { ok: boolean; tablesReady: number; tablesTotal: number };
   provider: { count: number; providerKey: string; model: string };
