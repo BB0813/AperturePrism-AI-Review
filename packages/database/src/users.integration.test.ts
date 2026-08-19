@@ -4,6 +4,7 @@ import {
   ensureUser,
   getUser,
   listUsers,
+  setAdmin,
   updateDisplayName,
 } from "./users.js";
 
@@ -40,6 +41,14 @@ describeIntegration("users PostgreSQL integration", () => {
 
     const user = await getUser(client.db, login);
     expect(user?.displayName).toBe("测试用户");
+  });
+
+  it("promotes and demotes the admin flag", async () => {
+    const admin = await setAdmin(client.db, login, true);
+    expect(admin?.isAdmin).toBe(true);
+
+    const demoted = await setAdmin(client.db, login, false);
+    expect(demoted?.isAdmin).toBe(false);
   });
 
   it("lists users including the created one", async () => {

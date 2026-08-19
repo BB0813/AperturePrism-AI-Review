@@ -374,6 +374,7 @@ export async function fetchOAuthStatus(): Promise<OAuthStatus> {
 export type AccountInfo = {
   login: string | null;
   displayName: string | null;
+  isAdmin: boolean;
   authMethod: "oauth" | "bearer";
 };
 
@@ -391,6 +392,29 @@ export async function saveMe(displayName: string): Promise<AccountInfo> {
   });
   if (!response.ok) throw new Error(`save account ${response.status}`);
   return (await response.json()) as AccountInfo;
+}
+
+export type UserRow = {
+  login: string;
+  displayName: string;
+  isAdmin: boolean;
+};
+
+/** Lists known users (admin only). */
+export async function fetchUsers(): Promise<UserRow[]> {
+  const result = (await getJson("/users")) as { items: UserRow[] };
+  return result.items;
+}
+
+/** Promotes/demotes a user's admin flag (admin only). */
+export async function setUserAdmin(login: string, isAdmin: boolean): Promise<UserRow> {
+  const response = await fetch(`/users/${encodeURIComponent(login)}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ isAdmin }),
+  });
+  if (!response.ok) throw new Error(`set admin ${response.status}`);
+  return (await response.json()) as UserRow;
 }
 
 export type SetupStatus = {

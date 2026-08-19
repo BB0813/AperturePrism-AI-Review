@@ -23,9 +23,11 @@ import {
   issueDocuments,
   LABEL_RULE_PREFIXES,
   listLabelRules,
+  listUsers,
   modelRolePolicies,
   providerAccounts,
   repositories,
+  setAdmin,
   subjectResults,
   systemSettings,
   taskAttempts,
@@ -191,6 +193,7 @@ const protectedPaths = [
   "/backup",
   "/label-rules",
   "/auth/me",
+  "/users",
   "/config",
   "/settings",
   "/events",
@@ -1398,7 +1401,7 @@ async function handleAccount(
       json(
         response,
         200,
-        { login: null, displayName: null, authMethod: "bearer" },
+        { login: null, displayName: null, isAdmin: false, authMethod: "bearer" },
         requestId,
       );
       return;
@@ -1410,6 +1413,7 @@ async function handleAccount(
       {
         login,
         displayName: user?.displayName ?? "",
+        isAdmin: user?.isAdmin === true,
         authMethod: "oauth",
       },
       requestId,
@@ -1444,6 +1448,59 @@ async function handleAccount(
       { status: "ok", login, displayName: user?.displayName ?? "" },
       requestId,
     );
+    return;
+  }
+
+  json(response, 405, { status: "error", reason: "method not allowed" }, requestId);
+}
+
+/**
+ * Admin check for the current request. A valid OAuth session is admin only
+ * when the persisted user has `is_admin`; a bearer-token request is treated
+ * as admin (the WebUI token is the shared administrative credential).
+ */
+async function isAdminRequest(request: IncomingMessage): Promise<boolean> {
+  const login = sessionLogin(request);
+  if (!login) return true;
+  const user = await getUser(database.db, login);
+  return user?.isAdmin === true;
+}
+
+/** User management: list users; PUT /users/:login toggles admin. */
+async function handleUsers(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const url = new URL(request.url ?? "/", "http://localhost");
+  const path = url.pathname;
+
+  if (path === "/users" && request.method === "GET") {
+    const items = await listUsers(database.db);
+    json(response, 200, { items }, requestId);
+    return;
+  }
+
+  if (path.startsWith("/users/") && request.method === "PUT") {
+    const login = decodeURIComponent(path.slice("/users/".length)).trim();
+    if (!login) {
+      json(response, 400, { status: "error", reason: "login required" }, requestId);
+      return;
+    }
+    const body = await readBody(request);
+    let parsed: { isAdmin?: unknown };
+    try {
+      parsed = JSON.parse(body.toString("utf8"));
+    } catch {
+      json(response, 400, { status: "error", reason: "invalid JSON" }, requestId);
+      return;
+    }
+    const user = await setAdmin(database.db, login, parsed.isAdmin === true);
+    if (!user) {
+      json(response, 404, { status: "error", reason: "user not found" }, requestId);
+      return;
+    }
+    json(response, 200, { status: "ok", ...user }, requestId);
     return;
   }
 
@@ -1751,6 +1808,15 @@ async function handleRequest(
       );
       return;
     }
+    if (!(await isAdminRequest(request))) {
+      json(
+        response,
+        403,
+        { status: "error", reason: "admin required" },
+        requestId,
+      );
+      return;
+    }
     await handleSetupInit(response, requestId);
     return;
   }
@@ -1839,12 +1905,35 @@ async function handleRequest(
     return;
   }
 
+  if (path === "/users" || path.startsWith("/users/")) {
+    if (!(await isAdminRequest(request))) {
+      json(
+        response,
+        403,
+        { status: "error", reason: "admin required" },
+        requestId,
+      );
+      return;
+    }
+    await handleUsers(request, response, requestId);
+    return;
+  }
+
   if (path === "/backup/import") {
     if (request.method !== "POST") {
       json(
         response,
         405,
         { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    if (!(await isAdminRequest(request))) {
+      json(
+        response,
+        403,
+        { status: "error", reason: "admin required" },
         requestId,
       );
       return;

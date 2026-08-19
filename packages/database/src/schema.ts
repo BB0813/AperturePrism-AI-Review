@@ -384,6 +384,7 @@ export const users = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     login: text("login").notNull(),
     displayName: text("display_name").default("").notNull(),
+    isAdmin: boolean("is_admin").default(false).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
