@@ -63,7 +63,9 @@ import {
   createGitHubClient,
   GitHubApiError,
   normalizeGitHubEvent,
+  parseIssueCommand,
   type GitHubClient,
+  type NormalizedGitHubEvent,
   verifyWebhookSignature,
   WebhookSignatureError,
 } from "../../../packages/github-adapter/src/index.js";
@@ -381,6 +383,169 @@ async function readBody(request: IncomingMessage): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
+/* ---------- Issue/PR comment command triggers ---------- */
+
+const ISSUE_COMMAND_HELP = [
+  "可用的指令（直接在 Issue / PR 评论里输入）：",
+  "- `/analyze` 或 `/apertureprism analyze` — 触发 Issue 分析",
+  "- `/review` 或 `/apertureprism review` — 触发 PR 代码审查（需在 PR 评论中）",
+  "- `/help` 或 `/apertureprism help` — 显示本帮助",
+].join("\n");
+
+type CommentCommandOutcome =
+  | { kind: "none" }
+  | { kind: "help" }
+  | {
+      kind: "triggered";
+      taskType: "issue_analysis" | "pr_review";
+      taskId: string;
+    }
+  | { kind: "error"; reason: string };
+
+/**
+ * Reacts to `issue_comment` webhooks that carry a trigger command
+ * (`/analyze`, `/review`, `/help`). Creates the matching task and replies with
+ * an acknowledgement comment. Bot-authored comments are ignored to avoid
+ * reply loops; comment posting failures are logged and never fail the webhook.
+ */
+async function handleIssueCommentCommand(
+  event: NormalizedGitHubEvent,
+): Promise<CommentCommandOutcome> {
+  const payload = (event.payload ?? {}) as {
+    comment?: { body?: string };
+    issue?: { pull_request?: unknown };
+    sender?: { type?: string };
+  };
+  if (payload.sender?.type === "Bot") return { kind: "none" };
+  const command = parseIssueCommand(payload.comment?.body ?? "");
+  if (command.kind === "none") return { kind: "none" };
+
+  const fullName = event.repositoryFullName ?? "";
+  const identity = repositoryOwnerName(fullName);
+  const issueNumber = event.subjectNumber;
+  if (!identity || issueNumber === null)
+    return { kind: "error", reason: "missing_repository_context" };
+  const subjectNumber: number = issueNumber;
+  const owner = identity.owner;
+  const repoName = identity.name;
+  const rows = await database.db
+    .select({
+      id: repositories.id,
+      githubId: repositories.githubId,
+      installationId: repositories.installationId,
+    })
+    .from(repositories)
+    .where(
+      and(
+        eq(repositories.owner, owner),
+        eq(repositories.name, repoName),
+      ),
+    )
+    .limit(1);
+  const repo = rows[0];
+  if (!repo || !repo.installationId)
+    return { kind: "error", reason: "repository_not_installed" };
+  const installationId = repo.installationId;
+  const github = await githubClientPromise;
+
+  const postComment = (body: string): void => {
+    if (!github) return;
+    void github
+      .createIssueComment({
+        installationId,
+        owner,
+        name: repoName,
+        number: subjectNumber,
+        body,
+      })
+      .catch((error: unknown) =>
+        logger.warn({ err: error }, "command ack comment failed"),
+      );
+  };
+
+  if (command.kind === "help") {
+    void postComment(ISSUE_COMMAND_HELP);
+    return { kind: "help" };
+  }
+
+  if (command.kind === "analyze") {
+    const subjectRevision = new Date().toISOString();
+    const result = await createAnalysisTask(database.db, {
+      taskType: "issue_analysis",
+      repositoryId: repo.id,
+      subjectNumber: issueNumber,
+      subjectRevision,
+      policyVersion: ISSUE_ANALYSIS_POLICY_VERSION,
+      dedupeKey: `issue-analysis:${repo.id}:${issueNumber}:${subjectRevision}:${ISSUE_ANALYSIS_POLICY_VERSION}`,
+      payload: {
+        installationId: repo.installationId,
+        repositoryExternalId: repo.githubId,
+        repositoryFullName: fullName,
+        subjectNumber: issueNumber,
+        subjectRevision,
+        sourceEvent: "issue_comment_command",
+        command: "analyze",
+      },
+    });
+    void postComment(
+      `已触发 Issue 分析，结果将发布为本 Issue 的评论（任务 ${result.task.id.slice(0, 8)}）。`,
+    );
+    return {
+      kind: "triggered",
+      taskType: "issue_analysis",
+      taskId: result.task.id,
+    };
+  }
+
+  // review: only valid on pull requests; needs the PR head SHA as revision.
+  if (!github) {
+    void postComment("GitHub App 未配置，无法触发 PR 审查。");
+    return { kind: "error", reason: "github_not_configured" };
+  }
+  if (!payload.issue?.pull_request) {
+    void postComment("该评论所在的对象不是 Pull Request，无法触发代码审查。");
+    return { kind: "error", reason: "not_a_pull_request" };
+  }
+  try {
+    const pullRequest = await github.getPullRequest({
+      installationId: repo.installationId,
+      owner: identity.owner,
+      name: identity.name,
+      number: issueNumber,
+    });
+    const subjectRevision = pullRequest.headSha;
+    const result = await createAnalysisTask(database.db, {
+      taskType: "pr_review",
+      repositoryId: repo.id,
+      subjectNumber: issueNumber,
+      subjectRevision,
+      policyVersion: PR_REVIEW_POLICY_VERSION,
+      dedupeKey: `pr-review:${repo.id}:${issueNumber}:${subjectRevision}:${PR_REVIEW_POLICY_VERSION}`,
+      payload: {
+        installationId: repo.installationId,
+        repositoryExternalId: repo.githubId,
+        repositoryFullName: fullName,
+        subjectNumber: issueNumber,
+        subjectRevision,
+        sourceEvent: "issue_comment_command",
+        command: "review",
+      },
+    });
+    void postComment(
+      `已触发 PR 代码审查，结果将发布为该 PR 的 Review（任务 ${result.task.id.slice(0, 8)}）。`,
+    );
+    return {
+      kind: "triggered",
+      taskType: "pr_review",
+      taskId: result.task.id,
+    };
+  } catch (error) {
+    logger.warn({ err: error }, "command review trigger failed");
+    void postComment("触发 PR 审查失败：无法读取该 PR 的最新提交。");
+    return { kind: "error", reason: "pr_fetch_failed" };
+  }
+}
+
 async function handleWebhook(
   request: IncomingMessage,
   response: ServerResponse,
@@ -429,6 +594,11 @@ async function handleWebhook(
       normalized,
       policyVersion,
     );
+    // Issue/PR comment commands (e.g. "/apertureprism analyze") trigger tasks.
+    const commandOutcome =
+      normalized.eventName === "issue_comment"
+        ? await handleIssueCommentCommand(normalized)
+        : { kind: "none" as const };
     const duplicate = result.outcome === "delivery_duplicate";
     json(
       response,
@@ -438,6 +608,7 @@ async function handleWebhook(
         duplicate,
         outcome: result.outcome,
         ...("taskId" in result ? { taskId: result.taskId } : {}),
+        ...commandOutcome,
       },
       requestId,
     );

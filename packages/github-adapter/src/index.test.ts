@@ -5,6 +5,7 @@ import {
   WebhookSignatureError,
   mapGitHubEventToTask,
   normalizeGitHubEvent,
+  parseIssueCommand,
   verifyWebhookSignature,
 } from "./index.js";
 
@@ -132,5 +133,32 @@ describe("GitHub webhook adapter", () => {
     expect(() => normalizeGitHubEvent("push", "delivery-3", {})).toThrow(
       UnsupportedGitHubEventError,
     );
+  });
+});
+
+describe("parseIssueCommand", () => {
+  it("recognizes short and namespaced commands", () => {
+    expect(parseIssueCommand("/analyze")).toEqual({ kind: "analyze" });
+    expect(parseIssueCommand("/apertureprism analyze")).toEqual({
+      kind: "analyze",
+    });
+    expect(parseIssueCommand("/review")).toEqual({ kind: "review" });
+    expect(parseIssueCommand("/apertureprism review")).toEqual({
+      kind: "review",
+    });
+    expect(parseIssueCommand("/help")).toEqual({ kind: "help" });
+    expect(parseIssueCommand("/apertureprism help")).toEqual({
+      kind: "help",
+    });
+  });
+
+  it("ignores prose, code blocks and unknown slash commands", () => {
+    expect(parseIssueCommand("这是一段普通评论")).toEqual({ kind: "none" });
+    expect(parseIssueCommand("```\n/analyze\n```")).toEqual({ kind: "none" });
+    expect(parseIssueCommand("/some-other-bot do-thing")).toEqual({
+      kind: "none",
+    });
+    expect(parseIssueCommand("")).toEqual({ kind: "none" });
+    expect(parseIssueCommand("> /analyze")).toEqual({ kind: "analyze" });
   });
 });

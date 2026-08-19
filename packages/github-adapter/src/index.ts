@@ -172,3 +172,44 @@ export function mapGitHubEventToTask(
     },
   };
 }
+
+/* ---------- Issue/PR comment commands (e.g. "/apertureprism analyze") ---------- */
+
+export type IssueCommand =
+  | { kind: "analyze" }
+  | { kind: "review" }
+  | { kind: "help" }
+  | { kind: "none" };
+
+/**
+ * Parses a comment body for a trigger command. The first non-empty, non-code
+ * fence line is considered; a leading blockquote marker is stripped. Known
+ * commands: `/analyze`, `/review`, `/help` (optionally prefixed with
+ * `/apertureprism`). Anything else (including other bots' slash commands)
+ * resolves to `none` so we never act on foreign commands.
+ */
+export function parseIssueCommand(body: string): IssueCommand {
+  let line = "";
+  let inFence = false;
+  for (const raw of body.split(/\r?\n/)) {
+    const trimmed = raw.trim();
+    if (/^```/.test(trimmed) || /^~~~/.test(trimmed)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    if (!trimmed) continue;
+    line = trimmed.replace(/^>+\s?/, "").trim();
+    break;
+  }
+  if (!line.startsWith("/")) return { kind: "none" };
+  const parts = line.slice(1).split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { kind: "none" };
+  const first = parts[0]!.toLowerCase();
+  const second = parts[1]?.toLowerCase();
+  const effective = first === "apertureprism" ? second : first;
+  if (effective === "analyze") return { kind: "analyze" };
+  if (effective === "review") return { kind: "review" };
+  if (effective === "help") return { kind: "help" };
+  return { kind: "none" };
+}
