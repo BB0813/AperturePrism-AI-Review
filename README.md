@@ -40,6 +40,8 @@ AperturePrism 把「AI 代码审查」做成了一条可落地的产品链路，
 
 | 能力 | 说明 |
 | --- | --- |
+| 手动触发 | WebUI「已安装仓库」页按仓库 + 编号手动触发 Issue 分析 / PR 审查（`POST /tasks/manual`） |
+| 广告识别 | 分析前自识别广告/垃圾 Issue，按 `spam_handling` 策略自动关闭或删除（默认 `close`，可 `none`/`delete`，全部记录审计） |
 | Issue 分析 | Webhook 幂等 → 上下文预算化 → 结构化分级（S0-S3 / P0-P3 / 完整度）→ 幂等评论 + 自动打标 |
 | PR 审查 | diff 解析与行映射、大小/预算降级、结构化 finding + 服务端严重度策略、幂等 Review 发布 |
 | 重复检测 | 模板清洗标准化 + 信号抽取（错误码/路径/堆栈/语言）+ 全文 GIN + pgvector 召回 → 模型裁决 |
@@ -205,6 +207,7 @@ curl http://<host>/health/ready    # 200 才代表 DB+Redis 均就绪
 | GET | `/health/live` `/health/ready` | 存活 / 就绪（DB+Redis） |
 | POST | `/github/webhook` | GitHub 事件入口（验签 + 幂等入库） |
 | GET | `/tasks` `/tasks/:id` | 任务列表（分页）/ 详情（时间线 + attempts） |
+| POST | `/tasks/manual` | 手动触发 Issue/PR 分析（按仓库 fullName + 编号） |
 | GET | `/summary` `/results?type=issue\|pr` `/results/:type/:number` | 概览 KPI / 结果列表 / 单主体各版本结果 |
 | GET | `/providers` `/repositories` `/logs` `/vector` | 模型策略 / 仓库 / 日志总览 / 向量索引统计 |
 | GET | `/events` | SSE 任务事件流（`?since=` 断线回放） |
