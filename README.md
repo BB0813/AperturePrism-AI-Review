@@ -16,6 +16,7 @@
   - Issue 全纵向：webhook 幂等 → GitHub 拉取 → 多模型分析 → 评级 → 幂等评论发布。
   - 重复检测全链路：全文+信号+向量(pgvector)召回 → deepseek 裁决 → 服务端裁决。
   - 标签自动打标：配置 `category:bug → bug` 规则后，分析完成的 Issue 被自动打上对应 GitHub 标签。
+  - WebUI 登录闭环：`/auth/login` → GitHub 授权 → 本地回调校验 `state` → 签发会话令牌 → `/auth/me` 识别登录用户与管理员角色（真机验证通过）。
 - M6 附带一个轻量标注数据集（`eval-data.ts`）与离线评测脚本（`eval-runner.ts`），可计算 precision / recall / 误报率 / 人工介入率等指标。
 
 ## 开发阶段
@@ -61,6 +62,44 @@ npm run build
 - QQ：`QQ_BOT_PROTOCOLS`（NTQQ）或 `QQ_OFFICIAL_APP_ID/APP_SECRET`（官方）
 
 详见 `.env.example`。
+
+## 本地启动
+
+依赖：Node ≥ 22、PostgreSQL（pgvector 扩展）、Redis。
+
+1. 安装与构建（Monorepo）：
+
+   ```bash
+   npm install
+   npm run build
+   ```
+
+2. 在仓库根目录写 `.env`（参考 `.env.example`）：数据库 / Redis / 模型 / Embedding；WebUI 登录另配 GitHub OAuth（`GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET`）。
+3. 应用数据库迁移（需 `DATABASE_URL`）：
+
+   ```bash
+   node scripts/migrate.mjs
+   ```
+
+4. 启动后端服务（API + 分析 worker + 索引 worker + scheduler，各占一个终端）：
+
+   ```bash
+   npm run dev --workspace apps/api
+   npm run dev --workspace apps/analysis-worker
+   npm run dev --workspace apps/index-worker
+   npm run dev --workspace apps/scheduler
+   ```
+
+   可选：QQ 机器人 `npm run dev --workspace apps/qq-bot`（需配置 `QQ_BOT_PROTOCOLS` 或 `QQ_OFFICIAL_*`）。
+5. 启动 Web（`apps/web` 已移出根 workspaces，需独立安装）：
+
+   ```bash
+   cd apps/web && npm install && npm run dev
+   ```
+
+- API：http://127.0.0.1:3000（健康检查 `/health/live`、`/health/ready`）
+- Web：http://localhost:5174（Vite 代理到 API :3000）
+- GitHub OAuth 回调必须指向 `http://127.0.0.1:3000/auth/callback`（见「配置」）；首个 OAuth 登录用户自动成为管理员
 
 ## 说明
 
