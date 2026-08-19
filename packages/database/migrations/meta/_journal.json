@@ -78,6 +78,27 @@
       "when": 1787160000000,
       "tag": "0011_users_admin",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1788000000000,
+      "tag": "0012_audit_log",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1788000001000,
+      "tag": "0013_repo_memory",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1788000002000,
+      "tag": "0014_star_aid",
+      "breakpoints": true
     }
   ]
 }

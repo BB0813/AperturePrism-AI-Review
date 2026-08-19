@@ -10,6 +10,7 @@ COPY apps/api ./apps/api
 COPY apps/analysis-worker ./apps/analysis-worker
 COPY apps/index-worker ./apps/index-worker
 COPY apps/scheduler ./apps/scheduler
+COPY apps/qq-bot ./apps/qq-bot
 RUN npm ci --no-audit --no-fund
 
 FROM deps AS build
@@ -39,3 +40,28 @@ CMD ["node", "apps/index-worker/dist/apps/index-worker/src/main.js"]
 FROM base AS scheduler
 COPY --from=build /app/apps/scheduler/dist ./apps/scheduler/dist
 CMD ["node", "apps/scheduler/dist/apps/scheduler/src/main.js"]
+
+FROM base AS qq-bot
+COPY --from=build /app/apps/qq-bot/dist ./apps/qq-bot/dist
+CMD ["node", "apps/qq-bot/dist/apps/qq-bot/src/main.js"]
+
+# One-shot database migration. drizzle-kit + the migrations tree are carried
+# here so a fresh deployment can apply schema before app containers start.
+FROM base AS migrate
+COPY scripts ./scripts
+COPY packages/database/drizzle.config.ts ./packages/database/drizzle.config.ts
+COPY packages/database/migrations ./packages/database/migrations
+CMD ["node", "scripts/migrate.mjs"]
+
+# --- web: Vite SPA built independently (apps/web is not a root workspace) ---
+FROM node:22-alpine AS web-build
+WORKDIR /web
+COPY apps/web/package.json apps/web/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY apps/web ./
+RUN npm run build
+
+FROM nginx:1.27-alpine AS web
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=web-build /web/dist /usr/share/nginx/html
+EXPOSE 80

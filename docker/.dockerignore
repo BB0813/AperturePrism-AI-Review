@@ -3,7 +3,6 @@ dist
 .git
 archive
 .marking
-apps/web
 *.log
 .secrets
 .env
