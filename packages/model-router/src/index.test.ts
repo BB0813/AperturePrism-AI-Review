@@ -189,6 +189,26 @@ describe("model routing retries and fallback", () => {
     expect(result.candidate).toEqual(fallback);
   });
 
+  it("retries the same candidate on authentication failure when opted in", async () => {
+    const flaky = adapter("provider-a", async (attempt) => {
+      if (attempt === 1)
+        throw new ModelInvocationError("authentication_failed", "401");
+      return "recovered";
+    });
+
+    const result = await routeModelInvocation(adapters(flaky.adapter), {
+      candidates: [primary],
+      request,
+      deadlineMs: 10_000,
+      retryPolicy: { ...retryPolicy, retryAuthentication: true },
+      now: () => 0,
+      sleep: async () => undefined,
+    });
+
+    expect(result.response.content).toBe("recovered");
+    expect(flaky.calls()).toBe(2);
+  });
+
   it("does not retry model_not_found or context_overflow on the same candidate", async () => {
     for (const category of ["model_not_found", "context_overflow"] as const) {
       const failing = adapter("provider-a", async () => {

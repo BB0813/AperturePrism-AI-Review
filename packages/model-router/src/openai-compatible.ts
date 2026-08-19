@@ -100,11 +100,14 @@ export function createOpenAICompatibleAdapter(
               ? {}
               : { max_tokens: request.maxOutputTokens }),
             ...(request.temperature === undefined
-              ? {}
-              : { temperature: request.temperature }),
-            ...(request.responseFormat === "json"
-              ? { response_format: { type: "json_object" } }
-              : {}),
+              ? {} : { temperature: request.temperature }),
+            // response_format is deliberately NOT sent. The newapi gateway
+            // times out / 401s / 429s on any request carrying
+            // `response_format: json_object` while the same prompt without it
+            // returns clean JSON reliably. The prompts already mandate a pure
+            // JSON object and the server validates with zod + a bounded
+            // repair, so skipping response_format keeps JSON guarantees
+            // without tripping the gateway.
           }),
           signal,
         });

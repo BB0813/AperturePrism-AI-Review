@@ -17,6 +17,13 @@ export type RetryPolicy = {
   maxAttemptsPerCandidate: number;
   baseDelayMs: number;
   maxDelayMs: number;
+  /**
+   * Opt-in: retry the same candidate on `authentication_failed` too. Some
+   * gateways intermittently answer 401 under load (not a real credential
+   * problem), so the caller can allow bounded retries while the default stays
+   * non-retryable for genuine credential errors.
+   */
+  retryAuthentication?: boolean;
 };
 
 export type RouteModelInput = {
@@ -180,7 +187,15 @@ export async function routeModelInvocation(
 
           if (modelError.category === "canceled")
             throw new ModelRoutingFailedError("canceled", attempts);
-          if (nonRetryableModelErrorCategories.includes(modelError.category))
+          // Genuine credential problems are non-retryable, but a flaky gateway
+          // that intermittently 401s can be opted into bounded retries.
+          const authenticationRetryable =
+            modelError.category === "authentication_failed" &&
+            input.retryPolicy.retryAuthentication;
+          if (
+            !authenticationRetryable &&
+            nonRetryableModelErrorCategories.includes(modelError.category)
+          )
             break;
           if (attempt === input.retryPolicy.maxAttemptsPerCandidate) break;
 

@@ -80,7 +80,9 @@ describe("OpenAI-compatible adapter requests", () => {
       unknown
     >;
     expect(body.model).toBe("test-model");
-    expect(body.response_format).toEqual({ type: "json_object" });
+    // response_format is never sent: the newapi gateway chokes on
+    // `json_object` while the same prompt returns clean JSON without it.
+    expect(body).not.toHaveProperty("response_format");
     expect(result).toEqual({
       content: "{}",
       usage: { inputTokens: 12, outputTokens: 7 },
