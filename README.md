@@ -51,7 +51,8 @@ AperturePrism 把「AI 代码审查」做成了一条可落地的产品链路，
 | Web 控制台 | 深色玻璃 UI：概览 / 日志 / Issue / PR / 队列 / 仓库 / 向量存储 / 记忆 / Agent / 互助 / 配置 / 安全 / 用户 |
 | 认证与安全 | GitHub OAuth 登录 + Bearer 令牌；首个登录用户自动为管理员；敏感操作审计日志；速率限制 |
 | 索引与 RAG | index-worker 定时索引仓库 Issue（内容哈希去重 + 批量 embedding + 重建）；只读召回接口 |
-| QQ 机器人 | NTQQ 第三方协议（OneBot 11 / Satori / Milky）+ 官方开放平台 api-v2 |
+| QQ 机器人 | NTQQ 第三方协议（OneBot 11 / Satori / Milky）+ 官方开放平台 api-v2；AstrBot 插件（`plugins/astrbot_plugin_apertureprism/`，支持 napcat + QQ 官方） |
+| 生产发布 | GitHub Actions CI 构建全部镜像并推送 GHCR；`docker compose up -d` 直接拉取部署 |
 | 运维 | 一键安装脚本、Docker 全栈打包、迁移/备份脚本、健康检查、SSE 实时事件 |
 
 ## 系统架构
@@ -239,6 +240,7 @@ curl http://<host>/health/ready    # 200 才代表 DB+Redis 均就绪
 | M9 | 索引与 RAG（index-worker/只读召回/分析接入） | ✅ 已完成 |
 | M10 | QQ 机器人（NTQQ + 官方 api-v2） | ✅ 已完成 |
 | M11 | 生产加固与发布（scheduler/速率限制/compose/迁移备份/runbook） | ✅ 已完成 |
+| M12 | QQ 机器人 AstrBot 插件兼容（napcat + QQ 官方，`plugins/astrbot_plugin_apertureprism/`） | ✅ 已完成 |
 | 后续 | 一键安装、安全管理、仓库记忆、Agent Skills/专家团队、仓库互助 | ✅ 已完成 |
 
 > 阶段编号沿用[模块化开发计划](docs/APERTUREPRISM_MODULAR_DEVELOPMENT_PLAN.md)，实现顺序以仓库为准；WebUI（M8）按需求提前到 M7 之前。

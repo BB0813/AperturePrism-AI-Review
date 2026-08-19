@@ -1,0 +1,40 @@
+# Local source build override for the production compose:
+#   docker compose -f docker/docker-compose.prod.yml -f docker/docker-compose.build.yml up -d --build
+# Re-introduces `build:` for every app target so you can run from a local
+# checkout instead of pulling GHCR images. Keeps prod's env_file/ports/volumes.
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: api
+  analysis-worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: analysis-worker
+  index-worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: index-worker
+  scheduler:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: scheduler
+  migrate:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: migrate
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: web
+  qq-bot:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: qq-bot

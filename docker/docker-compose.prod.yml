@@ -4,6 +4,11 @@
 #   docker compose -f docker/docker-compose.prod.yml --env-file .env.production up -d              # 启动全栈
 #   docker compose -f docker/docker-compose.prod.yml --env-file .env.production --profile qq up -d  # 含 QQ 机器人
 # Web 通过 nginx 与 API 同源：http://<host>:${WEB_PORT:-80}
+#
+# 镜像从 GHCR 拉取（CI 发布）：ghcr.io/bb0813/apertureprism-ai-review/<target>
+#   IMAGE_TAG 默认 latest；打 tag 发布后可固定版本，如 IMAGE_TAG=v0.1.0。
+# 本地源码构建：docker compose -f docker/docker-compose.prod.yml -f docker/docker-compose.build.yml up -d --build
+# 本地开发数据库：docker compose -f docker/docker-compose.dev.yml up -d（只起 postgres+redis）
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -33,10 +38,7 @@ services:
       retries: 20
 
   api:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-      target: api
+    image: ghcr.io/bb0813/apertureprism-ai-review/api:${IMAGE_TAG:-latest}
     restart: unless-stopped
     env_file: .env.production
     environment:
@@ -55,10 +57,7 @@ services:
         condition: service_healthy
 
   analysis-worker:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-      target: analysis-worker
+    image: ghcr.io/bb0813/apertureprism-ai-review/analysis-worker:${IMAGE_TAG:-latest}
     restart: unless-stopped
     env_file: .env.production
     environment:
@@ -71,10 +70,7 @@ services:
         condition: service_healthy
 
   index-worker:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-      target: index-worker
+    image: ghcr.io/bb0813/apertureprism-ai-review/index-worker:${IMAGE_TAG:-latest}
     restart: unless-stopped
     env_file: .env.production
     environment:
@@ -88,10 +84,7 @@ services:
         condition: service_healthy
 
   scheduler:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-      target: scheduler
+    image: ghcr.io/bb0813/apertureprism-ai-review/scheduler:${IMAGE_TAG:-latest}
     restart: unless-stopped
     env_file: .env.production
     environment:
@@ -103,10 +96,7 @@ services:
 
   # One-shot migration runner: docker compose ... run --rm migrate
   migrate:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-      target: migrate
+    image: ghcr.io/bb0813/apertureprism-ai-review/migrate:${IMAGE_TAG:-latest}
     restart: "no"
     env_file: .env.production
     environment:
@@ -117,10 +107,7 @@ services:
 
   # Web console (nginx): serves the SPA and proxies API/SSE to `api`.
   web:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-      target: web
+    image: ghcr.io/bb0813/apertureprism-ai-review/web:${IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "${WEB_PORT:-80}:80"
@@ -129,10 +116,7 @@ services:
 
   # Optional QQ bot (onebot11/satori/milky or official api-v2).
   qq-bot:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-      target: qq-bot
+    image: ghcr.io/bb0813/apertureprism-ai-review/qq-bot:${IMAGE_TAG:-latest}
     restart: unless-stopped
     profiles: ["qq"]
     env_file: .env.production

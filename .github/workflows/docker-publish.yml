@@ -61,12 +61,13 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/BB0813/apertureprism-ai-review/${{ matrix.target }}
+          images: ghcr.io/bb0813/apertureprism-ai-review/${{ matrix.target }}
           flavor: |
             latest=auto
           tags: |
             type=ref,event=branch
             type=semver,pattern=v{{version}}
+            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push
         uses: docker/build-push-action@v6

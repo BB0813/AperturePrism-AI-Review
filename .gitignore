@@ -8,6 +8,8 @@ coverage/
 *.log
 .DS_Store
 Thumbs.db
+# Local CI log exports
+CI日志/
 
 # Archived reference project (read-only, never committed)
 archive/

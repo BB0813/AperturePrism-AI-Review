@@ -653,6 +653,11 @@ Adapter 不决定是否重试或切换候选。
 
 ## 16. M12：QQ 机器人 AstrBot 插件兼容
 
+> 状态：✅ 已完成（2026-08-19，实现于 `plugins/astrbot_plugin_apertureprism/`）。
+> 插件按官方 Star API（metadata.yaml / _conf_schema.json / `class Plugin(Star)` / `@filter.command`）
+> 实现，支持 `aiocqhttp`（napcat/OneBot 11）与 `qq_official` 两种适配器，桥接 AperturePrism
+> HTTP API（`/tasks/manual`、`/tasks/:id`、`/results/:type/:number`）。16 项 Python 冒烟测试通过。
+
 ### 16.1 目标
 
 把 AperturePrism 的 QQ 交互做成 **AstrBot 插件**（AstrBot 是开源 IM 机器人框架，自带 napcat / OneBot 11 与 QQ 官方开放平台的适配器）。用户安装插件即可在 QQ 里触发 Issue/PR 分析与查询结果，无需单独部署 `apps/qq-bot`。
