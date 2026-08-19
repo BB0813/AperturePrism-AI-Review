@@ -13,6 +13,8 @@ __pycache__/
 *.pyc
 # Local CI log exports
 CI日志/
+# Local release artifacts
+dist-release/
 
 # Archived reference project (read-only, never committed)
 archive/
