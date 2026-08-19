@@ -19,6 +19,8 @@
     "dev": "npm run dev --workspaces --if-present",
     "format": "prettier --write \"apps/**/*.{ts,json}\" \"packages/**/*.{ts,json}\" \"*.{json,mjs,yaml}\"",
     "format:check": "prettier --check \"apps/**/*.{ts,json}\" \"packages/**/*.{ts,json}\" \"*.{json,mjs,yaml}\"",
+    "setup": "node scripts/install.mjs",
+    "migrate": "node scripts/migrate.mjs",
     "lint": "eslint .",
     "test": "npm run build --workspaces --if-present && vitest run",
     "typecheck": "npm run typecheck --workspaces --if-present"
