@@ -28,7 +28,7 @@ COPY --from=deps /app/package.json ./package.json
 
 FROM base AS api
 COPY --from=build /app/apps/api/dist ./apps/api/dist
-EXPOSE 3000
+EXPOSE 30001
 CMD ["node", "apps/api/dist/apps/api/src/main.js"]
 
 FROM base AS analysis-worker

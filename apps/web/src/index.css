@@ -448,14 +448,14 @@ a:hover { text-decoration: underline; }
     var(--bg);
 }
 .login-card {
-  width: 100%; max-width: 380px; padding: 30px 28px;
-  background: var(--panel); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow);
-  display: flex; flex-direction: column; gap: 20px;
+  width: 100%; max-width: 440px; padding: 42px 38px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--shadow);
+  display: flex; flex-direction: column; gap: 28px;
 }
-.login-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; }
-.logo-img { width: 34px; height: 34px; border-radius: 8px; object-fit: contain; }
+.login-brand { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 17px; }
+.logo-img { width: 40px; height: 40px; border-radius: 9px; object-fit: contain; }
 .logo-img-lg { width: 72px; height: 72px; border-radius: 14px; object-fit: contain; }
-.login-desc { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.login-desc { margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.7; }
 
 /* ============================================================
    Detail header for task/result
@@ -527,7 +527,7 @@ a:hover { text-decoration: underline; }
   .seg button { padding: 5px 8px; font-size: 11px; }
   .dist-row { grid-template-columns: 64px 1fr 28px; gap: 6px; font-size: 11.5px; }
   .status-badge { font-size: 10px; padding: 4px 8px; }
-  .login-card { padding: 22px 18px; }
+  .login-card { padding: 26px 20px; }
   .detail-hero { padding: 12px 14px; }
   .nav-item { padding: 7px 9px; font-size: 12.5px; }
   .brand { font-size: 14px; }

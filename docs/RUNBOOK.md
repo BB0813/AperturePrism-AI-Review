@@ -6,7 +6,7 @@
 
 | 组件 | 进程 | 说明 |
 | --- | --- | --- |
-| `api` | `node apps/api/dist/apps/api/src/main.js` | HTTP / webhook / SSE，端口 `API_PORT`（默认 3000） |
+| `api` | `node apps/api/dist/apps/api/src/main.js` | HTTP / webhook / SSE，端口 `API_PORT`（默认 30001） |
 | `analysis-worker` | 同上（analysis-worker） | 领取并执行 Issue/PR 任务 |
 | `index-worker` | 同上（index-worker） | 定时索引仓库 Issue（内容哈希去重） |
 | `scheduler` | 同上（scheduler） | 每 10s 回收过期 lease、释放到期 retry |
@@ -29,8 +29,8 @@ DATABASE_URL=... node scripts/migrate.mjs
 docker compose -f docker/docker-compose.prod.yml --env-file .env.production up -d
 
 # 4. 健康检查
-curl http://<host>:3000/health/live
-curl http://<host>:3000/health/ready   # 200 才代表 DB+Redis 均就绪
+curl http://<host>:30001/health/live
+curl http://<host>:30001/health/ready   # 200 才代表 DB+Redis 均就绪
 ```
 
 ## 3. 迁移发布流程

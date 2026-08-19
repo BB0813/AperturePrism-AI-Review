@@ -60,7 +60,7 @@ AperturePrism 把「AI 代码审查」做成了一条可落地的产品链路，
 ```text
                         ┌────────────────────────────────────────────┐
  GitHub App/Webhook ────┤                                            │
- GitHub OAuth (登录) ────┤          apps/api  (:3000)                 │
+ GitHub OAuth (登录) ────┤          apps/api  (:30001)                │
  QQ 机器人 (NTQQ/官方) ──┤  Webhook/认证/任务/结果/SSE/配置/审计       │
  WebUI (React+nginx) ───┤                                            │
                         └───────────────┬────────────────────────────┘
@@ -119,8 +119,8 @@ npm run dev --workspace apps/qq-bot
 cd apps/web && npm install && npm run dev
 ```
 
-- API：[http://127.0.0.1:3000](http://127.0.0.1:3000)（健康检查 `/health/live`、`/health/ready`）
-- Web：[http://localhost:5174](http://localhost:5174)（Vite 代理到 API :3000）
+- API：[http://127.0.0.1:30001](http://127.0.0.1:30001)（健康检查 `/health/live`、`/health/ready`）
+- Web：[http://localhost:5174](http://localhost:5174)（Vite 代理到 API :30001）
 
 ### 方式 B：GitHub 直跑（仓库公开，无需先 clone）
 
@@ -165,7 +165,7 @@ curl http://<host>/health/ready    # 200 才代表 DB+Redis 均就绪
 | `HOST` / `PORT` / `LOG_LEVEL` | API 监听与日志级别 |
 | `WEBUI_API_TOKEN` | 可选 Bearer 令牌，保护 WebUI API；不设则开放 |
 | `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY_PATH` / `GITHUB_WEBHOOK_SECRET` | GitHub App（Webhook 验签、installation token、评论发布） |
-| `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET` | WebUI 登录；**回调必须指向本实例**（本地 `http://127.0.0.1:3000/auth/callback`，见下） |
+| `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET` | WebUI 登录；**回调必须指向本实例**（本地 `http://127.0.0.1:30001/auth/callback`，见下） |
 | `MODEL_PROVIDER_BASE_URLS` | Provider → OpenAI 兼容 baseUrl 的 JSON 映射 |
 | `CREDENTIAL_MASTER_KEY` | AES-GCM 主密钥：解密 provider 密钥 / star-aid token / 记忆与专家团队模型调用 |
 | `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY` / `EMBEDDING_MODEL` | 与 review 模型独立配置（默认 `nvidia/nv-embed-v1`，4096 维） |
@@ -173,7 +173,7 @@ curl http://<host>/health/ready    # 200 才代表 DB+Redis 均就绪
 | `QQ_OFFICIAL_APP_ID` / `QQ_OFFICIAL_APP_SECRET` / `QQ_OFFICIAL_GATEWAY_URL` / `QQ_OFFICIAL_INTENTS` | 官方开放平台 api-v2 |
 | `INDEX_INTERVAL_MS` | 索引 Worker 轮询间隔（默认 600000） |
 
-> **OAuth 回调配置**：在 GitHub OAuth App 设置中把回调（Authorization callback URL）配成 `http://127.0.0.1:3000/auth/callback`（本地）或对应部署域名。若回调指向别的域名，本地授权后 code 会送回那个域名，`state` 校验失败（真机联调实测的配置错位）。
+> **OAuth 回调配置**：在 GitHub OAuth App 设置中把回调（Authorization callback URL）配成 `http://127.0.0.1:30001/auth/callback`（本地）或对应部署域名。若回调指向别的域名，本地授权后 code 会送回那个域名，`state` 校验失败（真机联调实测的配置错位）。
 
 ## WebUI 功能对齐
 

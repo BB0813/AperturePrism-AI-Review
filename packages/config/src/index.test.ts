@@ -12,7 +12,7 @@ describe("loadConfig", () => {
     const config = loadConfig(validEnvironment);
     expect(config).toMatchObject({
       environment: "development",
-      port: 3000,
+      port: 30001,
       logLevel: "info",
     });
     expect(Object.isFrozen(config)).toBe(true);

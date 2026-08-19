@@ -33,8 +33,8 @@ const environmentSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
     .default("development"),
-  PORT: z.coerce.number().int().min(1).max(65535).default(3000),
-  HOST: z.string().min(1).default("127.0.0.1"),
+  PORT: z.coerce.number().int().min(1).max(65535).default(30001),
+  HOST: z.string().min(1).default("0.0.0.0"),
   DATABASE_URL: z
     .url()
     .refine(

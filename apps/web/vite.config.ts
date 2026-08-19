@@ -1,7 +1,7 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-const proxyTarget = process.env.VITE_PROXY_TARGET ?? "http://127.0.0.1:3000";
+const proxyTarget = process.env.VITE_PROXY_TARGET ?? "http://127.0.0.1:30001";
 
 // The web dev server proxies API + SSE traffic to the API app so the browser
 // only talks to one origin (no CORS, and EventSource works cleanly).

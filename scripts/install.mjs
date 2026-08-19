@@ -208,8 +208,8 @@ function summary() {
   console.log(`  Scheduler：  ${DIM}npm run dev --workspace apps/scheduler${RESET}`);
   console.log(`  Web UI：     ${DIM}cd apps/web && npm install && npm run dev${RESET}`);
   console.log("");
-  console.log(`  API 健康检查：${DIM}curl http://127.0.0.1:3000/health/live${RESET}`);
-  console.log(`  OAuth 回调：  ${DIM}http://127.0.0.1:3000/auth/callback${RESET}`);
+  console.log(`  API 健康检查：${DIM}curl http://127.0.0.1:30001/health/live${RESET}`);
+  console.log(`  OAuth 回调：  ${DIM}http://127.0.0.1:30001/auth/callback${RESET}`);
   console.log(`${BOLD}──────────────────────────────${RESET}`);
   console.log(`详情见 README「本地启动」章节。`);
 }
