@@ -234,4 +234,81 @@ describe("issue analysis handler", () => {
       "provider down",
     );
   });
+
+  it("completes without analysis when the spam detector flags the issue", async () => {
+    const handled: string[] = [];
+    const { services, calls } = makeServices({
+      detectSpam: async () => ({
+        isSpam: true,
+        reason: "pure advertisement",
+        confidence: 0.99,
+      }),
+      handleSpam: async () => {
+        handled.push("handleSpam");
+      },
+    });
+    const handler = createIssueAnalysisHandler(services);
+
+    const result = await handler(leasedTask(), neverAbort);
+
+    expect(result).toEqual({ outcome: "completed" });
+    expect(handled).toEqual(["handleSpam"]);
+    expect(calls()).toEqual(["buildContext"]);
+    expect(calls()).not.toContain("analyze");
+  });
+
+  it("continues the normal flow when the spam detector throws", async () => {
+    const { services, calls } = makeServices({
+      detectSpam: async () => {
+        throw new Error("detector down");
+      },
+    });
+    const handler = createIssueAnalysisHandler(services);
+
+    const result = await handler(leasedTask(), neverAbort);
+
+    expect(result).toEqual({ outcome: "completed" });
+    expect(calls()).toContain("analyze");
+    expect(calls()).toContain("publishFinal");
+  });
+
+  it("continues the normal flow when the spam detector returns not-spam", async () => {
+    const { services, calls } = makeServices({
+      detectSpam: async () => ({
+        isSpam: false,
+        reason: "genuine bug report",
+        confidence: 0.8,
+      }),
+    });
+    const handler = createIssueAnalysisHandler(services);
+
+    const result = await handler(leasedTask(), neverAbort);
+
+    expect(result).toEqual({ outcome: "completed" });
+    expect(calls()).toContain("analyze");
+    expect(calls()).toContain("publishFinal");
+    expect(calls()).not.toContain("handleSpam");
+  });
+
+  it("swallows handleSpam failures and still completes the spam task", async () => {
+    const handled: string[] = [];
+    const { services, calls } = makeServices({
+      detectSpam: async () => ({
+        isSpam: true,
+        reason: "spam",
+        confidence: 0.95,
+      }),
+      handleSpam: async () => {
+        handled.push("handleSpam");
+        throw new Error("github down");
+      },
+    });
+    const handler = createIssueAnalysisHandler(services);
+
+    const result = await handler(leasedTask(), neverAbort);
+
+    expect(result).toEqual({ outcome: "completed" });
+    expect(handled).toEqual(["handleSpam"]);
+    expect(calls()).not.toContain("analyze");
+  });
 });

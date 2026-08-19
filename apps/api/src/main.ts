@@ -1,4 +1,5 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import {
   createServer,
   type IncomingMessage,
@@ -59,15 +60,22 @@ import {
   verifyGitHubToken,
 } from "../../../packages/star-aid/src/index.js";
 import {
+  createGitHubClient,
+  GitHubApiError,
   normalizeGitHubEvent,
+  type GitHubClient,
   verifyWebhookSignature,
   WebhookSignatureError,
 } from "../../../packages/github-adapter/src/index.js";
-import { ISSUE_ANALYSIS_POLICY_VERSION } from "../../../packages/issue-analysis/src/index.js";
+import {
+  ISSUE_ANALYSIS_POLICY_VERSION,
+  repositoryOwnerName,
+} from "../../../packages/issue-analysis/src/index.js";
 import {
   serializeSseEvent,
   SSE_HEADERS,
 } from "../../../packages/event-stream/src/index.js";
+import { createAnalysisTask } from "../../../packages/task-engine/src/index.js";
 import { PR_REVIEW_POLICY_VERSION } from "../../../packages/pr-review/src/index.js";
 import {
   BUILTIN_SKILLS,
@@ -88,6 +96,31 @@ const config = loadConfig(process.env);
 const logger = createLogger(config.logLevel);
 const database = createDatabaseClient(config.databaseUrl);
 const redis = createRedisClient(config.redisUrl);
+
+/**
+ * Lazy GitHub App client for the manual-trigger endpoint, built only when the
+ * App is configured. Failures degrade to `null` so the API still starts and
+ * the manual endpoint reports `github_not_configured` instead of crashing.
+ */
+const githubClientPromise: Promise<GitHubClient | null> = (async () => {
+  try {
+    if (!config.githubAppId || !config.githubAppPrivateKeyPath) return null;
+    const privateKeyPem = await readFile(
+      config.githubAppPrivateKeyPath,
+      "utf8",
+    );
+    return createGitHubClient({
+      appId: config.githubAppId,
+      privateKeyPem,
+      ...(config.githubApiBaseUrl
+        ? { apiBaseUrl: config.githubApiBaseUrl }
+        : {}),
+    });
+  } catch (error) {
+    logger.warn({ err: error }, "GitHub App client initialization failed");
+    return null;
+  }
+})();
 
 /** AES-GCM cipher wrapping CREDENTIAL_MASTER_KEY for star-aid PAT storage. */
 const starAidCipher = config.credentialMasterKey
@@ -130,6 +163,7 @@ const ALLOWED_SETTING_KEYS = new Set([
   "github_webhook_secret",
   "github_webhook_enabled",
   "log_level",
+  "spam_handling",
 ]);
 
 const runtimeSettings = new Map<string, string>();
@@ -700,6 +734,155 @@ async function handleTasks(
       .orderBy(asc(taskAttempts.attemptNumber)),
   ]);
   json(response, 200, { ...row, timeline, attempts }, requestId);
+}
+
+/**
+ * Manual task trigger (POST /tasks/manual). Looks up the installed repository
+ * by owner/name, resolves the subject revision (PR head SHA via GitHub, or the
+ * current time for issues), and enqueues an analysis/review task shaped exactly
+ * like a webhook-derived task.
+ */
+async function handleManualTask(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const body = await readBody(request);
+  let parsed: { type?: unknown; repositoryFullName?: unknown; subjectNumber?: unknown };
+  try {
+    parsed = JSON.parse(body.toString("utf8"));
+  } catch {
+    json(response, 400, { status: "error", reason: "invalid JSON" }, requestId);
+    return;
+  }
+  const type = parsed.type;
+  if (type !== "issue" && type !== "pr") {
+    json(
+      response,
+      400,
+      { status: "error", reason: "type must be 'issue' or 'pr'" },
+      requestId,
+    );
+    return;
+  }
+  const repositoryFullName =
+    typeof parsed.repositoryFullName === "string"
+      ? parsed.repositoryFullName.trim()
+      : "";
+  const identity = repositoryOwnerName(repositoryFullName);
+  if (!identity) {
+    json(
+      response,
+      400,
+      { status: "error", reason: "repositoryFullName must be owner/repo" },
+      requestId,
+    );
+    return;
+  }
+  const subjectNumber = parsed.subjectNumber;
+  if (
+    typeof subjectNumber !== "number" ||
+    !Number.isInteger(subjectNumber) ||
+    subjectNumber <= 0
+  ) {
+    json(
+      response,
+      400,
+      { status: "error", reason: "subjectNumber must be a positive integer" },
+      requestId,
+    );
+    return;
+  }
+
+  const rows = await database.db
+    .select({
+      id: repositories.id,
+      githubId: repositories.githubId,
+      installationId: repositories.installationId,
+    })
+    .from(repositories)
+    .where(
+      and(
+        eq(repositories.owner, identity.owner),
+        eq(repositories.name, identity.name),
+      ),
+    )
+    .limit(1);
+  const repo = rows[0];
+  if (!repo || !repo.installationId) {
+    json(
+      response,
+      404,
+      { status: "error", reason: "repository_not_installed" },
+      requestId,
+    );
+    return;
+  }
+
+  const github = await githubClientPromise;
+  let subjectRevision: string;
+  if (type === "pr") {
+    if (!github) {
+      json(
+        response,
+        503,
+        { status: "error", reason: "github_not_configured" },
+        requestId,
+      );
+      return;
+    }
+    try {
+      const pullRequest = await github.getPullRequest({
+        installationId: repo.installationId,
+        owner: identity.owner,
+        name: identity.name,
+        number: subjectNumber,
+      });
+      subjectRevision = pullRequest.headSha;
+    } catch (error) {
+      if (error instanceof GitHubApiError) {
+        const reason =
+          error.category === "not_found" ? "pull_request_not_found" : error.category;
+        json(response, 400, { status: "error", reason }, requestId);
+        return;
+      }
+      throw error;
+    }
+  } else {
+    subjectRevision = new Date().toISOString();
+  }
+
+  const policyVersion =
+    type === "issue" ? ISSUE_ANALYSIS_POLICY_VERSION : PR_REVIEW_POLICY_VERSION;
+  const taskType = type === "issue" ? "issue_analysis" : "pr_review";
+  const keyPrefix = type === "issue" ? "issue-analysis" : "pr-review";
+  const result = await createAnalysisTask(database.db, {
+    taskType,
+    repositoryId: repo.id,
+    subjectNumber,
+    subjectRevision,
+    policyVersion,
+    dedupeKey: `${keyPrefix}:${repo.id}:${subjectNumber}:${subjectRevision}:${policyVersion}`,
+    payload: {
+      installationId: repo.installationId,
+      repositoryExternalId: repo.githubId,
+      repositoryFullName,
+      subjectNumber,
+      subjectRevision,
+      sourceEvent: "manual",
+    },
+  });
+
+  audit(request, "task.manual_trigger", repositoryFullName, {
+    type,
+    subjectNumber,
+  });
+  json(
+    response,
+    200,
+    { status: "ok", taskId: result.task.id, outcome: result.outcome },
+    requestId,
+  );
 }
 
 /** Model role policies + configured provider account names (never the keys). */
@@ -1318,6 +1501,7 @@ async function handleSettings(
     "github_webhook_secret",
     "github_webhook_enabled",
     "log_level",
+    "spam_handling",
   ];
   const items = known.map((key) => {
     const row = byKey.get(key);
@@ -2635,6 +2819,20 @@ async function handleRequest(
       return;
     }
     await handleStarAid(request, response, requestId);
+    return;
+  }
+
+  if (path === "/tasks/manual") {
+    if (request.method !== "POST") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    await handleManualTask(request, response, requestId);
     return;
   }
 

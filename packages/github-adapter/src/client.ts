@@ -149,6 +149,35 @@ export type GitHubClient = {
     signal?: AbortSignal,
   ) => Promise<GitHubCreatedComment>;
   /**
+   * Closes an issue. When `body` is given, a closing comment is posted first
+   * (best-effort, failures do not block the close) and then the issue state
+   * is patched to "closed".
+   */
+  closeIssue: (
+    input: {
+      installationId: string;
+      owner: string;
+      name: string;
+      number: number;
+      body?: string;
+    },
+    signal?: AbortSignal,
+  ) => Promise<void>;
+  /**
+   * Deletes an issue. GitHub requires the token to have write/admin access to
+   * the repository; otherwise it responds 403, which surfaces as a
+   * `authentication_failed` GitHubApiError so callers can degrade to close.
+   */
+  deleteIssue: (
+    input: {
+      installationId: string;
+      owner: string;
+      name: string;
+      number: number;
+    },
+    signal?: AbortSignal,
+  ) => Promise<void>;
+  /**
    * Adds labels to an issue. Idempotent: GitHub ignores labels that already
    * exist. Used by the worker to apply configured label rules after analysis.
    */
@@ -257,7 +286,7 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
   const request = async <T>(
     path: string,
     init: {
-      method: "GET" | "POST" | "PATCH";
+      method: "GET" | "POST" | "PATCH" | "DELETE";
       token: string;
       body?: unknown | undefined;
       signal?: AbortSignal | undefined;
@@ -349,7 +378,7 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
   const authorized = async <T>(
     installationId: string,
     init: {
-      method: "GET" | "POST" | "PATCH";
+      method: "GET" | "POST" | "PATCH" | "DELETE";
       path: string;
       body?: unknown;
       accept?: string;
@@ -480,6 +509,48 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
         signal,
       );
       return mapComment(comment);
+    },
+
+    closeIssue: async (
+      { installationId, owner, name, number, body },
+      signal,
+    ) => {
+      if (body && body.trim().length > 0) {
+        try {
+          await authorized<Record<string, unknown>>(
+            installationId,
+            {
+              method: "POST",
+              path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues/${number}/comments`,
+              body: { body },
+            },
+            signal,
+          );
+        } catch (error) {
+          // The closing comment is best-effort; never block the close on it.
+          void error;
+        }
+      }
+      await authorized<Record<string, unknown>>(
+        installationId,
+        {
+          method: "PATCH",
+          path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues/${number}`,
+          body: { state: "closed" },
+        },
+        signal,
+      );
+    },
+
+    deleteIssue: async ({ installationId, owner, name, number }, signal) => {
+      await authorized<Record<string, unknown>>(
+        installationId,
+        {
+          method: "DELETE",
+          path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues/${number}`,
+        },
+        signal,
+      );
     },
 
     addIssueLabels: async (

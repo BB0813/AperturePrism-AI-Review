@@ -17,6 +17,7 @@ import {
   repositories,
   subjectResults,
   systemSettings,
+  writeAuditLog,
   writeRepoMemory,
   type DatabaseClient,
 } from "../../../packages/database/src/index.js";
@@ -26,12 +27,13 @@ import {
   type ModelProviderAdapter,
   type ModelRole,
 } from "../../../packages/domain/src/index.js";
-import { createGitHubClient } from "../../../packages/github-adapter/src/index.js";
+import { createGitHubClient, GitHubApiError } from "../../../packages/github-adapter/src/index.js";
 import {
   analyzeIssue,
   buildIssueAnalysisComment,
   buildIssueContext,
   buildPlaceholderComment,
+  detectSpamIssue,
   issueCommentIdempotencyKey,
   parseIssueTaskPayload,
   publishIssueComment,
@@ -121,7 +123,7 @@ const engine: TaskEngineOperations = {
 };
 
 /** A model role policy row; `expert_review` is an optional agent-team role. */
-type PolicyRole = ModelRole | "expert_review";
+type PolicyRole = ModelRole | "expert_review" | "spam_detection";
 
 async function loadCandidates(role: PolicyRole): Promise<ModelCandidate[]> {
   const rows = await database.db
@@ -312,6 +314,8 @@ async function main(): Promise<void> {
     logger.warn(
       "no issue_analysis model candidates configured in the database",
     );
+  // Ad/spam detection uses its own role when configured, else issue_analysis.
+  const spamCandidates = await loadCandidates("spam_detection");
   const reviewCandidates = await loadCandidates("pr_review");
   if (reviewCandidates.length === 0)
     logger.warn("no pr_review model candidates configured in the database");
@@ -477,6 +481,104 @@ async function main(): Promise<void> {
         logger.warn(
           { err: error, taskId: task.id },
           "issue memory reflection skipped",
+        );
+      }
+    },
+
+    detectSpam: async (task, signal) => {
+      try {
+        if (!github) return null;
+        const candidates =
+          spamCandidates.length > 0 ? spamCandidates : issueCandidates;
+        if (candidates.length === 0) return null;
+        const { payload, identity } = issueIdentity(task);
+        const context = await buildIssueContext(
+          github,
+          {
+            installationId: payload.installationId,
+            owner: identity.owner,
+            name: identity.name,
+            number: payload.subjectNumber,
+          },
+          undefined,
+          signal,
+        );
+        const outcome = await detectSpamIssue(
+          {
+            adapters,
+            candidates,
+            deadlineMs: analysisDeadlineMs,
+            retryPolicy: analysisRetryPolicy,
+            signal,
+          },
+          context,
+        );
+        return outcome.outcome === "valid" ? outcome.verdict : null;
+      } catch (error) {
+        logger.warn({ err: error, taskId: task.id }, "spam detection skipped");
+        return null;
+      }
+    },
+
+    handleSpam: async (task, verdict) => {
+      const { payload, identity } = issueIdentity(task);
+      const githubClient = assertGithub(github);
+      const target = `${payload.repositoryFullName}#${payload.subjectNumber}`;
+      let action: "none" | "close" | "delete" = "none";
+      try {
+        action = await spamHandlingMode();
+        if (action === "close") {
+          await closeSpamIssue(githubClient, payload, identity, verdict.reason);
+        } else if (action === "delete") {
+          try {
+            await githubClient.deleteIssue({
+              installationId: payload.installationId,
+              owner: identity.owner,
+              name: identity.name,
+              number: payload.subjectNumber,
+            });
+          } catch (error) {
+            if (
+              error instanceof GitHubApiError &&
+              error.category === "authentication_failed"
+            ) {
+              logger.warn(
+                { err: error, target },
+                "spam delete not permitted; falling back to close",
+              );
+              await closeSpamIssue(
+                githubClient,
+                payload,
+                identity,
+                verdict.reason,
+              );
+            } else {
+              throw error;
+            }
+          }
+        }
+        // "none": no GitHub action; only the audit trail below.
+      } catch (error) {
+        logger.warn(
+          { err: error, target, action },
+          "spam handling failed",
+        );
+      }
+      try {
+        await writeAuditLog(database.db, {
+          actor: "system",
+          action: "issue.spam_handled",
+          target,
+          detail: {
+            action,
+            reason: verdict.reason,
+            confidence: verdict.confidence,
+          },
+        });
+      } catch (error) {
+        logger.warn(
+          { err: error, target },
+          "spam audit log write failed",
         );
       }
     },
@@ -739,6 +841,52 @@ async function applyConfiguredLabels(input: {
     number: input.issueNumber,
     labels,
   });
+}
+
+/** Reads the ad/spam handling policy from `system_settings`; defaults to close. */
+async function spamHandlingMode(): Promise<"none" | "close" | "delete"> {
+  try {
+    const rows = await database.db
+      .select({ value: systemSettings.value })
+      .from(systemSettings)
+      .where(eq(systemSettings.key, "spam_handling"))
+      .limit(1);
+    const value = rows[0]?.value;
+    if (value === "none" || value === "delete" || value === "close")
+      return value;
+  } catch (error) {
+    logger.warn(
+      { err: error },
+      "spam handling setting read failed; using close",
+    );
+  }
+  return "close";
+}
+
+/** Posts an explanatory comment and closes the flagged spam issue. */
+async function closeSpamIssue(
+  githubClient: ReturnType<typeof createGitHubClient>,
+  payload: { installationId: string; subjectNumber: number },
+  identity: { owner: string; name: string },
+  reason: string,
+): Promise<void> {
+  await githubClient.createIssueComment({
+    installationId: payload.installationId,
+    owner: identity.owner,
+    name: identity.name,
+    number: payload.subjectNumber,
+    body: spamCloseComment(reason),
+  });
+  await githubClient.closeIssue({
+    installationId: payload.installationId,
+    owner: identity.owner,
+    name: identity.name,
+    number: payload.subjectNumber,
+  });
+}
+
+function spamCloseComment(reason: string): string {
+  return `该 Issue 被识别为广告 / 垃圾内容，已自动关闭。\n\n判定理由：${reason}\n\n如果这是误判，请重新打开 Issue 并补充说明，维护者会复核。`;
 }
 
 function requestShutdown(signal: string): void {

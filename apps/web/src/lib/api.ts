@@ -645,6 +645,48 @@ export async function fetchTaskDetail(id: string): Promise<TaskDetail> {
   return (await getJson(`/tasks/${encodeURIComponent(id)}`)) as TaskDetail;
 }
 
+export type ManualTriggerInput = {
+  type: "issue" | "pr";
+  repositoryFullName: string;
+  subjectNumber: number;
+};
+
+export type ManualTriggerResult = {
+  status: string;
+  taskId: string;
+  outcome: "created" | "duplicate";
+};
+
+/**
+ * Manually enqueues an issue analysis or PR review task for an installed
+ * repository. Returns the created task id (or reports a dedupe hit).
+ */
+export async function triggerManualTask(
+  input: ManualTriggerInput,
+): Promise<ManualTriggerResult> {
+  const response = await fetch("/tasks/manual", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...authHeaders() },
+    body: JSON.stringify(input),
+  });
+  const text = await response.text();
+  let parsed: { status?: string; reason?: string; taskId?: string; outcome?: "created" | "duplicate" } = {};
+  try {
+    parsed = text ? JSON.parse(text) : {};
+  } catch {
+    // keep default
+  }
+  if (!response.ok) {
+    const reason = parsed.reason ?? `manual trigger ${response.status}`;
+    throw new Error(reason);
+  }
+  return {
+    status: parsed.status ?? "ok",
+    taskId: parsed.taskId ?? "",
+    outcome: parsed.outcome ?? "created",
+  };
+}
+
 /** Fetches model role policies + provider account names (no secrets). */
 export async function fetchProviders(): Promise<ProviderOverview> {
   return (await getJson("/providers")) as ProviderOverview;

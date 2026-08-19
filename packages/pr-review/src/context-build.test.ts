@@ -23,6 +23,8 @@ function makeGithub(): GitHubClient {
     listIssues: async () => [],
     listIssueComments: async () => [],
     createIssueComment: async () => ({ id: 1, htmlUrl: "" }),
+    closeIssue: async () => undefined,
+    deleteIssue: async () => undefined,
     addIssueLabels: async () => undefined,
     updateIssueComment: async () => ({ id: 1, htmlUrl: "" }),
     createPullRequestReview: async () => ({ id: 1 }),

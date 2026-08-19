@@ -8,6 +8,12 @@ import type {
 } from "../../../packages/issue-analysis/src/index.js";
 import type { TaskHandler } from "./loop.js";
 
+export type SpamVerdict = {
+  isSpam: boolean;
+  reason: string;
+  confidence: number;
+};
+
 /**
  * Everything the analysis flow needs, injected by main so this module stays a
  * pure orchestration layer that is easy to test without GitHub or a database.
@@ -43,6 +49,27 @@ export type IssueAnalysisServices = {
     task: LeasedTask,
     analysis: GradedIssueAnalysis,
   ) => Promise<void>;
+  /**
+   * Optional: ad/spam detection run after building the context, before any
+   * normal analysis. Returning a non-null verdict with isSpam=true short-
+   * circuits the flow: handleSpam runs (best-effort) and the task completes
+   * without publishing an analysis. A throw or a null result continues the
+   * normal analysis.
+   */
+  detectSpam?: (
+    task: LeasedTask,
+    signal: AbortSignal,
+  ) => Promise<SpamVerdict | null>;
+  /**
+   * Optional: acts on a confirmed spam verdict (close/delete per config).
+   * Best-effort — the handler swallows failures so spam handling can never
+   * fail the task.
+   */
+  handleSpam?: (
+    task: LeasedTask,
+    verdict: SpamVerdict,
+    signal: AbortSignal,
+  ) => Promise<void>;
 };
 
 /**
@@ -61,6 +88,26 @@ export function createIssueAnalysisHandler(
         return { outcome: "failed", errorCategory: "unsupported_task_type" };
 
       const context = await services.buildContext(task, signal);
+
+      // Ad/spam detection runs before any normal analysis. A confirmed spam
+      // verdict short-circuits the flow; failures or a null result degrade to
+      // the regular analysis path.
+      if (services.detectSpam) {
+        try {
+          const verdict = await services.detectSpam(task, signal);
+          if (verdict && verdict.isSpam) {
+            try {
+              await services.handleSpam?.(task, verdict, signal);
+            } catch {
+              // Spam handling is best-effort; never fails the completed task.
+            }
+            return { outcome: "completed" };
+          }
+        } catch {
+          // Detection failure degrades to the normal analysis flow.
+        }
+      }
+
       await services.publishPlaceholder(task, signal);
 
       const outcome = await services.analyze(context, signal);

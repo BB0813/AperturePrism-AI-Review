@@ -40,6 +40,11 @@ const FIELD_META: Record<string, { label: string; hint: string; secret: boolean 
     hint: "debug / info / warn / error，保存后约 8 秒内生效",
     secret: false,
   },
+  spam_handling: {
+    label: "广告 Issue 处理",
+    hint: "none 不处理 / close 关闭 / delete 删除；分析前自识别广告类 Issue",
+    secret: false,
+  },
 };
 
 function Row({ it, drafts, setDrafts, save, busyKey }: {
