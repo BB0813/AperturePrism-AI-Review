@@ -1,7 +1,9 @@
-# syntax=docker/dockerfile:1
 # AperturePrism production images. The workspace compiles each app with its
 # package sources inlined under <app>/dist (relative deep imports), so the
 # runtime images only need root node_modules plus the app's dist tree.
+# (No `# syntax=` line: Docker >= 23 ships the dockerfile:1 frontend built-in,
+# avoiding a network fetch of docker/dockerfile:1 on every build — important
+# behind flaky registry mirrors.)
 FROM node:22-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json .npmrc ./
