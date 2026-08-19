@@ -586,6 +586,92 @@ export async function setupInit(): Promise<SetupInitResult> {
   return (await response.json()) as SetupInitResult;
 }
 
+/** POST to a public setup config endpoint; surfaces a readable error. */
+async function postSetup(url: string, body: unknown): Promise<unknown> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await response.json().catch(() => ({}))) as {
+    reason?: string;
+    hint?: string;
+  };
+  if (!response.ok) {
+    throw new Error(
+      data.reason ? `${data.reason}${data.hint ? ` — ${data.hint}` : ""}` : `request failed with ${response.status}`,
+    );
+  }
+  return data;
+}
+
+export type ProviderSaveResult = {
+  status: string;
+  provider: string;
+  accountName: string;
+  model: string;
+  policiesUpdated: number;
+};
+
+/** Pulls an OpenAI-compatible model list for a base URL + API key. */
+export async function fetchModels(
+  baseUrl: string,
+  apiKey: string,
+): Promise<string[]> {
+  const data = (await postSetup("/setup/models", { baseUrl, apiKey })) as {
+    models?: string[];
+  };
+  return data.models ?? [];
+}
+
+/** Saves a model provider account and wires it into every role policy. */
+export async function saveProvider(input: {
+  provider: string;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  accountName?: string;
+}): Promise<ProviderSaveResult> {
+  return (await postSetup("/setup/provider", input)) as ProviderSaveResult;
+}
+
+/** Stores the embedding endpoint as a hot runtime setting. */
+export async function saveEmbedding(input: {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+}): Promise<{ status: string; baseUrl: string; model: string }> {
+  return (await postSetup("/setup/embedding", input)) as {
+    status: string;
+    baseUrl: string;
+    model: string;
+  };
+}
+
+/** Generates and persists a GitHub webhook secret; returns it once. */
+export async function genWebhookSecret(): Promise<string> {
+  const data = (await postSetup("/setup/webhook-secret", {})) as {
+    secret?: string;
+  };
+  if (!data.secret) throw new Error("no secret returned");
+  return data.secret;
+}
+
+/** Generates a GitHub OAuth client secret (and stores client id if given). */
+export async function saveOAuth(input: {
+  clientId?: string;
+}): Promise<{ clientId: string; clientSecret: string; callbackPath: string }> {
+  return (await postSetup("/setup/oauth", input)) as {
+    clientId: string;
+    clientSecret: string;
+    callbackPath: string;
+  };
+}
+
 async function getJson(url: string): Promise<unknown> {
   const response = await fetch(url, {
     headers: { accept: "application/json", ...authHeaders() },

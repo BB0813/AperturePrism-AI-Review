@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { hostname } from "node:os";
-import { eq } from "drizzle-orm";
+import { eq, or } from "drizzle-orm";
 import { loadConfig } from "../../../packages/config/src/index.js";
 import {
   createDatabaseClient,
@@ -43,7 +43,38 @@ const workerId = `${hostname()}:${process.pid}`;
 const shutdown = new AbortController();
 
 function embeddingConfigured(): boolean {
-  return Boolean(config.embedding.baseUrl && config.embedding.apiKey);
+  const e = embeddingOverride;
+  return Boolean(e && e.baseUrl && e.apiKey);
+}
+
+/**
+ * Embedding endpoint may be set through the install wizard as runtime settings
+ * (`embedding_base_url` / `embedding_api_key` / `embedding_model`). Load them
+ * from the DB once per pass so a wizard change takes effect without a restart.
+ */
+let embeddingOverride: { baseUrl: string; apiKey: string; model: string } | null =
+  null;
+async function loadEmbeddingOverride(): Promise<void> {
+  try {
+    const rows = await database.db
+      .select({ key: systemSettings.key, value: systemSettings.value })
+      .from(systemSettings)
+      .where(
+        or(
+          eq(systemSettings.key, "embedding_base_url"),
+          eq(systemSettings.key, "embedding_api_key"),
+          eq(systemSettings.key, "embedding_model"),
+        ),
+      );
+    const map = new Map(rows.map((row) => [row.key, row.value]));
+    embeddingOverride = {
+      baseUrl: map.get("embedding_base_url") || config.embedding.baseUrl || "",
+      apiKey: map.get("embedding_api_key") || config.embedding.apiKey || "",
+      model: map.get("embedding_model") || config.embedding.model,
+    };
+  } catch {
+    embeddingOverride = null;
+  }
 }
 
 async function createGithub() {
@@ -70,14 +101,19 @@ function contentHashOf(input: {
 
 /** Embeds a batch of texts, returning vectors aligned with the input order. */
 async function embedBatch(texts: string[]): Promise<number[][]> {
-  const baseUrl = config.embedding.baseUrl?.replace(/\/+$/, "") ?? "";
+  const e = embeddingOverride ?? {
+    baseUrl: config.embedding.baseUrl ?? "",
+    apiKey: config.embedding.apiKey ?? "",
+    model: config.embedding.model,
+  };
+  const baseUrl = e.baseUrl.replace(/\/+$/, "");
   const response = await fetch(`${baseUrl}/embeddings`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${config.embedding.apiKey ?? ""}`,
+      authorization: `Bearer ${e.apiKey}`,
     },
-    body: JSON.stringify({ model: config.embedding.model, input: texts }),
+    body: JSON.stringify({ model: e.model, input: texts }),
   });
   if (!response.ok) {
     const body = await response.text().catch(() => "");
@@ -144,6 +180,7 @@ async function runIndexPass(
     })
     .from(repositories)
     .orderBy(repositories.name);
+  await loadEmbeddingOverride();
   const useEmbedding = embeddingConfigured();
   const summary = {
     repos: repoRows.length,

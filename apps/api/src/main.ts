@@ -1,4 +1,4 @@
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import {
   createServer,
@@ -128,28 +128,50 @@ const starAidCipher = config.credentialMasterKey
   : null;
 
 /* ---------- GitHub OAuth (progressive; enabled when configured) ---------- */
-const oauthClientId = process.env.GITHUB_OAUTH_CLIENT_ID ?? "";
-const oauthClientSecret = process.env.GITHUB_OAUTH_CLIENT_SECRET ?? "";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 /** In-memory OAuth `state` → expiry, verified in the callback. */
 const oauthStates = new Map<string, number>();
 
-function oauthConfigured(): boolean {
-  return Boolean(oauthClientId && oauthClientSecret);
+/**
+ * Effective OAuth credentials: runtime settings (`oauth_client_id` /
+ * `oauth_client_secret`) override, then env. This lets the install wizard
+ * generate and store an OAuth secret without an env restart.
+ */
+function currentOAuth(): { clientId: string; clientSecret: string } {
+  return {
+    clientId:
+      runtimeSettings.get("oauth_client_id") ||
+      process.env.GITHUB_OAUTH_CLIENT_ID ||
+      "",
+    clientSecret:
+      runtimeSettings.get("oauth_client_secret") ||
+      process.env.GITHUB_OAUTH_CLIENT_SECRET ||
+      "",
+  };
 }
 
-const sessionSigner = createSessionSigner({
-  clientId: oauthClientId,
-  clientSecret: oauthClientSecret,
-  ttlMs: SESSION_TTL_MS,
-});
+function oauthConfigured(): boolean {
+  const { clientId, clientSecret } = currentOAuth();
+  return Boolean(clientId && clientSecret);
+}
 
 function signSession(login: string): string {
-  return sessionSigner.sign(login);
+  const { clientId, clientSecret } = currentOAuth();
+  return createSessionSigner({
+    clientId,
+    clientSecret,
+    ttlMs: SESSION_TTL_MS,
+  }).sign(login);
 }
 
 function parseSessionToken(token: string): string | null {
-  return sessionSigner.parse(token);
+  const { clientId, clientSecret } = currentOAuth();
+  if (!clientId || !clientSecret) return null;
+  return createSessionSigner({
+    clientId,
+    clientSecret,
+    ttlMs: SESSION_TTL_MS,
+  }).parse(token);
 }
 
 /* ---------- runtime settings (hot-reload overrides) ---------- */
@@ -157,11 +179,18 @@ const SETTINGS_POLL_MS = 8_000;
 const SECRET_SETTING_KEYS = new Set([
   "webui_api_token",
   "github_webhook_secret",
+  "oauth_client_secret",
+  "embedding_api_key",
 ]);
 const ALLOWED_SETTING_KEYS = new Set([
   "webui_api_token",
   "github_webhook_secret",
   "github_webhook_enabled",
+  "oauth_client_id",
+  "oauth_client_secret",
+  "embedding_base_url",
+  "embedding_api_key",
+  "embedding_model",
   "log_level",
   "spam_handling",
 ]);
@@ -208,6 +237,38 @@ function webhookEnabled(): boolean {
   const override = runtimeSettings.get("github_webhook_enabled");
   if (override !== undefined && override !== "") return override === "true";
   return Boolean(config.githubWebhookSecret);
+}
+
+/** Effective embedding config: runtime settings override, then env. */
+function embeddingConfig(): {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+} {
+  return {
+    baseUrl:
+      runtimeSettings.get("embedding_base_url") ||
+      config.embedding.baseUrl ||
+      "",
+    apiKey:
+      runtimeSettings.get("embedding_api_key") ||
+      config.embedding.apiKey ||
+      "",
+    model:
+      runtimeSettings.get("embedding_model") || config.embedding.model,
+  };
+}
+
+/** Upserts a runtime setting row and hot-reloads the in-memory map. */
+async function upsertSetting(key: string, value: string): Promise<void> {
+  await database.db
+    .insert(systemSettings)
+    .values({ key, value })
+    .onConflictDoUpdate({
+      target: systemSettings.key,
+      set: { value, updatedAt: new Date() },
+    });
+  await refreshRuntimeSettings();
 }
 
 /** Open SSE connections so shutdown can end them and exit cleanly. */
@@ -1156,9 +1217,9 @@ async function handleVector(
       withEmbedding: row?.with_embedding ?? 0,
       withSignals: row?.with_signals ?? 0,
       repositoryCoverage: repoCoverage[0]?.repositories ?? 0,
-      embeddingModel: config.embedding.model,
+      embeddingModel: embeddingConfig().model,
       embeddingConfigured: Boolean(
-        config.embedding.baseUrl && config.embedding.apiKey,
+        embeddingConfig().baseUrl && embeddingConfig().apiKey,
       ),
       lastIndexedAt: lastIndex[0]?.at ?? null,
     },
@@ -1424,9 +1485,9 @@ async function handleConfig(
       ),
       webuiAuthEnabled: Boolean(config.webuiApiToken),
       modelProviders,
-      embeddingModel: config.embedding.model,
+      embeddingModel: embeddingConfig().model,
       embeddingConfigured: Boolean(
-        config.embedding.baseUrl && config.embedding.apiKey,
+        embeddingConfig().baseUrl && embeddingConfig().apiKey,
       ),
       qqBotProtocols: Object.keys(config.qqBotProtocols),
       qqOfficialConfigured: Boolean(
@@ -1500,6 +1561,11 @@ async function handleSettings(
     "webui_api_token",
     "github_webhook_secret",
     "github_webhook_enabled",
+    "oauth_client_id",
+    "oauth_client_secret",
+    "embedding_base_url",
+    "embedding_api_key",
+    "embedding_model",
     "log_level",
     "spam_handling",
   ];
@@ -1631,8 +1697,9 @@ async function handleAuth(
     }
     const state = randomUUID();
     oauthStates.set(state, Date.now() + 10 * 60 * 1000);
+    const { clientId } = currentOAuth();
     const authorizeUrl =
-      `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(oauthClientId)}` +
+      `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(clientId)}` +
       `&scope=read:user&state=${state}`;
     response.writeHead(302, { Location: authorizeUrl });
     response.end();
@@ -1656,6 +1723,7 @@ async function handleAuth(
       return;
     }
     try {
+      const { clientId, clientSecret } = currentOAuth();
       const tokenRes = await fetch(
         "https://github.com/login/oauth/access_token",
         {
@@ -1665,8 +1733,8 @@ async function handleAuth(
             "content-type": "application/json",
           },
           body: JSON.stringify({
-            client_id: oauthClientId,
-            client_secret: oauthClientSecret,
+            client_id: clientId,
+            client_secret: clientSecret,
             code,
           }),
         },
@@ -1949,7 +2017,7 @@ async function handleSetupStatus(
       ),
       oauthConfigured: oauthConfigured(),
       embeddingConfigured: Boolean(
-        config.embedding.baseUrl && config.embedding.apiKey,
+        embeddingConfig().baseUrl && embeddingConfig().apiKey,
       ),
       initialized,
       // The WebUI bearer token is surfaced only while the system is still
@@ -2017,6 +2085,282 @@ async function handleSetupInit(
   } catch (error) {
     logger.warn({ err: error }, "setup init failed");
     json(response, 500, { status: "error", reason: "init_failed" }, requestId);
+  }
+}
+
+/** Role policy versions written/updated by the wizard's model step. */
+const SETUP_ROLES: readonly { role: string; version: string }[] = [
+  ...DEFAULT_POLICIES,
+  { role: "expert_review", version: "expert-review-v1" },
+  { role: "spam_detection", version: "spam-detection-v1" },
+];
+
+/** Parses a JSON request body into an object; null on malformed input. */
+async function parseJsonBody(
+  request: IncomingMessage,
+): Promise<Record<string, unknown> | null> {
+  const raw = await readBody(request).catch(() => Buffer.alloc(0));
+  try {
+    const value: unknown = JSON.parse(raw.toString("utf8"));
+    return typeof value === "object" && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * POST /setup/models — proxies an OpenAI-compatible `/models` listing so the
+ * wizard can offer a model dropdown. No state is persisted.
+ */
+async function handleSetupModels(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const body = await parseJsonBody(request);
+  const baseUrl =
+    typeof body?.baseUrl === "string"
+      ? body.baseUrl.trim().replace(/\/+$/, "")
+      : "";
+  const apiKey = typeof body?.apiKey === "string" ? body.apiKey.trim() : "";
+  if (!baseUrl || !apiKey) {
+    json(
+      response,
+      400,
+      { status: "error", reason: "baseUrl and apiKey required" },
+      requestId,
+    );
+    return;
+  }
+  try {
+    const res = await fetch(`${baseUrl}/models`, {
+      headers: { authorization: `Bearer ${apiKey}`, accept: "application/json" },
+    });
+    if (!res.ok) {
+      json(
+        response,
+        502,
+        { status: "error", reason: "models_request_failed", httpStatus: res.status },
+        requestId,
+      );
+      return;
+    }
+    const data = (await res.json()) as { data?: { id?: string }[] };
+    const models = (data.data ?? [])
+      .map((m) => m.id)
+      .filter((id): id is string => typeof id === "string")
+      .sort();
+    json(response, 200, { status: "ok", models }, requestId);
+  } catch (error) {
+    logger.warn({ err: error }, "setup models fetch failed");
+    json(response, 502, { status: "error", reason: "models_fetch_failed" }, requestId);
+  }
+}
+
+/**
+ * POST /setup/provider — saves a model provider account (API key encrypted
+ * under the master key) and wires it as the primary candidate of every role
+ * policy, keeping existing providers as failover.
+ */
+async function handleSetupProvider(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const body = await parseJsonBody(request);
+  const provider =
+    typeof body?.provider === "string" ? body.provider.trim() : "";
+  const baseUrl =
+    typeof body?.baseUrl === "string"
+      ? body.baseUrl.trim().replace(/\/+$/, "")
+      : "";
+  const apiKey = typeof body?.apiKey === "string" ? body.apiKey.trim() : "";
+  const model = typeof body?.model === "string" ? body.model.trim() : "";
+  const accountName =
+    typeof body?.accountName === "string" && body.accountName.trim().length > 0
+      ? body.accountName.trim()
+      : `${provider || "model"}-main`;
+  if (!provider || !baseUrl || !apiKey || !model) {
+    json(
+      response,
+      400,
+      {
+        status: "error",
+        reason: "provider, baseUrl, apiKey and model required",
+      },
+      requestId,
+    );
+    return;
+  }
+  if (!config.credentialMasterKey) {
+    json(
+      response,
+      400,
+      {
+        status: "error",
+        reason: "master_key_missing",
+        hint: "Set CREDENTIAL_MASTER_KEY to store provider credentials",
+      },
+      requestId,
+    );
+    return;
+  }
+  try {
+    const cipher = createCredentialCipher(config.credentialMasterKey);
+    const sealed = cipher.seal(apiKey);
+    await database.db
+      .insert(providerAccounts)
+      .values({ provider, name: accountName, encryptedCredential: sealed })
+      .onConflictDoUpdate({
+        target: [providerAccounts.provider, providerAccounts.name],
+        set: { encryptedCredential: sealed, updatedAt: new Date() },
+      });
+
+    const newCandidate = { provider, model, accountName };
+    let policiesUpdated = 0;
+    for (const { role, version } of SETUP_ROLES) {
+      const rows = await database.db
+        .select({ candidates: modelRolePolicies.candidates })
+        .from(modelRolePolicies)
+        .where(eq(modelRolePolicies.role, role))
+        .orderBy(desc(modelRolePolicies.createdAt))
+        .limit(1);
+      const existing = Array.isArray(rows[0]?.candidates)
+        ? (rows[0].candidates as unknown[])
+        : [];
+      const merged = [
+        newCandidate,
+        ...existing.filter((entry) => {
+          const value = entry as Record<string, unknown>;
+          return !(
+            value.provider === provider && value.accountName === accountName
+          );
+        }),
+      ];
+      await database.db
+        .insert(modelRolePolicies)
+        .values({ role, version, candidates: merged })
+        .onConflictDoUpdate({
+          target: [modelRolePolicies.role, modelRolePolicies.version],
+          set: { candidates: merged },
+        });
+      policiesUpdated += 1;
+    }
+    audit(request, "setup.provider", provider, {
+      account: accountName,
+      policies: policiesUpdated,
+    });
+    json(
+      response,
+      200,
+      { status: "ok", provider, accountName, model, policiesUpdated },
+      requestId,
+    );
+  } catch (error) {
+    logger.warn({ err: error }, "setup provider failed");
+    json(response, 500, { status: "error", reason: "provider_save_failed" }, requestId);
+  }
+}
+
+/** POST /setup/embedding — stores the embedding endpoint as a hot setting. */
+async function handleSetupEmbedding(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const body = await parseJsonBody(request);
+  const baseUrl =
+    typeof body?.baseUrl === "string"
+      ? body.baseUrl.trim().replace(/\/+$/, "")
+      : "";
+  const apiKey = typeof body?.apiKey === "string" ? body.apiKey.trim() : "";
+  const model = typeof body?.model === "string" ? body.model.trim() : "";
+  if (!baseUrl || !apiKey || !model) {
+    json(
+      response,
+      400,
+      { status: "error", reason: "baseUrl, apiKey and model required" },
+      requestId,
+    );
+    return;
+  }
+  try {
+    await Promise.all([
+      upsertSetting("embedding_base_url", baseUrl),
+      upsertSetting("embedding_api_key", apiKey),
+      upsertSetting("embedding_model", model),
+    ]);
+    audit(request, "setup.embedding", undefined, { baseUrl, model });
+    json(
+      response,
+      200,
+      { status: "ok", baseUrl, model, embeddingConfigured: true },
+      requestId,
+    );
+  } catch (error) {
+    logger.warn({ err: error }, "setup embedding failed");
+    json(response, 500, { status: "error", reason: "embedding_save_failed" }, requestId);
+  }
+}
+
+/** POST /setup/webhook-secret — generates and stores a GitHub webhook secret. */
+async function handleSetupWebhookSecret(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  try {
+    const secret = randomBytes(24).toString("hex");
+    await upsertSetting("github_webhook_secret", secret);
+    audit(request, "setup.webhook-secret", undefined, undefined);
+    json(response, 200, { status: "ok", secret }, requestId);
+  } catch (error) {
+    logger.warn({ err: error }, "setup webhook secret failed");
+    json(response, 500, { status: "error", reason: "webhook_secret_failed" }, requestId);
+  }
+}
+
+/**
+ * POST /setup/oauth — persists a GitHub OAuth client id (when supplied) and
+ * generates a fresh client secret; returns both plus the callback path.
+ */
+async function handleSetupOAuth(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const body = await parseJsonBody(request);
+  const clientId =
+    typeof body?.clientId === "string" && body.clientId.trim().length > 0
+      ? body.clientId.trim()
+      : currentOAuth().clientId;
+  if (!clientId) {
+    json(
+      response,
+      400,
+      { status: "error", reason: "clientId required" },
+      requestId,
+    );
+    return;
+  }
+  try {
+    const clientSecret = randomBytes(24).toString("hex");
+    await Promise.all([
+      upsertSetting("oauth_client_id", clientId),
+      upsertSetting("oauth_client_secret", clientSecret),
+    ]);
+    audit(request, "setup.oauth", undefined, { clientId });
+    json(
+      response,
+      200,
+      { status: "ok", clientId, clientSecret, callbackPath: "/auth/callback" },
+      requestId,
+    );
+  } catch (error) {
+    logger.warn({ err: error }, "setup oauth failed");
+    json(response, 500, { status: "error", reason: "oauth_save_failed" }, requestId);
   }
 }
 
@@ -2642,6 +2986,37 @@ async function handleRequest(
       return;
     }
     await handleSetupInit(request, response, requestId);
+    return;
+  }
+
+  const setupWriteRoutes: Record<string, (req: IncomingMessage, res: ServerResponse, rid: string) => Promise<void>> = {
+    "/setup/models": handleSetupModels,
+    "/setup/provider": handleSetupProvider,
+    "/setup/embedding": handleSetupEmbedding,
+    "/setup/webhook-secret": handleSetupWebhookSecret,
+    "/setup/oauth": handleSetupOAuth,
+  };
+  const setupHandler = setupWriteRoutes[path];
+  if (setupHandler) {
+    if (request.method !== "POST") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    if (!(await isAdminRequest(request))) {
+      json(
+        response,
+        403,
+        { status: "error", reason: "admin required" },
+        requestId,
+      );
+      return;
+    }
+    await setupHandler(request, response, requestId);
     return;
   }
 
