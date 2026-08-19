@@ -8,6 +8,9 @@ coverage/
 *.log
 .DS_Store
 Thumbs.db
+# Python build artifacts
+__pycache__/
+*.pyc
 # Local CI log exports
 CI日志/
 
