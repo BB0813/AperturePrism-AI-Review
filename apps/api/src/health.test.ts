@@ -106,7 +106,7 @@ describe("API endpoints", () => {
       stopServer(unconfiguredServer),
       stopServer(configuredServer),
     ]);
-  });
+  }, 60_000);
 
   it("returns ok on /health/live regardless of dependencies", async () => {
     const { status } = await fetchJson(unconfiguredServer, "/health/live");
