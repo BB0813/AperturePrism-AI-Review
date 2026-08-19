@@ -87,9 +87,12 @@ const retryDelayMs = 30_000;
 /** Shared logical deadline for the main analysis call and the bounded repair. */
 const analysisDeadlineMs = 300_000;
 const analysisRetryPolicy = {
-  maxAttemptsPerCandidate: 2,
+  maxAttemptsPerCandidate: 5,
   baseDelayMs: 1_000,
   maxDelayMs: 30_000,
+  // The newapi CDN gateway intermittently answers 401 under load; bounded
+  // retries let a flaky response recover instead of failing the whole task.
+  retryAuthentication: true,
 };
 const reviewDeadlineMs = 300_000;
 const reviewRetryPolicy = analysisRetryPolicy;

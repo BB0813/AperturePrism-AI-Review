@@ -91,15 +91,7 @@ export async function publishAssessment(
     await input.store.touch(idempotencyKey);
     return { reviewId: Number(externalObjectId), created: false };
   }
-  const published = await input.github.publishReview({
-    installationId: input.installationId,
-    owner: input.owner,
-    name: input.name,
-    pullNumber: input.pullNumber,
-    revision: input.revision,
-    body: renderReviewBody(input.review),
-    event: reviewEventTone(input.review.overallTone),
-  });
+  const published = await publishWithOwnPrFallback(input, reviewEventTone(input.review.overallTone));
   await input.store.insert({
     taskId: input.taskId,
     idempotencyKey,
@@ -107,4 +99,55 @@ export async function publishAssessment(
     channel: "github_pull_request_review",
   });
   return { reviewId: published.id, created: true };
+}
+
+/**
+ * GitHub rejects `REQUEST_CHANGES` on a pull request authored by the same bot
+ * ("Can not request changes on your own pull request"). When the review model
+ * judges changes_requested but the PR is the bot's own, degrade once to a
+ * COMMENT review so the pipeline still completes. The finding text already
+ * carries the requested changes, so nothing is lost.
+ */
+async function publishWithOwnPrFallback(
+  input: PublishReviewInput,
+  event: "COMMENT" | "APPROVE" | "REQUEST_CHANGES",
+): Promise<{ id: number }> {
+  try {
+    return await input.github.publishReview({
+      installationId: input.installationId,
+      owner: input.owner,
+      name: input.name,
+      pullNumber: input.pullNumber,
+      revision: input.revision,
+      body: renderReviewBody(input.review),
+      event,
+    });
+  } catch (error) {
+    // GitHub returns 422 with "Can not request changes on your own pull
+    // request" when the bot reviews its own PR. The client maps that to an
+    // invalid_request error whose message does not carry the body detail, so
+    // degrade on (event, status) rather than message text.
+    const ownPrRejection =
+      event === "REQUEST_CHANGES" &&
+      (isGithubStatus(error, 422) ||
+        (error instanceof Error && /own pull request/i.test(error.message)));
+    if (!ownPrRejection) throw error;
+    return input.github.publishReview({
+      installationId: input.installationId,
+      owner: input.owner,
+      name: input.name,
+      pullNumber: input.pullNumber,
+      revision: input.revision,
+      body: renderReviewBody(input.review),
+      event: "COMMENT",
+    });
+  }
+}
+
+function isGithubStatus(error: unknown, status: number): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { status?: unknown }).status === status
+  );
 }

@@ -29,6 +29,12 @@ const REBUILD_KEY = "index_rebuild";
 const LAST_PASS_KEY = "index_last_pass";
 /** Embeddings are requested in batches; a whole repo stays inside one fetch. */
 const EMBED_BATCH_SIZE = 16;
+/**
+ * nv-embed-v1 caps a single input at 4096 tokens. Truncate each document
+ * conservatively on characters before batching so one oversized issue cannot
+ * fail the whole batch (a 400 aborts the entire repo pass).
+ */
+const EMBED_MAX_CHARS = 3_000;
 
 const config = loadConfig(process.env);
 const logger = createLogger(config.logLevel);
@@ -197,7 +203,9 @@ async function runIndexPass(
           ),
         );
 
-        const texts = prepared.map((p) => `${p.title} ${p.body}`);
+        const texts = prepared.map(
+          (p) => `${p.title} ${p.body}`.slice(0, EMBED_MAX_CHARS),
+        );
         const vectors = useEmbedding
           ? await embedChanged(
               texts,

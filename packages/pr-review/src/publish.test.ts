@@ -94,6 +94,37 @@ describe("publishAssessment", () => {
     });
     expect(second.created).toBe(true);
   });
+
+  it("degrades REQUEST_CHANGES to COMMENT on the bot's own PR", async () => {
+    const events: string[] = [];
+    const ownPr: GitHubReviewClient = {
+      publishReview: async ({ event }) => {
+        events.push(event);
+        if (event === "REQUEST_CHANGES") {
+          const err = new Error("GitHub responded with 422") as Error & {
+            status?: number;
+          };
+          err.status = 422;
+          throw err;
+        }
+        return { id: 7 };
+      },
+    };
+    const result = await publishAssessment({
+      store: store(),
+      github: ownPr,
+      taskId: "t",
+      installationId: "42",
+      owner: "o",
+      name: "r",
+      pullNumber: 9,
+      revision: "hash3",
+      review,
+    });
+    expect(events).toEqual(["REQUEST_CHANGES", "COMMENT"]);
+    expect(result.created).toBe(true);
+    expect(result.reviewId).toBe(7);
+  });
 });
 
 describe("review rendering", () => {
