@@ -44,6 +44,8 @@ services:
       PORT: 3000
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
+    volumes:
+      - ${GITHUB_APP_KEY_MOUNT:-/opt/apertureprism/github-app.pem}:/opt/apertureprism/github-app.pem:ro
     ports:
       - "${API_PORT:-3000}:3000"
     depends_on:
@@ -62,6 +64,8 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
+    volumes:
+      - ${GITHUB_APP_KEY_MOUNT:-/opt/apertureprism/github-app.pem}:/opt/apertureprism/github-app.pem:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,6 +81,8 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
       INDEX_INTERVAL_MS: ${INDEX_INTERVAL_MS:-600000}
+    volumes:
+      - ${GITHUB_APP_KEY_MOUNT:-/opt/apertureprism/github-app.pem}:/opt/apertureprism/github-app.pem:ro
     depends_on:
       postgres:
         condition: service_healthy
