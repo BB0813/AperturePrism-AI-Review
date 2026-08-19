@@ -28,8 +28,9 @@
 | M9 | 索引与 RAG | M5、M7 | 增强上下文但不阻塞主流程 |
 | M10 | QQ 官方机器人 | M3、M5、M7、M8 | QQ 渠道可安全使用核心能力 |
 | M11 | 生产加固 | 所有上线模块 | 满足发布门槛 |
+| M12 | QQ 机器人 AstrBot 插件兼容 | M10、M8 | napcat 第三方与 QQ 官方均可经 AstrBot 插件使用核心能力 |
 
-M5 和 M7 在 M4 完成后可以由不同开发者并行；M8 可以先覆盖已经稳定的 Issue 流程，再接入 PR。M10 不属于首期 MVP。
+M5 和 M7 在 M4 完成后可以由不同开发者并行；M8 可以先覆盖已经稳定的 Issue 流程，再接入 PR。M10 不属于首期 MVP；M12 把 QQ 渠道做成 AstrBot 插件形态，属于 M10 之后的插件化演进，不进首期。
 
 ## 3. 模块清单与职责
 
@@ -650,7 +651,34 @@ Adapter 不决定是否重试或切换候选。
 - 关键告警可触发并包含定位信息。
 - 生产配置不依赖本地文件或未记录的手工步骤。
 
-## 16. 跨阶段测试矩阵
+## 16. M12：QQ 机器人 AstrBot 插件兼容
+
+### 16.1 目标
+
+把 AperturePrism 的 QQ 交互做成 **AstrBot 插件**（AstrBot 是开源 IM 机器人框架，自带 napcat / OneBot 11 与 QQ 官方开放平台的适配器）。用户安装插件即可在 QQ 里触发 Issue/PR 分析与查询结果，无需单独部署 `apps/qq-bot`。
+
+### 16.2 关键决策
+
+- **插件只做桥接**：协议层（napcat 第三方、QQ 官方）由 AstrBot 原生 adapter 处理，插件专注「QQ 消息 → AperturePrism HTTP API」的命令路由与结果回发，不重复实现协议。
+- **复用现有资产**：命令解析规则（`packages/channel-adapters` 的 `parseBotCommand` / dispatch 命令集）、`POST /tasks/manual` 触发端点、`GET /tasks`、`GET /results` 等只读端点。
+- **鉴权**：插件通过 API 的 `WEBUI_API_TOKEN` 调用；QQ openid/member 与平台用户的身份绑定沿用 M10 的设计（白名单 + 命令级权限）。
+- **两种形态共存**：独立 `apps/qq-bot` 保留；AstrBot 插件面向「已在用 AstrBot」的用户，二者不冲突。
+
+### 16.3 交付内容
+
+- `plugins/astrbot-apertureprism/`：AstrBot 插件包（`metadata.yaml`、`_conf_schema.json`、Python 插件入口）。
+- 命令集对齐：`analyze`（Issue 分析触发）、`review`（PR 审查触发）、结果查询、帮助。
+- 配置：AperturePrism API `baseUrl` + token、QQ 白名单、默认仓库。
+- 测试：插件命令解析单测 + 与 API 的 HTTP 集成测试（mock AstrBot 事件）。
+- 文档：安装、napcat / QQ 官方配置、与 `apps/qq-bot` 的关系。
+
+### 16.4 验收门槛
+
+- 在 AstrBot 安装插件后，napcat（OneBot 11）与 QQ 官方开放平台两种渠道都能收到并回复命令。
+- 触发 Issue/PR 分析、查询结果与平台 WebUI 行为一致。
+- 未授权 QQ 用户被拒绝，命令调用有审计。
+
+## 17. 跨阶段测试矩阵
 
 | 能力 | 单元 | 集成 | E2E | 性能/故障 |
 | --- | --- | --- | --- | --- |
@@ -695,7 +723,7 @@ Adapter 不决定是否重试或切换候选。
 - 在应用启动阶段隐式修改数据库 schema。
 - 为未来可能需要的微服务提前复制领域逻辑。
 
-## 19. 推荐首个可交付版本
+## 20. 推荐首个可交付版本
 
 首个可对外试用版本应完成 M0-M5，并包含：
 
