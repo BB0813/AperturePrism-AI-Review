@@ -95,7 +95,11 @@ export type CancelTaskInput = {
   now?: Date;
 };
 
-export type ModelRole = "issue_analysis" | "pr_review" | "duplicate_judgment";
+export type ModelRole =
+  | "issue_analysis"
+  | "pr_review"
+  | "duplicate_judgment"
+  | "memory_consolidation";
 
 export type ModelMessageRole = "system" | "user" | "assistant";
 

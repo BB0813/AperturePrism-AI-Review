@@ -5,9 +5,13 @@ import {
   type ServerResponse,
 } from "node:http";
 import { and, asc, desc, eq, gt, or } from "drizzle-orm";
-import { loadConfig } from "../../../packages/config/src/index.js";
+import {
+  createCredentialCipher,
+  loadConfig,
+} from "../../../packages/config/src/index.js";
 import { createSessionSigner } from "./session.js";
 import {
+  addStarAidTarget,
   analysisTasks,
   applyBackupSnapshot,
   buildBackupSnapshot,
@@ -16,18 +20,28 @@ import {
   closeRedisClient,
   createDatabaseClient,
   createRedisClient,
+  createStarAidAccount,
   deleteLabelRule,
+  deleteRepoMemory,
+  deleteStarAidAccount,
+  deleteStarAidTarget,
   ensureUser,
+  getStarAidSummary,
   getUser,
   ingestGitHubWebhook,
   issueDocuments,
   LABEL_RULE_PREFIXES,
+  listAuditLogs,
   listLabelRules,
+  listRepoMemory,
+  listStarAidAccounts,
+  listStarAidTargets,
   listUsers,
   modelRolePolicies,
   providerAccounts,
   repositories,
   setAdmin,
+  starAidAccounts,
   subjectResults,
   systemSettings,
   taskAttempts,
@@ -35,7 +49,15 @@ import {
   updateDisplayName,
   upsertLabelRule,
   webhookDeliveries,
+  writeAuditLog,
 } from "../../../packages/database/src/index.js";
+import { memoryConsolidationSweep } from "../../../apps/scheduler/src/consolidation.js";
+import {
+  fetchRepoDescription,
+  StarAidGithubError,
+  starAidSweep,
+  verifyGitHubToken,
+} from "../../../packages/star-aid/src/index.js";
 import {
   normalizeGitHubEvent,
   verifyWebhookSignature,
@@ -47,6 +69,10 @@ import {
   SSE_HEADERS,
 } from "../../../packages/event-stream/src/index.js";
 import { PR_REVIEW_POLICY_VERSION } from "../../../packages/pr-review/src/index.js";
+import {
+  BUILTIN_SKILLS,
+  EXPERT_TEAM,
+} from "../../../packages/agent-capabilities/src/index.js";
 import {
   extractIssueSignals,
   normalizedIndexText,
@@ -62,6 +88,11 @@ const config = loadConfig(process.env);
 const logger = createLogger(config.logLevel);
 const database = createDatabaseClient(config.databaseUrl);
 const redis = createRedisClient(config.redisUrl);
+
+/** AES-GCM cipher wrapping CREDENTIAL_MASTER_KEY for star-aid PAT storage. */
+const starAidCipher = config.credentialMasterKey
+  ? createCredentialCipher(config.credentialMasterKey)
+  : null;
 
 /* ---------- GitHub OAuth (progressive; enabled when configured) ---------- */
 const oauthClientId = process.env.GITHUB_OAUTH_CLIENT_ID ?? "";
@@ -180,6 +211,13 @@ function clientIp(request: IncomingMessage): string {
   return request.socket.remoteAddress ?? "unknown";
 }
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isUuid(value: string): boolean {
+  return UUID_PATTERN.test(value);
+}
+
 /** Routes that require the WebUI bearer token when it is configured. */
 const protectedPaths = [
   "/tasks",
@@ -194,9 +232,13 @@ const protectedPaths = [
   "/label-rules",
   "/auth/me",
   "/users",
+  "/audit",
   "/config",
   "/settings",
+  "/capabilities",
   "/events",
+  "/memory",
+  "/star-aid",
 ];
 const EVENT_CHANNEL = "apertureprism:task:events";
 
@@ -943,6 +985,7 @@ async function handleVector(
 
 /** Requests an immediate index pass by writing the index_trigger setting. */
 async function handleIndexRun(
+  request: IncomingMessage,
   response: ServerResponse,
   requestId: string,
 ): Promise<void> {
@@ -954,6 +997,7 @@ async function handleIndexRun(
         target: systemSettings.key,
         set: { value: new Date().toISOString(), updatedAt: new Date() },
       });
+    audit(request, "index.run");
     json(response, 200, { status: "ok", triggered: true }, requestId);
   } catch (error) {
     logger.warn({ err: error }, "index trigger failed");
@@ -1012,6 +1056,7 @@ async function handleIndexStatus(
 
 /** Full index rebuild: clears issue_documents and triggers a fresh pass. */
 async function handleIndexRebuild(
+  request: IncomingMessage,
   response: ServerResponse,
   requestId: string,
 ): Promise<void> {
@@ -1024,6 +1069,7 @@ async function handleIndexRebuild(
         target: systemSettings.key,
         set: { value: new Date().toISOString(), updatedAt: new Date() },
       });
+    audit(request, "index.rebuild");
     json(response, 200, { status: "ok", rebuilt: true }, requestId);
   } catch (error) {
     logger.warn({ err: error }, "index rebuild failed");
@@ -1163,6 +1209,7 @@ async function handleLabelRules(
       return;
     }
     const deleted = await deleteLabelRule(database.db, key);
+    if (deleted) audit(request, "label_rule.delete", key);
     json(response, deleted ? 200 : 404, { status: deleted ? "ok" : "error" }, requestId);
     return;
   }
@@ -1204,6 +1251,8 @@ async function handleConfig(
       ),
       oauthConfigured: oauthConfigured(),
       oauthEnabled: oauthConfigured() && webuiToken().length === 0,
+      apiRateLimit: config.apiRateLimit,
+      webhookRateLimit: config.webhookRateLimit,
     },
     requestId,
   );
@@ -1248,6 +1297,9 @@ async function handleSettings(
         set: { value, updatedAt: new Date() },
       });
     await refreshRuntimeSettings();
+    audit(request, "settings.update", key, {
+      secret: SECRET_SETTING_KEYS.has(key),
+    });
     json(response, 200, { status: "ok", key }, requestId);
     return;
   }
@@ -1279,6 +1331,94 @@ async function handleSettings(
     };
   });
   json(response, 200, { items }, requestId);
+}
+
+/** Reads the current expert-team enablement flag from `system_settings`. */
+async function agentTeamEnabled(): Promise<boolean> {
+  const rows = await database.db
+    .select({ value: systemSettings.value })
+    .from(systemSettings)
+    .where(eq(systemSettings.key, "agent_team_enabled"))
+    .limit(1);
+  return rows[0]?.value === "true";
+}
+
+/**
+ * Agent capabilities catalog: built-in skills + expert team registry, plus the
+ * global expert-team enablement switch. GET is available to any authenticated
+ * user; PUT (toggle) requires admin and writes a runtime setting.
+ */
+async function handleCapabilities(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  if (request.method === "PUT") {
+    if (!(await isAdminRequest(request))) {
+      json(
+        response,
+        403,
+        { status: "error", reason: "admin required" },
+        requestId,
+      );
+      return;
+    }
+    const body = await readBody(request);
+    let parsed: { enabled?: unknown };
+    try {
+      parsed = JSON.parse(body.toString("utf8"));
+    } catch {
+      json(
+        response,
+        400,
+        { status: "error", reason: "invalid JSON" },
+        requestId,
+      );
+      return;
+    }
+    const enabled = parsed.enabled === true;
+    const value = enabled ? "true" : "false";
+    await database.db
+      .insert(systemSettings)
+      .values({ key: "agent_team_enabled", value })
+      .onConflictDoUpdate({
+        target: systemSettings.key,
+        set: { value, updatedAt: new Date() },
+      });
+    audit(request, "capabilities.toggle", undefined, { enabled });
+    json(response, 200, { status: "ok", enabled }, requestId);
+    return;
+  }
+
+  if (request.method !== "GET") {
+    json(
+      response,
+      405,
+      { status: "error", reason: "method not allowed" },
+      requestId,
+    );
+    return;
+  }
+
+  json(
+    response,
+    200,
+    {
+      skills: BUILTIN_SKILLS.map((skill) => ({
+        id: skill.id,
+        name: skill.name,
+        appliesTo: skill.appliesTo,
+        description: skill.description,
+      })),
+      experts: EXPERT_TEAM.map((expert) => ({
+        id: expert.id,
+        name: expert.name,
+        appliesTo: expert.appliesTo,
+      })),
+      enabled: await agentTeamEnabled(),
+    },
+    requestId,
+  );
 }
 
 /** GitHub OAuth entry: /auth/status, /auth/login (redirect), /auth/callback. */
@@ -1466,6 +1606,49 @@ async function isAdminRequest(request: IncomingMessage): Promise<boolean> {
   return user?.isAdmin === true;
 }
 
+/**
+ * Best-effort security audit entry. Never blocks the operation it records;
+ * a write failure is logged and swallowed.
+ */
+function audit(
+  request: IncomingMessage,
+  action: string,
+  target?: string,
+  detail?: Record<string, unknown>,
+): void {
+  const login = sessionLogin(request);
+  const entry: {
+    actor: string;
+    action: string;
+    target?: string | undefined;
+    detail?: Record<string, unknown> | undefined;
+    ip?: string | undefined;
+  } = { actor: login ?? "bearer", action, ip: clientIp(request) };
+  if (target !== undefined) entry.target = target;
+  if (detail !== undefined) entry.detail = detail;
+  void writeAuditLog(database.db, entry).catch((error: unknown) =>
+    logger.warn({ err: error, action }, "audit log write failed"),
+  );
+}
+
+/** Security audit trail: GET /audit?limit=&offset= (admin only). */
+async function handleAuditLog(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const url = new URL(request.url ?? "/", "http://localhost");
+  const limit = Number(url.searchParams.get("limit")) || 50;
+  const offset = Math.max(Number(url.searchParams.get("offset")) || 0, 0);
+  try {
+    const items = await listAuditLogs(database.db, { limit, offset });
+    json(response, 200, { items }, requestId);
+  } catch (error) {
+    logger.warn({ err: error }, "audit log list failed");
+    json(response, 500, { status: "error", reason: "audit_failed" }, requestId);
+  }
+}
+
 /** User management: list users; PUT /users/:login toggles admin. */
 async function handleUsers(
   request: IncomingMessage,
@@ -1512,6 +1695,7 @@ const DEFAULT_POLICIES = [
   { role: "issue_analysis", version: "issue-analysis-v1" },
   { role: "pr_review", version: "pr-review-v1" },
   { role: "duplicate_judgment", version: "duplicate-judgment-v1" },
+  { role: "memory_consolidation", version: "memory-consolidation-v1" },
 ] as const;
 
 async function tableCount(names: string[]): Promise<number> {
@@ -1590,6 +1774,7 @@ async function handleSetupStatus(
 
 /** One-click init: seed default model role policies if none exist. */
 async function handleSetupInit(
+  request: IncomingMessage,
   response: ServerResponse,
   requestId: string,
 ): Promise<void> {
@@ -1736,6 +1921,456 @@ async function handleResults(
   );
 }
 
+/**
+ * Repository memory management:
+ *  - GET /memory: list (any authenticated user), filterable by repositoryId /
+ *    kind, offset-paginated; always returns per-kind counts for the UI cards.
+ *  - POST /memory/consolidate: admin, runs one memory-consolidation sweep.
+ *  - DELETE /memory/:id: admin, removes a single memory row.
+ */
+async function handleMemory(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const url = new URL(
+    request.url ?? "/",
+    `http://${request.headers.host ?? "localhost"}`,
+  );
+  const path = url.pathname;
+
+  if (path === "/memory" && request.method === "GET") {
+    const repositoryId =
+      url.searchParams.get("repositoryId")?.trim() || undefined;
+    const kindRaw = url.searchParams.get("kind");
+    const kind =
+      kindRaw === "reflection" || kindRaw === "rule" || kindRaw === "knowledge"
+        ? kindRaw
+        : undefined;
+    const limitRaw = Number(url.searchParams.get("limit"));
+    const limit = Number.isFinite(limitRaw)
+      ? Math.min(Math.max(Math.trunc(limitRaw), 1), 200)
+      : 50;
+    const offsetRaw = Number(url.searchParams.get("offset"));
+    const offset = Number.isFinite(offsetRaw)
+      ? Math.max(Math.trunc(offsetRaw), 0)
+      : 0;
+    try {
+      const [items, countsRows] = await Promise.all([
+        listRepoMemory(database.db, { repositoryId, kind, limit, offset }),
+        database.sql<{ kind: string; c: number }[]>`
+          SELECT kind, count(*)::int AS c FROM repo_memory GROUP BY kind
+        `,
+      ]);
+      const counts: Record<string, number> = {
+        reflection: 0,
+        rule: 0,
+        knowledge: 0,
+      };
+      for (const row of countsRows) {
+        if (row.kind === "reflection") counts.reflection = Number(row.c);
+        else if (row.kind === "rule") counts.rule = Number(row.c);
+        else if (row.kind === "knowledge") counts.knowledge = Number(row.c);
+      }
+      const nextOffset = items.length === limit ? offset + limit : undefined;
+      json(
+        response,
+        200,
+        nextOffset === undefined
+          ? { items, counts }
+          : { items, counts, nextOffset },
+        requestId,
+      );
+    } catch (error) {
+      logger.warn({ err: error }, "memory list failed");
+      json(response, 500, { status: "error", reason: "memory_failed" }, requestId);
+    }
+    return;
+  }
+
+  if (path === "/memory/consolidate" && request.method === "POST") {
+    if (!(await isAdminRequest(request))) {
+      json(
+        response,
+        403,
+        { status: "error", reason: "admin required" },
+        requestId,
+      );
+      return;
+    }
+    try {
+      const result = await memoryConsolidationSweep(database, logger);
+      audit(request, "memory.consolidate", undefined, {
+        repositories: result.repositories,
+        rules: result.rules,
+      });
+      json(response, 200, { status: "ok", ...result }, requestId);
+    } catch (error) {
+      logger.warn({ err: error }, "memory consolidation failed");
+      json(
+        response,
+        500,
+        { status: "error", reason: "consolidate_failed" },
+        requestId,
+      );
+    }
+    return;
+  }
+
+  if (path.startsWith("/memory/") && request.method === "DELETE") {
+    if (!(await isAdminRequest(request))) {
+      json(
+        response,
+        403,
+        { status: "error", reason: "admin required" },
+        requestId,
+      );
+      return;
+    }
+    const id = decodeURIComponent(path.slice("/memory/".length)).trim();
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        id,
+      )
+    ) {
+      json(
+        response,
+        400,
+        { status: "error", reason: "invalid memory id" },
+        requestId,
+      );
+      return;
+    }
+    try {
+      const deleted = await deleteRepoMemory(database.db, id);
+      if (deleted) audit(request, "memory.delete", id);
+      json(
+        response,
+        deleted ? 200 : 404,
+        { status: deleted ? "ok" : "error" },
+        requestId,
+      );
+    } catch (error) {
+      logger.warn({ err: error }, "memory delete failed");
+      json(response, 500, { status: "error", reason: "delete_failed" }, requestId);
+    }
+    return;
+  }
+
+  json(
+    response,
+    405,
+    { status: "error", reason: "method not allowed" },
+    requestId,
+  );
+}
+
+/**
+ * Repository star-aid management (admin only):
+ *  - GET  /star-aid: accounts (with per-account counts) + targets + summary.
+ *  - POST /star-aid/accounts {login, token}: verify the PAT against GitHub,
+ *    seal it, and register the account (login from GitHub's response).
+ *  - DELETE /star-aid/accounts/:id: remove an account (targets cascade).
+ *  - POST /star-aid/targets {accountId, fullName}: add a target repo, keeping
+ *    its GitHub description.
+ *  - DELETE /star-aid/targets/:id: remove a target.
+ *  - POST /star-aid/run: run one star-aid sweep immediately.
+ */
+async function handleStarAid(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const url = new URL(
+    request.url ?? "/",
+    `http://${request.headers.host ?? "localhost"}`,
+  );
+  const path = url.pathname;
+
+  if (path === "/star-aid" && request.method === "GET") {
+    try {
+      const [accounts, targets, summary] = await Promise.all([
+        listStarAidAccounts(database.db),
+        listStarAidTargets(database.db),
+        getStarAidSummary(database.db),
+      ]);
+      json(response, 200, { accounts, targets, summary }, requestId);
+    } catch (error) {
+      logger.warn({ err: error }, "star-aid list failed");
+      json(
+        response,
+        500,
+        { status: "error", reason: "star_aid_failed" },
+        requestId,
+      );
+    }
+    return;
+  }
+
+  if (path === "/star-aid/accounts" && request.method === "POST") {
+    const body = await readBody(request);
+    let parsed: { login?: unknown; token?: unknown };
+    try {
+      parsed = JSON.parse(body.toString("utf8"));
+    } catch {
+      json(
+        response,
+        400,
+        { status: "error", reason: "invalid JSON" },
+        requestId,
+      );
+      return;
+    }
+    const token = typeof parsed.token === "string" ? parsed.token.trim() : "";
+    if (token.length === 0) {
+      json(
+        response,
+        400,
+        { status: "error", reason: "token required" },
+        requestId,
+      );
+      return;
+    }
+    if (!starAidCipher) {
+      json(
+        response,
+        503,
+        { status: "error", reason: "credential_master_key_missing" },
+        requestId,
+      );
+      return;
+    }
+    try {
+      const identity = await verifyGitHubToken(config.githubApiBaseUrl, token);
+      const account = await createStarAidAccount(database.db, {
+        login: identity.login,
+        encryptedToken: starAidCipher.seal(token),
+      });
+      if (!account) {
+        json(
+          response,
+          409,
+          { status: "error", reason: "account_exists" },
+          requestId,
+        );
+        return;
+      }
+      audit(request, "star_aid.account.create", account.login);
+      json(response, 200, { status: "ok", account }, requestId);
+    } catch (error) {
+      if (error instanceof StarAidGithubError) {
+        json(
+          response,
+          400,
+          { status: "error", reason: `github_${error.category}` },
+          requestId,
+        );
+        return;
+      }
+      logger.warn({ err: error }, "star-aid account create failed");
+      json(
+        response,
+        500,
+        { status: "error", reason: "account_create_failed" },
+        requestId,
+      );
+    }
+    return;
+  }
+
+  if (path.startsWith("/star-aid/accounts/") && request.method === "DELETE") {
+    const id = decodeURIComponent(path.slice("/star-aid/accounts/".length)).trim();
+    if (!isUuid(id)) {
+      json(
+        response,
+        400,
+        { status: "error", reason: "invalid account id" },
+        requestId,
+      );
+      return;
+    }
+    try {
+      const deleted = await deleteStarAidAccount(database.db, id);
+      if (deleted) audit(request, "star_aid.account.delete", id);
+      json(
+        response,
+        deleted ? 200 : 404,
+        { status: deleted ? "ok" : "error" },
+        requestId,
+      );
+    } catch (error) {
+      logger.warn({ err: error }, "star-aid account delete failed");
+      json(
+        response,
+        500,
+        { status: "error", reason: "account_delete_failed" },
+        requestId,
+      );
+    }
+    return;
+  }
+
+  if (path === "/star-aid/targets" && request.method === "POST") {
+    const body = await readBody(request);
+    let parsed: { accountId?: unknown; fullName?: unknown };
+    try {
+      parsed = JSON.parse(body.toString("utf8"));
+    } catch {
+      json(
+        response,
+        400,
+        { status: "error", reason: "invalid JSON" },
+        requestId,
+      );
+      return;
+    }
+    const accountId =
+      typeof parsed.accountId === "string" ? parsed.accountId.trim() : "";
+    const fullName =
+      typeof parsed.fullName === "string" ? parsed.fullName.trim() : "";
+    if (!isUuid(accountId)) {
+      json(
+        response,
+        400,
+        { status: "error", reason: "invalid account id" },
+        requestId,
+      );
+      return;
+    }
+    const match = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/.exec(fullName);
+    if (!match) {
+      json(
+        response,
+        400,
+        { status: "error", reason: "full_name must be owner/repo" },
+        requestId,
+      );
+      return;
+    }
+    const existing = await database.db
+      .select({ id: starAidAccounts.id })
+      .from(starAidAccounts)
+      .where(eq(starAidAccounts.id, accountId))
+      .limit(1);
+    if (!existing[0]) {
+      json(
+        response,
+        404,
+        { status: "error", reason: "account not found" },
+        requestId,
+      );
+      return;
+    }
+    const owner = match[1] ?? "";
+    const repo = match[2] ?? "";
+    try {
+      const description = await fetchRepoDescription(
+        config.githubApiBaseUrl,
+        null,
+        owner,
+        repo,
+      );
+      const target = await addStarAidTarget(database.db, {
+        accountId,
+        fullName,
+        description,
+      });
+      if (!target) {
+        json(
+          response,
+          409,
+          { status: "error", reason: "target_exists" },
+          requestId,
+        );
+        return;
+      }
+      audit(request, "star_aid.target.create", fullName);
+      json(response, 200, { status: "ok", target }, requestId);
+    } catch (error) {
+      logger.warn({ err: error }, "star-aid target create failed");
+      json(
+        response,
+        500,
+        { status: "error", reason: "target_create_failed" },
+        requestId,
+      );
+    }
+    return;
+  }
+
+  if (path.startsWith("/star-aid/targets/") && request.method === "DELETE") {
+    const id = decodeURIComponent(path.slice("/star-aid/targets/".length)).trim();
+    if (!isUuid(id)) {
+      json(
+        response,
+        400,
+        { status: "error", reason: "invalid target id" },
+        requestId,
+      );
+      return;
+    }
+    try {
+      const deleted = await deleteStarAidTarget(database.db, id);
+      if (deleted) audit(request, "star_aid.target.delete", id);
+      json(
+        response,
+        deleted ? 200 : 404,
+        { status: deleted ? "ok" : "error" },
+        requestId,
+      );
+    } catch (error) {
+      logger.warn({ err: error }, "star-aid target delete failed");
+      json(
+        response,
+        500,
+        { status: "error", reason: "target_delete_failed" },
+        requestId,
+      );
+    }
+    return;
+  }
+
+  if (path === "/star-aid/run" && request.method === "POST") {
+    if (!starAidCipher) {
+      json(
+        response,
+        503,
+        { status: "error", reason: "credential_master_key_missing" },
+        requestId,
+      );
+      return;
+    }
+    try {
+      const result = await starAidSweep(database.db, {
+        cipher: starAidCipher,
+        apiBaseUrl: config.githubApiBaseUrl,
+      });
+      audit(request, "star_aid.sweep", undefined, {
+        processed: result.processed,
+        starred: result.starred,
+        failed: result.failed,
+      });
+      json(response, 200, { status: "ok", ...result }, requestId);
+    } catch (error) {
+      logger.warn({ err: error }, "star-aid sweep failed");
+      json(
+        response,
+        500,
+        { status: "error", reason: "sweep_failed" },
+        requestId,
+      );
+    }
+    return;
+  }
+
+  json(
+    response,
+    405,
+    { status: "error", reason: "method not allowed" },
+    requestId,
+  );
+}
+
 async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
@@ -1817,7 +2452,7 @@ async function handleRequest(
       );
       return;
     }
-    await handleSetupInit(response, requestId);
+    await handleSetupInit(request, response, requestId);
     return;
   }
 
@@ -1854,6 +2489,11 @@ async function handleRequest(
     return;
   }
 
+  if (path === "/capabilities") {
+    await handleCapabilities(request, response, requestId);
+    return;
+  }
+
   if (path === "/index/run" || path === "/index/rebuild") {
     if (request.method !== "POST") {
       json(
@@ -1865,9 +2505,9 @@ async function handleRequest(
       return;
     }
     if (path === "/index/rebuild") {
-      await handleIndexRebuild(response, requestId);
+      await handleIndexRebuild(request, response, requestId);
     } else {
-      await handleIndexRun(response, requestId);
+      await handleIndexRun(request, response, requestId);
     }
     return;
   }
@@ -1919,6 +2559,29 @@ async function handleRequest(
     return;
   }
 
+  if (path === "/audit") {
+    if (request.method !== "GET") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    if (!(await isAdminRequest(request))) {
+      json(
+        response,
+        403,
+        { status: "error", reason: "admin required" },
+        requestId,
+      );
+      return;
+    }
+    await handleAuditLog(request, response, requestId);
+    return;
+  }
+
   if (path === "/backup/import") {
     if (request.method !== "POST") {
       json(
@@ -1953,6 +2616,25 @@ async function handleRequest(
       return;
     }
     await handleBackupExport(response, requestId);
+    return;
+  }
+
+  if (path === "/memory" || path.startsWith("/memory/")) {
+    await handleMemory(request, response, requestId);
+    return;
+  }
+
+  if (path === "/star-aid" || path.startsWith("/star-aid/")) {
+    if (!(await isAdminRequest(request))) {
+      json(
+        response,
+        403,
+        { status: "error", reason: "admin required" },
+        requestId,
+      );
+      return;
+    }
+    await handleStarAid(request, response, requestId);
     return;
   }
 

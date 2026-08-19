@@ -34,6 +34,15 @@ export type IssueAnalysisServices = {
     task: LeasedTask,
     outcome: IssueAnalysisOutcome,
   ) => Promise<void>;
+  /**
+   * Optional: persists a distilled memory reflection after the final publish.
+   * Best-effort — injected implementations swallow failures; the handler only
+   * guards so a memory failure can never fail the completed task.
+   */
+  recordMemory?: (
+    task: LeasedTask,
+    analysis: GradedIssueAnalysis,
+  ) => Promise<void>;
 };
 
 /**
@@ -69,6 +78,11 @@ export function createIssueAnalysisHandler(
       }
 
       await services.publishFinal(task, outcome.analysis, related, signal);
+      try {
+        await services.recordMemory?.(task, outcome.analysis);
+      } catch {
+        // Memory recording is best-effort; never blocks or fails the task.
+      }
       return { outcome: "completed" };
     } catch (error) {
       if (error instanceof GitHubApiError) {

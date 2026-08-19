@@ -40,6 +40,8 @@ export type RenderedPrContext = {
   listedFiles: readonly string[];
   /** Why the context was reduced, surfaced to the prompt so it stays honest. */
   degraded: readonly string[];
+  /** Consolidated repo memory (rules/knowledge), rendered as reference text. */
+  repoMemory?: string;
 };
 
 /**

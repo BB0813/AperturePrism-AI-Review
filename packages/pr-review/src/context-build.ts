@@ -23,6 +23,8 @@ export type PrReviewContext = {
   rendered: RenderedPrContext;
   /** Whether the diff itself could not be parsed (e.g. empty or oversized). */
   degraded: readonly string[];
+  /** Consolidated repo memory (rules/knowledge), rendered as reference text. */
+  repoMemory?: string;
 };
 
 /**

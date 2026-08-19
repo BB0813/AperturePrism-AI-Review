@@ -14,6 +14,10 @@ import { VectorPage } from "./pages/VectorPage";
 import { ConfigPage } from "./pages/ConfigPage";
 import { AccountPage } from "./pages/AccountPage";
 import { UsersPage } from "./pages/UsersPage";
+import { SecurityPage } from "./pages/SecurityPage";
+import { MemoryPage } from "./pages/MemoryPage";
+import { AgentPage } from "./pages/AgentPage";
+import { StarAidPage } from "./pages/StarAidPage";
 import { AboutPage } from "./pages/AboutPage";
 import { SetupPage } from "./pages/SetupPage";
 import {
@@ -30,6 +34,7 @@ import {
   PullRequestIcon,
   ShieldIcon,
   SparkleIcon,
+  StarIcon,
 } from "./components/icons";
 
 const STATUS_TEXT: Record<string, string> = {
@@ -61,13 +66,22 @@ const NAV: NavGroup[] = [
     items: [
       { path: "/repos", label: "已安装仓库", icon: FolderIcon },
       { path: "/vector", label: "向量存储", icon: DatabaseIcon },
+      { path: "/memory", label: "记忆管理", icon: SparkleIcon },
       { path: "/provider", label: "模型路由", icon: CpuIcon },
+    ],
+  },
+  {
+    title: "Agent 与互助",
+    items: [
+      { path: "/agent", label: "Agent 能力", icon: SparkleIcon },
+      { path: "/star-aid", label: "仓库互助", icon: StarIcon },
     ],
   },
   {
     title: "系统",
     items: [
       { path: "/config", label: "系统配置", icon: GearIcon },
+      { path: "/security", label: "安全管理", icon: ShieldIcon },
       { path: "/users", label: "用户管理", icon: ShieldIcon },
       { path: "/account", label: "个人设置", icon: SparkleIcon },
       { path: "/about", label: "关于", icon: InfoIcon },
@@ -137,8 +151,12 @@ function AuthedConsole(props: { onLogout: () => void }) {
   else if (active === "/pr") page = <ResultsPage type="pr" label="PR 审查" />;
   else if (active === "/repos") page = <ReposPage />;
   else if (active === "/vector") page = <VectorPage />;
+  else if (active === "/memory") page = <MemoryPage />;
+  else if (active === "/agent") page = <AgentPage />;
+  else if (active === "/star-aid") page = <StarAidPage />;
   else if (active === "/provider") page = <ProviderPage />;
   else if (active === "/config") page = <ConfigPage />;
+  else if (active === "/security") page = <SecurityPage />;
   else if (active === "/account") page = <AccountPage />;
   else if (active === "/users") page = <UsersPage />;
   else page = <AboutPage />;

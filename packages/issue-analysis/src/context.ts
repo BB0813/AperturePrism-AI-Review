@@ -26,6 +26,8 @@ export type IssueContext = {
   degraded: readonly string[];
   /** Estimated input tokens consumed by the rendered issue context. */
   estimatedTokens: number;
+  /** Consolidated repo memory (rules/knowledge), rendered as reference text. */
+  repoMemory?: string;
 };
 
 export type IssueContextBudget = {

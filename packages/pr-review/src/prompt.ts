@@ -50,6 +50,15 @@ export function renderPrContextText(context: RenderedPrContext): string {
     "",
     renderHunksText(context),
   ];
+  if (context.repoMemory && context.repoMemory.length > 0) {
+    lines.push(
+      "",
+      "## 仓库记忆（过往审查经验）",
+      context.repoMemory,
+      "",
+      "以上是该仓库历史上沉淀的规则与知识，仅供参考：若与当前 PR 的 diff 冲突，以 diff 为准，不要盲从。",
+    );
+  }
   return lines.join("\n");
 }
 

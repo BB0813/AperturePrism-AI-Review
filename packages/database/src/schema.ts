@@ -394,3 +394,107 @@ export const users = pgTable(
   },
   (table) => [uniqueIndex("users_login_unique").on(table.login)],
 );
+
+/**
+ * Security audit log: one row per sensitive admin/operator action (role
+ * changes, backup import, setup init, settings update, index operations).
+ */
+export const auditLogs = pgTable(
+  "audit_logs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    actor: text("actor").default("").notNull(),
+    action: text("action").notNull(),
+    target: text("target"),
+    detail: jsonb("detail").default({}).notNull(),
+    ip: text("ip"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [index("audit_logs_created_idx").on(table.createdAt)],
+);
+
+/**
+ * Registered GitHub accounts used by star_aid: a login plus the AES-GCM sealed
+ * PAT. Only the login is ever surfaced; the token stays in the DB.
+ */
+export const starAidAccounts = pgTable(
+  "star_aid_accounts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    login: text("login").notNull(),
+    encryptedToken: text("encrypted_token").notNull(),
+    enabled: boolean("enabled").default(true).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [uniqueIndex("star_aid_accounts_login_unique").on(table.login)],
+);
+
+/**
+ * Target repositories each star_aid account is asked to star. `starred` flips
+ * once the PUT /user/starred/{owner}/{repo} call succeeds; failures are kept in
+ * `last_error` so a later sweep can retry.
+ */
+export const starAidTargets = pgTable(
+  "star_aid_targets",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => starAidAccounts.id, { onDelete: "cascade" }),
+    fullName: text("full_name").notNull(),
+    description: text("description").default("").notNull(),
+    starred: boolean("starred").default(false).notNull(),
+    starredAt: timestamp("starred_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("star_aid_targets_account_full_name_unique").on(
+      table.accountId,
+      table.fullName,
+    ),
+  ],
+);
+
+/**
+ * Repository memory. `kind` is one of `reflection` | `rule` | `knowledge`:
+ * reflections are raw distilled outcomes from completed issue analyses / PR
+ * reviews, later merged (consolidated=true) by the memory-consolidation agent
+ * into durable `rule`/`knowledge` rows that are fed back into later contexts.
+ */
+export const repoMemory = pgTable(
+  "repo_memory",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    repositoryId: uuid("repository_id").references(() => repositories.id),
+    kind: text("kind").notNull(),
+    title: text("title").notNull(),
+    content: text("content").notNull(),
+    sourceType: text("source_type"),
+    sourceRef: text("source_ref"),
+    consolidated: boolean("consolidated").default(false).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("repo_memory_repo_kind_idx").on(table.repositoryId, table.kind),
+    index("repo_memory_consolidated_idx").on(table.consolidated),
+  ],
+);

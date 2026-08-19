@@ -20,6 +20,15 @@ export type PrReviewServices = {
     signal: AbortSignal,
   ) => Promise<void>;
   recordUsage: (task: LeasedTask, outcome: PrReviewOutcome) => Promise<void>;
+  /**
+   * Optional: persists a distilled memory reflection after the final publish.
+   * Best-effort — injected implementations swallow failures; the handler only
+   * guards so a memory failure can never fail the completed task.
+   */
+  recordMemory?: (
+    task: LeasedTask,
+    review: PrReviewContract,
+  ) => Promise<void>;
 };
 
 /**
@@ -42,6 +51,11 @@ export function createPrReviewHandler(services: PrReviewServices): TaskHandler {
         return { outcome: "failed", errorCategory: "invalid_output" };
 
       await services.publishFinal(task, outcome.review, signal);
+      try {
+        await services.recordMemory?.(task, outcome.review);
+      } catch {
+        // Memory recording is best-effort; never blocks or fails the task.
+      }
       return { outcome: "completed" };
     } catch (error) {
       if (error instanceof GitHubApiError) {

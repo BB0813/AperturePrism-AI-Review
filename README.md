@@ -56,7 +56,7 @@ npm run build
 - GitHub App：`GITHUB_APP_ID`、`GITHUB_APP_PRIVATE_KEY_PATH`、`GITHUB_WEBHOOK_SECRET`
 - GitHub OAuth（WebUI 登录）：`GITHUB_OAUTH_CLIENT_ID`、`GITHUB_OAUTH_CLIENT_SECRET`
   - **回调地址必须指向本实例**：在 GitHub OAuth App 设置中把回调（Authorization callback URL）配成 `http://127.0.0.1:3000/auth/callback`（本地）或对应部署域名。若回调指向别的域名，本地授权后 code 会送回那个域名，state 校验失败（真机联调实测的配置错位）。
-- 模型：`MODEL_PROVIDER_BASE_URLS`（review 模型）+ `CREDENTIAL_MASTER_KEY`（加密存 provider 密钥到数据库）
+- 模型：`MODEL_PROVIDER_BASE_URLS`（review 模型）+ `CREDENTIAL_MASTER_KEY`（加密存 provider 密钥到数据库；同时用于仓库互助 star_aid 的账户 token 加密、记忆合并与专家团队的模型调用）
 - Embedding（与 review 模型**独立**配置 API 与 Key）：
   - `EMBEDDING_BASE_URL`、`EMBEDDING_API_KEY`、`EMBEDDING_MODEL`（默认 `nvidia/nv-embed-v1`，4096 维）
 - QQ：`QQ_BOT_PROTOCOLS`（NTQQ）或 `QQ_OFFICIAL_APP_ID/APP_SECRET`（官方）
@@ -114,7 +114,7 @@ npm run build
 
 ## WebUI 功能对齐路线
 
-参考产品（Sakura-AI）的功能清单，AperturePrism 采用「能整合的整合、能写出的写出」。**M8 / M9 / M11 已完成**；可落地的对齐项（配置备份、标签配置、个人设置、用户管理）已全部上线，剩余与 Agent 能力绑定的功能（专家团队、Skills、互助）按此表暂缓评估。当前状态：
+参考产品（Sakura-AI）的功能清单，AperturePrism 采用「能整合的整合、能写出的写出」。**M8 / M9 / M11 已完成**；M11 后的能力补齐（一键安装、安全管理、记忆管理、Agent Skills + 专家团队、仓库互助）已全部上线。当前状态：
 
 | 参考功能 | 当前状态 | 落点 / 计划 |
 | --- | --- | --- |
@@ -130,18 +130,18 @@ npm run build
 | 审查策略 / AI 配置 | ✅ 已整合 | 「模型路由」页 + 系统设置热更新 |
 | 全局配置 | ✅ 已整合 | 「系统配置」页 |
 | 标签配置 | ✅ 已上线 | `/label-rules` 管理分析字段→GitHub 标签规则；worker 分析完成后自动打标（幂等） |
-| 安全管理 | 🚧 部分 | Webhook 开关 / 密钥热更新 / 速率限制 / 管理员角色门禁（用户管理、备份导入、初始化）；更多细粒度权限留待后续 |
+| 安全管理 | ✅ 已上线 | 独立「安全管理」页（访问控制 + 速率限制 + 操作审计日志 `/audit`）+ 敏感操作全记录 + 管理员门禁 |
 | 系统配置 | ✅ 已上线 | 含 Bot 设置 / 接入状态 |
 | 安装向导 | ✅ 已上线 | `/setup` 环境检测 + 一键初始化 |
 | 关于 | ✅ 已上线 | 官网 https://www.aprism.top + 模块/范围说明 |
 | 仓库扫描 | ✅ 已上线 | index-worker 定时扫描 + `/index/run`、`/index/rebuild`、`/index/status` |
-| Agent 专家团队 | ⏳ 计划 | 依赖 Agent 能力，M11 后评估 |
-| Agent Skills | ⏳ 计划 | 依赖 Agent 能力，M11 后评估 |
-| 仓库互助 | ⏳ 计划 | 与 Agent/知识库绑定，M11 后评估 |
+| Agent 专家团队 | ✅ 已上线 | 多专家并行审查 + 主编合并（MVP），`/capabilities` 开关；配置 `expert_review` 模型角色策略后启用 |
+| Agent Skills | ✅ 已上线 | 技能注册表（6 个内置：issue_triage/security/dependency/performance/docs/test_effectiveness），供审查提示词组合 |
+| 仓库互助 | ✅ 已上线 | star_aid：注册账户（token AES-GCM 加密）+ 目标展示仓库 + 调度点星 + 互助页 |
 | 用户管理 | ✅ 已上线 | `/users` 管理员角色（首个 OAuth 登录用户自动为管理员），用户列表 + 权限切换 |
 | 个人设置 | ✅ 已上线 | `/account` 页显示登录账号 + 显示名设置（OAuth） |
 | 配置备份 | ✅ 已上线 | `/backup` 导出（密钥脱敏）+ `/backup/import` 导入设置与策略 |
-| Aprism 记忆管理 | ⏳ 计划 | 记忆本体不在本项目范围，不强行对齐 |
+| Aprism 记忆管理 | ✅ 已上线 | `repo_memory` 反思沉淀（分析/审查后自动写入）+ 合并 Agent（scheduler 定期把反思合并为规则/知识）+ 上下文回灌 + 记忆页 |
 
 ## API 端点速查
 
@@ -162,4 +162,8 @@ npm run build
 | GET·PUT·DELETE | `/label-rules` | 标签规则管理 |
 | GET·PUT | `/auth/me` | 当前账号（登录名 / 显示名 / 是否管理员） |
 | GET·PUT | `/users` `/users/:login` | 用户列表 / 管理员切换（需管理员） |
+| GET | `/audit` | 操作审计日志（需管理员） |
+| GET·DELETE·POST | `/memory` `/memory/:id` `/memory/consolidate` | 仓库记忆列表 / 删除（管理员）/ 触发合并（管理员） |
+| GET·PUT | `/capabilities` | Agent 技能 + 专家团队目录 / 专家团队开关（PUT 需管理员） |
+| GET·POST·DELETE | `/star-aid` 等 | 仓库互助账户/目标管理 + 立即点星（需管理员） |
 | GET·POST | `/setup/status` `/setup/init` | 安装向导检测 / 一键初始化（init 需管理员） |

@@ -245,6 +245,8 @@ export type RuntimeConfig = {
   qqOfficialConfigured: boolean;
   oauthConfigured: boolean;
   oauthEnabled: boolean;
+  apiRateLimit: number;
+  webhookRateLimit: number;
 };
 
 /** Non-secret runtime configuration snapshot. */
@@ -268,6 +270,42 @@ export async function fetchSettings(): Promise<SettingsList> {
 /** Upserts a runtime setting; it hot-applies without a restart. */
 export async function saveSetting(key: string, value: string): Promise<void> {
   await putJson("/settings", { key, value });
+}
+
+export type CapabilitySkill = {
+  id: string;
+  name: string;
+  appliesTo: "issue" | "pr";
+  description: string;
+};
+
+export type CapabilityExpert = {
+  id: string;
+  name: string;
+  appliesTo: "issue" | "pr";
+};
+
+export type Capabilities = {
+  skills: CapabilitySkill[];
+  experts: CapabilityExpert[];
+  enabled: boolean;
+};
+
+/** Agent capabilities catalog: skills + expert team + enablement flag. */
+export async function fetchCapabilities(): Promise<Capabilities> {
+  return (await getJson("/capabilities")) as Capabilities;
+}
+
+/** Toggles the expert-team pipeline (admin only). */
+export async function setExpertTeamEnabled(enabled: boolean): Promise<void> {
+  const response = await fetch("/capabilities", {
+    method: "PUT",
+    headers: { "content-type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ enabled }),
+  });
+  if (response.status === 401) throw new Error("unauthorized");
+  if (response.status === 403) throw new Error("需要管理员权限（403）");
+  if (!response.ok) throw new Error(`capabilities ${response.status}`);
 }
 
 export type BackupSetting = {
@@ -360,6 +398,82 @@ export async function deleteLabelRule(key: string): Promise<void> {
     throw new Error(`delete label rule ${response.status}`);
 }
 
+export type RepoMemoryKind = "reflection" | "rule" | "knowledge";
+
+export type RepoMemoryItem = {
+  id: string;
+  repositoryId: string | null;
+  kind: RepoMemoryKind;
+  title: string;
+  content: string;
+  sourceType: string | null;
+  sourceRef: string | null;
+  consolidated: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RepoMemoryList = {
+  items: RepoMemoryItem[];
+  counts: { reflection: number; rule: number; knowledge: number };
+  nextOffset?: number;
+};
+
+export type MemoryFilter = {
+  repositoryId?: string;
+  kind?: RepoMemoryKind;
+  limit?: number;
+  offset?: number;
+};
+
+/** Lists repository memory, newest first; counts always included. */
+export async function fetchRepoMemory(
+  filter: MemoryFilter = {},
+): Promise<RepoMemoryList> {
+  const params = new URLSearchParams();
+  if (filter.repositoryId) params.set("repositoryId", filter.repositoryId);
+  if (filter.kind) params.set("kind", filter.kind);
+  if (filter.limit !== undefined) params.set("limit", String(filter.limit));
+  if (filter.offset !== undefined) params.set("offset", String(filter.offset));
+  const query = params.toString();
+  return (await getJson(`/memory${query ? `?${query}` : ""}`)) as RepoMemoryList;
+}
+
+export type MemoryConsolidationResult = {
+  status: string;
+  repositories: number;
+  rules: number;
+};
+
+/** Runs one memory-consolidation sweep (admin only). */
+export async function triggerMemoryConsolidation(): Promise<MemoryConsolidationResult> {
+  const response = await fetch("/memory/consolidate", {
+    method: "POST",
+    headers: { accept: "application/json", ...authHeaders() },
+  });
+  if (response.status === 401) throw new Error("unauthorized");
+  if (!response.ok) {
+    const reason =
+      response.status === 403
+        ? "需要管理员权限（403）"
+        : `memory consolidate ${response.status}`;
+    throw new Error(reason);
+  }
+  return (await response.json()) as MemoryConsolidationResult;
+}
+
+/** Deletes a single memory row (admin only); missing row is not an error. */
+export async function deleteRepoMemory(id: string): Promise<void> {
+  const response = await fetch(`/memory/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (response.status === 401) throw new Error("unauthorized");
+  if (!response.ok && response.status !== 403 && response.status !== 404) {
+    throw new Error(`memory delete ${response.status}`);
+  }
+}
+
 export type OAuthStatus = { oauthConfigured: boolean };
 
 /** Whether GitHub OAuth login is wired up (unauthenticated endpoint). */
@@ -415,6 +529,24 @@ export async function setUserAdmin(login: string, isAdmin: boolean): Promise<Use
   });
   if (!response.ok) throw new Error(`set admin ${response.status}`);
   return (await response.json()) as UserRow;
+}
+
+export type AuditEntry = {
+  id: string;
+  actor: string;
+  action: string;
+  target: string | null;
+  detail: Record<string, unknown>;
+  ip: string | null;
+  createdAt: string;
+};
+
+/** Lists the security audit trail, newest first (admin only). */
+export async function fetchAuditLog(offset = 0, limit = 50): Promise<AuditEntry[]> {
+  const result = (await getJson(`/audit?offset=${offset}&limit=${limit}`)) as {
+    items: AuditEntry[];
+  };
+  return result.items;
 }
 
 export type SetupStatus = {
@@ -541,4 +673,139 @@ export async function fetchResults(
   const params = new URLSearchParams({ type });
   if (offset !== undefined) params.set("offset", String(offset));
   return (await getJson(`/results?${params.toString()}`)) as ResultList;
+}
+
+export type StarAidAccount = {
+  id: string;
+  login: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  targetCount: number;
+  starredCount: number;
+};
+
+export type StarAidTarget = {
+  id: string;
+  accountId: string;
+  fullName: string;
+  description: string;
+  starred: boolean;
+  starredAt: string | null;
+  lastError: string | null;
+  lastCheckedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type StarAidSummary = {
+  accounts: number;
+  targets: number;
+  starred: number;
+};
+
+export type StarAidOverview = {
+  accounts: StarAidAccount[];
+  targets: StarAidTarget[];
+  summary: StarAidSummary;
+};
+
+export type StarAidSweepResult = {
+  status: string;
+  processed: number;
+  starred: number;
+  failed: number;
+};
+
+/** Lists star-aid accounts, targets, and summary (admin only). */
+export async function fetchStarAid(): Promise<StarAidOverview> {
+  return (await getJson("/star-aid")) as StarAidOverview;
+}
+
+/** Registers a GitHub account by validating its PAT (admin only). */
+export async function createStarAidAccount(
+  login: string,
+  token: string,
+): Promise<StarAidAccount> {
+  const response = await fetch("/star-aid/accounts", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ login, token }),
+  });
+  if (response.status === 401) throw new Error("unauthorized");
+  if (!response.ok)
+    throw new Error(await starAidReason(response, "register account"));
+  const data = (await response.json()) as {
+    status: string;
+    account: StarAidAccount;
+  };
+  return data.account;
+}
+
+/** Removes a star-aid account; its targets cascade (admin only). */
+export async function deleteStarAidAccount(id: string): Promise<void> {
+  const response = await fetch(`/star-aid/accounts/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (response.status === 401) throw new Error("unauthorized");
+  if (!response.ok && response.status !== 403 && response.status !== 404)
+    throw new Error(await starAidReason(response, "delete account"));
+}
+
+/** Adds a target repository to an account (admin only). */
+export async function addStarAidTarget(
+  accountId: string,
+  fullName: string,
+): Promise<StarAidTarget> {
+  const response = await fetch("/star-aid/targets", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ accountId, fullName }),
+  });
+  if (response.status === 401) throw new Error("unauthorized");
+  if (!response.ok) throw new Error(await starAidReason(response, "add target"));
+  const data = (await response.json()) as {
+    status: string;
+    target: StarAidTarget;
+  };
+  return data.target;
+}
+
+/** Removes a star-aid target (admin only). */
+export async function deleteStarAidTarget(id: string): Promise<void> {
+  const response = await fetch(`/star-aid/targets/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (response.status === 401) throw new Error("unauthorized");
+  if (!response.ok && response.status !== 403 && response.status !== 404)
+    throw new Error(await starAidReason(response, "delete target"));
+}
+
+/** Runs one star-aid sweep immediately (admin only). */
+export async function runStarAidSweep(): Promise<StarAidSweepResult> {
+  const response = await fetch("/star-aid/run", {
+    method: "POST",
+    headers: { accept: "application/json", ...authHeaders() },
+  });
+  if (response.status === 401) throw new Error("unauthorized");
+  if (!response.ok)
+    throw new Error(await starAidReason(response, "run star-aid sweep"));
+  return (await response.json()) as StarAidSweepResult;
+}
+
+/** Extracts the API `reason` field for a friendlier error message. */
+async function starAidReason(
+  response: Response,
+  fallback: string,
+): Promise<string> {
+  if (response.status === 403) return "需要管理员权限（403）";
+  try {
+    const parsed = (await response.json()) as { reason?: string };
+    if (parsed.reason) return parsed.reason;
+  } catch {
+    // fall through to the fallback
+  }
+  return `${fallback} ${response.status}`;
 }

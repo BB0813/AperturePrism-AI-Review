@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { hostname } from "node:os";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import {
   createCredentialCipher,
   loadConfig,
@@ -9,11 +9,16 @@ import {
 import {
   createDatabaseClient,
   externalPublications,
+  getRepoMemorySummary,
   labelsForAnalysis,
   listLabelRules,
   modelRolePolicies,
   providerAccounts,
+  repositories,
   subjectResults,
+  systemSettings,
+  writeRepoMemory,
+  type DatabaseClient,
 } from "../../../packages/database/src/index.js";
 import {
   ModelInvocationError,
@@ -38,10 +43,15 @@ import {
   buildPrContext,
   parsePrReviewTaskPayload,
   publishAssessment,
+  renderPrContextText,
   reviewPullRequest,
   type PrReviewContext,
 } from "../../../packages/pr-review/src/index.js";
 import { createOpenAICompatibleAdapter } from "../../../packages/model-router/src/index.js";
+import {
+  runExpertReview,
+  selectSkills,
+} from "../../../packages/agent-capabilities/src/index.js";
 import {
   extractIssueSignals,
   recallCandidatesWithRepos,
@@ -110,7 +120,10 @@ const engine: TaskEngineOperations = {
   },
 };
 
-async function loadCandidates(role: ModelRole): Promise<ModelCandidate[]> {
+/** A model role policy row; `expert_review` is an optional agent-team role. */
+type PolicyRole = ModelRole | "expert_review";
+
+async function loadCandidates(role: PolicyRole): Promise<ModelCandidate[]> {
   const rows = await database.db
     .select({ candidates: modelRolePolicies.candidates })
     .from(modelRolePolicies)
@@ -138,6 +151,36 @@ async function loadCandidates(role: ModelRole): Promise<ModelCandidate[]> {
   return candidates;
 }
 
+/**
+ * Whether the Agent 专家团队 pipeline is active: the `agent_team_enabled`
+ * runtime setting must be "true" AND an `expert_review` model role policy with
+ * candidates must exist. A database failure degrades to "disabled" rather than
+ * breaking the worker.
+ */
+async function isExpertTeamEnabled(db: DatabaseClient): Promise<boolean> {
+  try {
+    const [flag, policy] = await Promise.all([
+      db.db
+        .select({ value: systemSettings.value })
+        .from(systemSettings)
+        .where(eq(systemSettings.key, "agent_team_enabled"))
+        .limit(1),
+      db.db
+        .select({ candidates: modelRolePolicies.candidates })
+        .from(modelRolePolicies)
+        .where(eq(modelRolePolicies.role, "expert_review"))
+        .orderBy(desc(modelRolePolicies.createdAt))
+        .limit(1),
+    ]);
+    if (flag[0]?.value !== "true") return false;
+    const candidates = policy[0]?.candidates;
+    return Array.isArray(candidates) && candidates.length > 0;
+  } catch (error) {
+    logger.warn({ err: error }, "expert team flag check failed; disabled");
+    return false;
+  }
+}
+
 function issueIdentity(task: { payload: unknown }) {
   const payload = parseIssueTaskPayload(task.payload);
   if (!payload) throw new Error("task payload is missing issue identity");
@@ -147,6 +190,40 @@ function issueIdentity(task: { payload: unknown }) {
       `invalid repository name in payload: ${payload.repositoryFullName}`,
     );
   return { payload, identity };
+}
+
+/** Looks up the internal repository id for an owner/name pair, if ingested. */
+async function resolveRepositoryId(fullName: string): Promise<string | null> {
+  const identity = repositoryOwnerName(fullName);
+  if (!identity) return null;
+  const rows = await database.db
+    .select({ id: repositories.id })
+    .from(repositories)
+    .where(
+      and(
+        eq(repositories.owner, identity.owner),
+        eq(repositories.name, identity.name),
+      ),
+    )
+    .limit(1);
+  return rows[0]?.id ?? null;
+}
+
+/**
+ * Consolidated repo memory of a repository as reference text, or undefined
+ * when the repo is unknown / has no consolidated memory yet. Best-effort: a
+ * database failure degrades to "no memory" instead of breaking the analysis.
+ */
+async function repoMemoryText(fullName: string): Promise<string | undefined> {
+  try {
+    const repositoryId = await resolveRepositoryId(fullName);
+    if (!repositoryId) return undefined;
+    const text = await getRepoMemorySummary(database.db, repositoryId);
+    return text.length > 0 ? text : undefined;
+  } catch (error) {
+    logger.warn({ err: error, fullName }, "repo memory backfill skipped");
+    return undefined;
+  }
 }
 
 const publicationStore: PublicationStore = {
@@ -238,6 +315,10 @@ async function main(): Promise<void> {
   const reviewCandidates = await loadCandidates("pr_review");
   if (reviewCandidates.length === 0)
     logger.warn("no pr_review model candidates configured in the database");
+  const expertTeamEnabled = await isExpertTeamEnabled(database);
+  const expertReviewCandidates = expertTeamEnabled
+    ? await loadCandidates("expert_review")
+    : [];
   if (adapters.size === 0)
     logger.warn("MODEL_PROVIDER_BASE_URLS is empty; model calls will fail");
 
@@ -245,17 +326,21 @@ async function main(): Promise<void> {
     buildContext: async (task, signal) => {
       if (!github) throw new Error("GitHub App is not configured");
       const { payload, identity } = issueIdentity(task);
-      return buildIssueContext(
-        github,
-        {
-          installationId: payload.installationId,
-          owner: identity.owner,
-          name: identity.name,
-          number: payload.subjectNumber,
-        },
-        undefined,
-        signal,
-      );
+      const [context, repoMemory] = await Promise.all([
+        buildIssueContext(
+          github,
+          {
+            installationId: payload.installationId,
+            owner: identity.owner,
+            name: identity.name,
+            number: payload.subjectNumber,
+          },
+          undefined,
+          signal,
+        ),
+        repoMemoryText(payload.repositoryFullName),
+      ]);
+      return repoMemory ? { ...context, repoMemory } : context;
     },
 
     publishPlaceholder: async (task) => {
@@ -361,27 +446,92 @@ async function main(): Promise<void> {
         model: lastAttempt?.candidate.model ?? "",
       });
     },
+
+    recordMemory: async (task, analysis) => {
+      try {
+        const { payload } = issueIdentity(task);
+        const repositoryId = await resolveRepositoryId(
+          payload.repositoryFullName,
+        );
+        const result = analysis.result;
+        const evidence = result.evidence
+          .map((entry) => `[${entry.kind}] ${entry.excerpt}`)
+          .join("\n");
+        const content = [
+          `摘要：${result.summary}`,
+          `类别：${result.category}；严重度：${result.severity}；优先级：${result.priority}；质量：${result.quality}`,
+          ...(evidence.length > 0 ? [`证据：\n${evidence}`] : []),
+          ...(result.suggestedActions.length > 0
+            ? [`建议动作：${result.suggestedActions.join("、")}`]
+            : []),
+        ].join("\n");
+        await writeRepoMemory(database.db, {
+          repositoryId: repositoryId ?? undefined,
+          kind: "reflection",
+          title: `Issue #${payload.subjectNumber} · ${result.category}/${result.severity} ${result.summary.slice(0, 50)}`,
+          content,
+          sourceType: "issue_analysis",
+          sourceRef: `#${payload.subjectNumber}`,
+        });
+      } catch (error) {
+        logger.warn(
+          { err: error, taskId: task.id },
+          "issue memory reflection skipped",
+        );
+      }
+    },
   });
 
   const prReviewHandler = createPrReviewHandler({
     buildContext: async (task, signal) => {
       if (!github) throw new Error("GitHub App is not configured");
       const { payload, identity } = prIdentity(task);
-      return buildPrContext(
-        github,
-        {
-          installationId: payload.installationId,
-          owner: identity.owner,
-          name: identity.name,
-          pullNumber: payload.subjectNumber,
-        },
-        undefined,
-        signal,
-      );
+      const [context, repoMemory] = await Promise.all([
+        buildPrContext(
+          github,
+          {
+            installationId: payload.installationId,
+            owner: identity.owner,
+            name: identity.name,
+            pullNumber: payload.subjectNumber,
+          },
+          undefined,
+          signal,
+        ),
+        repoMemoryText(payload.repositoryFullName),
+      ]);
+      return repoMemory
+        ? {
+            ...context,
+            repoMemory,
+            rendered: { ...context.rendered, repoMemory },
+          }
+        : context;
     },
 
-    review: (context: PrReviewContext, signal) =>
-      reviewPullRequest(
+    review: (context: PrReviewContext, signal) => {
+      const renderedText = renderPrContextText(context.rendered);
+      if (expertTeamEnabled) {
+        return runExpertReview(
+          {
+            adapters,
+            // Prefer expert_review candidates; fall back to pr_review's.
+            candidates:
+              expertReviewCandidates.length > 0
+                ? expertReviewCandidates
+                : reviewCandidates,
+            deadlineMs: reviewDeadlineMs,
+            retryPolicy: reviewRetryPolicy,
+            signal,
+          },
+          {
+            appliesTo: "pr",
+            rendered: renderedText,
+            skills: selectSkills("pr", renderedText),
+          },
+        );
+      }
+      return reviewPullRequest(
         {
           adapters,
           candidates: reviewCandidates,
@@ -390,7 +540,8 @@ async function main(): Promise<void> {
           signal,
         },
         context.rendered,
-      ),
+      );
+    },
 
     publishFinal: async (task, review) => {
       const { payload, identity } = prIdentity(task);
@@ -448,7 +599,50 @@ async function main(): Promise<void> {
         model: lastAttempt?.candidate.model ?? "",
       });
     },
+
+    recordMemory: async (task, review) => {
+      try {
+        const { payload } = prIdentity(task);
+        const repositoryId = await resolveRepositoryId(
+          payload.repositoryFullName,
+        );
+        const findings = review.findings
+          .slice(0, 3)
+          .map(
+            (finding) =>
+              `- [${finding.severity}] ${finding.file}: ${finding.message.slice(0, 120)}`,
+          )
+          .join("\n");
+        const content = [
+          `总结：${review.summary.slice(0, 200)}`,
+          `总体结论：${review.overallTone}；变更 ${review.changedFileCount} 文件（+${review.additions}/-${review.deletions}）`,
+          ...(findings.length > 0 ? [`主要发现：\n${findings}`] : []),
+        ].join("\n");
+        await writeRepoMemory(database.db, {
+          repositoryId: repositoryId ?? undefined,
+          kind: "reflection",
+          title: `PR #${payload.subjectNumber} · ${review.overallTone}`,
+          content,
+          sourceType: "pr_review",
+          sourceRef: `#${payload.subjectNumber}`,
+        });
+      } catch (error) {
+        logger.warn(
+          { err: error, taskId: task.id },
+          "pr memory reflection skipped",
+        );
+      }
+    },
   });
+
+  logger.info(
+    {
+      expertTeamEnabled,
+      expertCandidates: expertReviewCandidates.length,
+      reviewCandidates: reviewCandidates.length,
+    },
+    "agent expert team status",
+  );
 
   const handler: TaskHandler = (task, signal) => {
     if (task.taskType === "pr_review") return prReviewHandler(task, signal);

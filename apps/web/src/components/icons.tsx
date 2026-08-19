@@ -79,6 +79,12 @@ export const LogoutIcon = (p: IconProps) => (
   </Base>
 );
 
+export const StarIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.8L12 16.9 6.8 19.6l1-5.8L3.5 9.7l5.9-.8L12 3.5z" />
+  </Base>
+);
+
 export const RefreshIcon = (p: IconProps) => (
   <Base {...p}>
     <path d="M20 11a8 8 0 10-2 5.7M20 4v7h-7" />

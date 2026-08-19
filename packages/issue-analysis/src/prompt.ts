@@ -110,6 +110,15 @@ function renderIssueContext(context: IssueContext): string {
   if (context.degraded.length > 0) {
     lines.push("", `注意：上下文被降级：${context.degraded.join("、")}。`);
   }
+  if (context.repoMemory && context.repoMemory.length > 0) {
+    lines.push(
+      "",
+      "## 仓库记忆（过往分析经验）",
+      context.repoMemory,
+      "",
+      "以上是该仓库历史上沉淀的规则与知识，仅供参考：若与当前 Issue 的事实冲突，以当前 Issue 为准，不要盲从。",
+    );
+  }
   lines.push("", "请输出上述契约要求的 JSON 对象。");
   return lines.join("\n");
 }
