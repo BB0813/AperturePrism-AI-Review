@@ -13,6 +13,8 @@ import { and, asc, desc, eq, gt, or } from "drizzle-orm";
 import { loadConfig } from "../../../packages/config/src/index.js";
 import {
   analysisTasks,
+  applyBackupSnapshot,
+  buildBackupSnapshot,
   checkDatabase,
   checkRedis,
   closeRedisClient,
@@ -213,6 +215,7 @@ const protectedPaths = [
   "/logs",
   "/vector",
   "/index",
+  "/backup",
   "/config",
   "/settings",
   "/events",
@@ -1096,6 +1099,44 @@ async function handleIndexRelated(
   }
 }
 
+/** Config backup: exports settings + policies (secrets masked, no keys). */
+async function handleBackupExport(
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  try {
+    const snapshot = await buildBackupSnapshot(database.db);
+    json(response, 200, snapshot, requestId);
+  } catch (error) {
+    logger.warn({ err: error }, "backup export failed");
+    json(response, 500, { status: "error", reason: "export_failed" }, requestId);
+  }
+}
+
+/** Config restore: applies non-secret settings + policies from a snapshot. */
+async function handleBackupImport(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const body = await readBody(request);
+  let snapshot: unknown;
+  try {
+    snapshot = JSON.parse(body.toString("utf8"));
+  } catch {
+    json(response, 400, { status: "error", reason: "invalid JSON" }, requestId);
+    return;
+  }
+  try {
+    const result = await applyBackupSnapshot(database.db, snapshot);
+    json(response, 200, { status: "ok", ...result }, requestId);
+  } catch (error) {
+    const reason =
+      error instanceof Error ? error.message.slice(0, 120) : "import_failed";
+    json(response, 400, { status: "error", reason }, requestId);
+  }
+}
+
 /** Non-secret runtime configuration snapshot (no keys, no secrets). */
 async function handleConfig(
   response: ServerResponse,
@@ -1673,6 +1714,34 @@ async function handleRequest(
       return;
     }
     await handleIndexRelated(request, response, requestId);
+    return;
+  }
+
+  if (path === "/backup/import") {
+    if (request.method !== "POST") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    await handleBackupImport(request, response, requestId);
+    return;
+  }
+
+  if (path === "/backup") {
+    if (request.method !== "GET") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    await handleBackupExport(response, requestId);
     return;
   }
 

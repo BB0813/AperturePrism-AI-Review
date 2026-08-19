@@ -187,6 +187,22 @@ export const GearIcon = (p: IconProps) => (
   </Base>
 );
 
+export const DownloadIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M12 3v12" />
+    <path d="M7 10l5 5 5-5" />
+    <path d="M4 19h16" />
+  </Base>
+);
+
+export const UploadIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M12 15V3" />
+    <path d="M7 8l5-5 5 5" />
+    <path d="M4 19h16" />
+  </Base>
+);
+
 export const InfoIcon = (p: IconProps) => (
   <Base {...p}>
     <circle cx="12" cy="12" r="9" />

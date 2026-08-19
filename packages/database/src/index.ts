@@ -1,3 +1,4 @@
+export * from "./backup.js";
 export * from "./client.js";
 export * from "./health.js";
 export * from "./redis.js";

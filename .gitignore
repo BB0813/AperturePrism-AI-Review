@@ -15,3 +15,6 @@ archive/
 .marking/
 # Local secrets (GitHub App private key, master key, tokens)
 .secrets/
+# Credential notes kept on disk (never committed)
+*密钥留档*.txt
+*.secrets.txt
