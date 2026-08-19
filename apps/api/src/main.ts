@@ -12,7 +12,6 @@ import {
 } from "../../../packages/config/src/index.js";
 import { createSessionSigner } from "./session.js";
 import {
-  addStarAidTarget,
   analysisTasks,
   applyBackupSnapshot,
   buildBackupSnapshot,
@@ -21,13 +20,9 @@ import {
   closeRedisClient,
   createDatabaseClient,
   createRedisClient,
-  createStarAidAccount,
   deleteLabelRule,
   deleteRepoMemory,
-  deleteStarAidAccount,
-  deleteStarAidTarget,
   ensureUser,
-  getStarAidSummary,
   getUser,
   ingestGitHubWebhook,
   issueDocuments,
@@ -35,14 +30,11 @@ import {
   listAuditLogs,
   listLabelRules,
   listRepoMemory,
-  listStarAidAccounts,
-  listStarAidTargets,
   listUsers,
   modelRolePolicies,
   providerAccounts,
   repositories,
   setAdmin,
-  starAidAccounts,
   subjectResults,
   systemSettings,
   taskAttempts,
@@ -53,12 +45,6 @@ import {
   writeAuditLog,
 } from "../../../packages/database/src/index.js";
 import { memoryConsolidationSweep } from "../../../apps/scheduler/src/consolidation.js";
-import {
-  fetchRepoDescription,
-  StarAidGithubError,
-  starAidSweep,
-  verifyGitHubToken,
-} from "../../../packages/star-aid/src/index.js";
 import {
   createGitHubClient,
   GitHubApiError,
@@ -124,11 +110,6 @@ const githubClientPromise: Promise<GitHubClient | null> = (async () => {
   }
 })();
 
-/** AES-GCM cipher wrapping CREDENTIAL_MASTER_KEY for star-aid PAT storage. */
-const starAidCipher = config.credentialMasterKey
-  ? createCredentialCipher(config.credentialMasterKey)
-  : null;
-
 /* ---------- GitHub OAuth (progressive; enabled when configured) ---------- */
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 /** In-memory OAuth `state` → expiry, verified in the callback. */
@@ -183,6 +164,7 @@ const SECRET_SETTING_KEYS = new Set([
   "github_webhook_secret",
   "oauth_client_secret",
   "embedding_api_key",
+  "qq_official_app_secret",
 ]);
 const ALLOWED_SETTING_KEYS = new Set([
   "webui_api_token",
@@ -193,6 +175,11 @@ const ALLOWED_SETTING_KEYS = new Set([
   "embedding_base_url",
   "embedding_api_key",
   "embedding_model",
+  "qq_bot_protocols",
+  "qq_official_app_id",
+  "qq_official_app_secret",
+  "qq_official_gateway_url",
+  "qq_official_intents",
   "log_level",
   "spam_handling",
 ]);
@@ -258,6 +245,45 @@ function embeddingConfig(): {
       "",
     model:
       runtimeSettings.get("embedding_model") || config.embedding.model,
+  };
+}
+
+/** Effective QQ bot config: runtime settings override, then env. */
+function qqConfig(): {
+  protocols: Record<string, unknown>;
+  officialAppId: string;
+  officialAppSecret: string;
+  officialGatewayUrl: string;
+  officialIntents: string;
+} {
+  const protocolsRaw = runtimeSettings.get("qq_bot_protocols");
+  let protocols: Record<string, unknown> = config.qqBotProtocols;
+  if (protocolsRaw && protocolsRaw.trim().length > 0) {
+    try {
+      const parsed: unknown = JSON.parse(protocolsRaw);
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed))
+        protocols = parsed as Record<string, unknown>;
+    } catch {
+      // keep the env value when the stored JSON is malformed
+    }
+  }
+  return {
+    protocols,
+    officialAppId:
+      runtimeSettings.get("qq_official_app_id") ||
+      config.qqOfficialAppId ||
+      "",
+    officialAppSecret:
+      runtimeSettings.get("qq_official_app_secret") ||
+      config.qqOfficialAppSecret ||
+      "",
+    officialGatewayUrl:
+      runtimeSettings.get("qq_official_gateway_url") ||
+      config.qqOfficialGatewayUrl ||
+      "",
+    officialIntents:
+      runtimeSettings.get("qq_official_intents") ||
+      String(config.qqOfficialIntents),
   };
 }
 
@@ -335,7 +361,6 @@ const protectedPaths = [
   "/capabilities",
   "/events",
   "/memory",
-  "/star-aid",
 ];
 const EVENT_CHANNEL = "apertureprism:task:events";
 
@@ -1660,9 +1685,9 @@ async function handleConfig(
       embeddingConfigured: Boolean(
         embeddingConfig().baseUrl && embeddingConfig().apiKey,
       ),
-      qqBotProtocols: Object.keys(config.qqBotProtocols),
+      qqBotProtocols: Object.keys(qqConfig().protocols),
       qqOfficialConfigured: Boolean(
-        config.qqOfficialAppId && config.qqOfficialAppSecret,
+        qqConfig().officialAppId && qqConfig().officialAppSecret,
       ),
       oauthConfigured: oauthConfigured(),
       oauthEnabled: oauthConfigured() && webuiToken().length === 0,
@@ -1737,6 +1762,11 @@ async function handleSettings(
     "embedding_base_url",
     "embedding_api_key",
     "embedding_model",
+    "qq_bot_protocols",
+    "qq_official_app_id",
+    "qq_official_app_secret",
+    "qq_official_gateway_url",
+    "qq_official_intents",
     "log_level",
     "spam_handling",
   ];
@@ -2769,312 +2799,6 @@ async function handleMemory(
   );
 }
 
-/**
- * Repository star-aid management (admin only):
- *  - GET  /star-aid: accounts (with per-account counts) + targets + summary.
- *  - POST /star-aid/accounts {login, token}: verify the PAT against GitHub,
- *    seal it, and register the account (login from GitHub's response).
- *  - DELETE /star-aid/accounts/:id: remove an account (targets cascade).
- *  - POST /star-aid/targets {accountId, fullName}: add a target repo, keeping
- *    its GitHub description.
- *  - DELETE /star-aid/targets/:id: remove a target.
- *  - POST /star-aid/run: run one star-aid sweep immediately.
- */
-async function handleStarAid(
-  request: IncomingMessage,
-  response: ServerResponse,
-  requestId: string,
-): Promise<void> {
-  const url = new URL(
-    request.url ?? "/",
-    `http://${request.headers.host ?? "localhost"}`,
-  );
-  const path = url.pathname;
-
-  if (path === "/star-aid" && request.method === "GET") {
-    try {
-      const [accounts, targets, summary] = await Promise.all([
-        listStarAidAccounts(database.db),
-        listStarAidTargets(database.db),
-        getStarAidSummary(database.db),
-      ]);
-      json(response, 200, { accounts, targets, summary }, requestId);
-    } catch (error) {
-      logger.warn({ err: error }, "star-aid list failed");
-      json(
-        response,
-        500,
-        { status: "error", reason: "star_aid_failed" },
-        requestId,
-      );
-    }
-    return;
-  }
-
-  if (path === "/star-aid/accounts" && request.method === "POST") {
-    const body = await readBody(request);
-    let parsed: { login?: unknown; token?: unknown };
-    try {
-      parsed = JSON.parse(body.toString("utf8"));
-    } catch {
-      json(
-        response,
-        400,
-        { status: "error", reason: "invalid JSON" },
-        requestId,
-      );
-      return;
-    }
-    const token = typeof parsed.token === "string" ? parsed.token.trim() : "";
-    if (token.length === 0) {
-      json(
-        response,
-        400,
-        { status: "error", reason: "token required" },
-        requestId,
-      );
-      return;
-    }
-    if (!starAidCipher) {
-      json(
-        response,
-        503,
-        { status: "error", reason: "credential_master_key_missing" },
-        requestId,
-      );
-      return;
-    }
-    try {
-      const identity = await verifyGitHubToken(config.githubApiBaseUrl, token);
-      const account = await createStarAidAccount(database.db, {
-        login: identity.login,
-        encryptedToken: starAidCipher.seal(token),
-      });
-      if (!account) {
-        json(
-          response,
-          409,
-          { status: "error", reason: "account_exists" },
-          requestId,
-        );
-        return;
-      }
-      audit(request, "star_aid.account.create", account.login);
-      json(response, 200, { status: "ok", account }, requestId);
-    } catch (error) {
-      if (error instanceof StarAidGithubError) {
-        json(
-          response,
-          400,
-          { status: "error", reason: `github_${error.category}` },
-          requestId,
-        );
-        return;
-      }
-      logger.warn({ err: error }, "star-aid account create failed");
-      json(
-        response,
-        500,
-        { status: "error", reason: "account_create_failed" },
-        requestId,
-      );
-    }
-    return;
-  }
-
-  if (path.startsWith("/star-aid/accounts/") && request.method === "DELETE") {
-    const id = decodeURIComponent(path.slice("/star-aid/accounts/".length)).trim();
-    if (!isUuid(id)) {
-      json(
-        response,
-        400,
-        { status: "error", reason: "invalid account id" },
-        requestId,
-      );
-      return;
-    }
-    try {
-      const deleted = await deleteStarAidAccount(database.db, id);
-      if (deleted) audit(request, "star_aid.account.delete", id);
-      json(
-        response,
-        deleted ? 200 : 404,
-        { status: deleted ? "ok" : "error" },
-        requestId,
-      );
-    } catch (error) {
-      logger.warn({ err: error }, "star-aid account delete failed");
-      json(
-        response,
-        500,
-        { status: "error", reason: "account_delete_failed" },
-        requestId,
-      );
-    }
-    return;
-  }
-
-  if (path === "/star-aid/targets" && request.method === "POST") {
-    const body = await readBody(request);
-    let parsed: { accountId?: unknown; fullName?: unknown };
-    try {
-      parsed = JSON.parse(body.toString("utf8"));
-    } catch {
-      json(
-        response,
-        400,
-        { status: "error", reason: "invalid JSON" },
-        requestId,
-      );
-      return;
-    }
-    const accountId =
-      typeof parsed.accountId === "string" ? parsed.accountId.trim() : "";
-    const fullName =
-      typeof parsed.fullName === "string" ? parsed.fullName.trim() : "";
-    if (!isUuid(accountId)) {
-      json(
-        response,
-        400,
-        { status: "error", reason: "invalid account id" },
-        requestId,
-      );
-      return;
-    }
-    const match = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/.exec(fullName);
-    if (!match) {
-      json(
-        response,
-        400,
-        { status: "error", reason: "full_name must be owner/repo" },
-        requestId,
-      );
-      return;
-    }
-    const existing = await database.db
-      .select({ id: starAidAccounts.id })
-      .from(starAidAccounts)
-      .where(eq(starAidAccounts.id, accountId))
-      .limit(1);
-    if (!existing[0]) {
-      json(
-        response,
-        404,
-        { status: "error", reason: "account not found" },
-        requestId,
-      );
-      return;
-    }
-    const owner = match[1] ?? "";
-    const repo = match[2] ?? "";
-    try {
-      const description = await fetchRepoDescription(
-        config.githubApiBaseUrl,
-        null,
-        owner,
-        repo,
-      );
-      const target = await addStarAidTarget(database.db, {
-        accountId,
-        fullName,
-        description,
-      });
-      if (!target) {
-        json(
-          response,
-          409,
-          { status: "error", reason: "target_exists" },
-          requestId,
-        );
-        return;
-      }
-      audit(request, "star_aid.target.create", fullName);
-      json(response, 200, { status: "ok", target }, requestId);
-    } catch (error) {
-      logger.warn({ err: error }, "star-aid target create failed");
-      json(
-        response,
-        500,
-        { status: "error", reason: "target_create_failed" },
-        requestId,
-      );
-    }
-    return;
-  }
-
-  if (path.startsWith("/star-aid/targets/") && request.method === "DELETE") {
-    const id = decodeURIComponent(path.slice("/star-aid/targets/".length)).trim();
-    if (!isUuid(id)) {
-      json(
-        response,
-        400,
-        { status: "error", reason: "invalid target id" },
-        requestId,
-      );
-      return;
-    }
-    try {
-      const deleted = await deleteStarAidTarget(database.db, id);
-      if (deleted) audit(request, "star_aid.target.delete", id);
-      json(
-        response,
-        deleted ? 200 : 404,
-        { status: deleted ? "ok" : "error" },
-        requestId,
-      );
-    } catch (error) {
-      logger.warn({ err: error }, "star-aid target delete failed");
-      json(
-        response,
-        500,
-        { status: "error", reason: "target_delete_failed" },
-        requestId,
-      );
-    }
-    return;
-  }
-
-  if (path === "/star-aid/run" && request.method === "POST") {
-    if (!starAidCipher) {
-      json(
-        response,
-        503,
-        { status: "error", reason: "credential_master_key_missing" },
-        requestId,
-      );
-      return;
-    }
-    try {
-      const result = await starAidSweep(database.db, {
-        cipher: starAidCipher,
-        apiBaseUrl: config.githubApiBaseUrl,
-      });
-      audit(request, "star_aid.sweep", undefined, {
-        processed: result.processed,
-        starred: result.starred,
-        failed: result.failed,
-      });
-      json(response, 200, { status: "ok", ...result }, requestId);
-    } catch (error) {
-      logger.warn({ err: error }, "star-aid sweep failed");
-      json(
-        response,
-        500,
-        { status: "error", reason: "sweep_failed" },
-        requestId,
-      );
-    }
-    return;
-  }
-
-  json(
-    response,
-    405,
-    { status: "error", reason: "method not allowed" },
-    requestId,
-  );
-}
-
 async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
@@ -3356,20 +3080,6 @@ async function handleRequest(
 
   if (path === "/memory" || path.startsWith("/memory/")) {
     await handleMemory(request, response, requestId);
-    return;
-  }
-
-  if (path === "/star-aid" || path.startsWith("/star-aid/")) {
-    if (!(await isAdminRequest(request))) {
-      json(
-        response,
-        403,
-        { status: "error", reason: "admin required" },
-        requestId,
-      );
-      return;
-    }
-    await handleStarAid(request, response, requestId);
     return;
   }
 

@@ -6,6 +6,5 @@ export * from "./label-rules.js";
 export * from "./redis.js";
 export * from "./repo-memory.js";
 export * from "./schema.js";
-export * from "./star-aid.js";
 export * from "./users.js";
 export * from "./webhooks.js";

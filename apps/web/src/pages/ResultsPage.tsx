@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { fetchResults, type ResultList, type SubjectResult } from "../lib/api";
 import { ChevronDownIcon, ChevronRightIcon, RefreshIcon } from "../components/icons";
 import { Empty, LoadingRows, fmtTime, shortText } from "../components/ui";
+import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 
 type NormResult = {
   root: Record<string, unknown>;
@@ -59,6 +60,13 @@ export function ResultsPage(props: { type: "issue" | "pr"; label: string }) {
       .finally(() => setLoadingMore(false));
   }, [list, loadingMore, props.type]);
 
+  const hasMore = list?.nextOffset !== undefined;
+  const sentinelRef = useInfiniteScroll({
+    hasMore,
+    loading: loadingMore,
+    onLoadMore: loadMore,
+  });
+
   return (
     <div className="stack">
       <div className="page-head">
@@ -94,15 +102,10 @@ export function ResultsPage(props: { type: "issue" | "pr"; label: string }) {
           </div>
         )}
 
-        {list?.nextOffset !== undefined ? (
-          <button
-            className="btn btn-block"
-            style={{ marginTop: 14 }}
-            onClick={loadMore}
-            disabled={loadingMore}
-          >
-            {loadingMore ? "加载中…" : "加载更多"}
-          </button>
+        {hasMore || loadingMore ? (
+          <div ref={sentinelRef} className="load-more-hint">
+            {loadingMore ? "加载中…" : "向下滚动加载更多"}
+          </div>
         ) : null}
       </section>
     </div>

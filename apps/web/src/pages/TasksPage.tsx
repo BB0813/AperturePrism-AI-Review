@@ -3,6 +3,7 @@ import { fetchTasks, type TaskList, type TaskSummary } from "../lib/api";
 import { navigate } from "../hooks/useHash";
 import { RefreshIcon, ChevronRightIcon } from "../components/icons";
 import { Empty, LoadingRows, StatusPill, TypeChip, timeAgo } from "../components/ui";
+import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 
 const TYPE_FILTERS = ["all", "issue_analysis", "pr_review", "repository_index"] as const;
 const STATUS_FILTERS = ["all", "queued", "running", "publishing", "completed", "failed", "retry_wait", "canceled"] as const;
@@ -41,6 +42,13 @@ export function TasksPage() {
       .catch(() => undefined)
       .finally(() => setLoadingMore(false));
   }, [list, loadingMore]);
+
+  const hasMore = list?.nextOffset !== undefined;
+  const sentinelRef = useInfiniteScroll({
+    hasMore,
+    loading: loadingMore,
+    onLoadMore: loadMore,
+  });
 
   const items = useMemo(() => {
     if (!list) return [];
@@ -124,15 +132,10 @@ export function TasksPage() {
           </div>
         )}
 
-        {list?.nextOffset !== undefined ? (
-          <button
-            className="btn btn-block"
-            style={{ marginTop: 14 }}
-            onClick={loadMore}
-            disabled={loadingMore}
-          >
-            {loadingMore ? "加载中…" : "加载更多"}
-          </button>
+        {hasMore || loadingMore ? (
+          <div ref={sentinelRef} className="load-more-hint">
+            {loadingMore ? "加载中…" : "向下滚动加载更多"}
+          </div>
         ) : null}
       </section>
     </div>

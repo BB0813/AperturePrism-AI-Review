@@ -45,6 +45,56 @@ const FIELD_META: Record<string, { label: string; hint: string; secret: boolean 
     hint: "none 不处理 / close 关闭 / delete 删除；分析前自识别广告类 Issue",
     secret: false,
   },
+  oauth_client_id: {
+    label: "GitHub OAuth Client ID",
+    hint: "GitHub OAuth App 的 Client ID；留空则用环境变量",
+    secret: false,
+  },
+  oauth_client_secret: {
+    label: "GitHub OAuth Client Secret",
+    hint: "留空则用环境变量；可在安装向导的 GitHub 接入步骤自动生成",
+    secret: true,
+  },
+  embedding_base_url: {
+    label: "Embedding Base URL",
+    hint: "留空则用 EMBEDDING_BASE_URL；保存后索引任务自动生效",
+    secret: false,
+  },
+  embedding_api_key: {
+    label: "Embedding API Key",
+    hint: "留空则用 EMBEDDING_API_KEY；保存后索引任务自动生效",
+    secret: true,
+  },
+  embedding_model: {
+    label: "Embedding 模型",
+    hint: "留空则用 EMBEDDING_MODEL（默认 nvidia/nv-embed-v1）",
+    secret: false,
+  },
+  qq_bot_protocols: {
+    label: "NTQQ 网关协议配置",
+    hint: 'JSON，如 {"onebot11":{"baseUrl":"...","accessToken":"...","gatewayUrl":"..."}}；qq-bot 重启后生效',
+    secret: false,
+  },
+  qq_official_app_id: {
+    label: "QQ 官方 AppID",
+    hint: "官方开放平台 api-v2 AppID；留空则用环境变量，qq-bot 重启后生效",
+    secret: false,
+  },
+  qq_official_app_secret: {
+    label: "QQ 官方 AppSecret",
+    hint: "留空则用环境变量；qq-bot 重启后生效",
+    secret: true,
+  },
+  qq_official_gateway_url: {
+    label: "QQ 官方网关地址",
+    hint: "默认 wss://api.sgroup.qq.com/websocket；沙箱/企业环境可覆盖",
+    secret: false,
+  },
+  qq_official_intents: {
+    label: "QQ 官方 Intents",
+    hint: "订阅事件位掩码（默认 33554432 = C2C + 群 @）",
+    secret: false,
+  },
 };
 
 function Row({ it, drafts, setDrafts, save, busyKey }: {
@@ -335,7 +385,7 @@ export function ConfigPage() {
               </div>
             )}
             <p className="faint" style={{ marginTop: 12, fontSize: 12 }}>
-              QQ 与 OAuth 凭据通过环境变量注入（避免进入数据库），改动后需重启生效。
+              OAuth 凭据在「热更新设置」保存后无需重启即生效；QQ 凭据保存后需重启 qq-bot 容器（docker restart docker-qq-bot-1）才会按新配置连接网关。
             </p>
           </section>
 

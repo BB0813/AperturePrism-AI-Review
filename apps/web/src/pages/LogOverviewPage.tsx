@@ -11,6 +11,7 @@ import {
   type Summary,
 } from "../lib/api";
 import { useSse } from "../hooks/useSse";
+import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 import { eventsUrl } from "../lib/auth";
 import { navigate } from "../hooks/useHash";
 import { ActivityIcon, ArrowPathIcon, DatabaseIcon, RefreshIcon } from "../components/icons";
@@ -145,6 +146,13 @@ export function LogOverviewPage() {
       .finally(() => setLoadingMore(false));
   }, [nextOffset, loadingMore]);
 
+  const hasMore = nextOffset !== undefined;
+  const sentinelRef = useInfiniteScroll({
+    hasMore,
+    loading: loadingMore,
+    onLoadMore: loadEarlier,
+  });
+
   const copyDiagnostics = async () => {
     const bundle = buildBundle(rows, deliveries, cfg, summary);
     try {
@@ -253,10 +261,10 @@ export function LogOverviewPage() {
           </div>
         )}
 
-        {nextOffset !== undefined ? (
-          <button className="btn btn-block" style={{ marginTop: 12 }} onClick={loadEarlier} disabled={loadingMore}>
-            {loadingMore ? "加载中…" : "加载更早日志"}
-          </button>
+        {hasMore || loadingMore ? (
+          <div ref={sentinelRef} className="load-more-hint">
+            {loadingMore ? "加载中…" : "向下滚动加载更早日志"}
+          </div>
         ) : null}
       </section>
 

@@ -1,15 +1,11 @@
 import { hostname } from "node:os";
-import {
-  createCredentialCipher,
-  loadConfig,
-} from "../../../packages/config/src/index.js";
+import { loadConfig } from "../../../packages/config/src/index.js";
 import { createDatabaseClient } from "../../../packages/database/src/index.js";
 import { createLogger } from "../../../packages/observability/src/index.js";
 import {
   recoverExpiredLeases,
   releaseDueRetries,
 } from "../../../packages/task-engine/src/index.js";
-import { starAidSweep } from "../../../packages/star-aid/src/sweep.js";
 import { memoryConsolidationSweep } from "./consolidation.js";
 
 const config = loadConfig(process.env);
@@ -22,8 +18,6 @@ const shutdown = new AbortController();
 const SWEEP_INTERVAL_MS = 10_000;
 /** How often the memory-consolidation agent merges pending reflections. */
 const CONSOLIDATION_INTERVAL_MS = 10 * 60 * 1_000;
-/** How often the star-aid agent stars pending target repositories. */
-const STAR_AID_INTERVAL_MS = 15 * 60 * 1_000;
 
 /** Runs one maintenance sweep over the task table. */
 async function sweep(): Promise<void> {
@@ -58,35 +52,11 @@ async function consolidationTick(): Promise<void> {
   }
 }
 
-/**
- * Stars pending star-aid targets once. Fire-and-forget; a failure only warns
- * so the scheduler loop stays alive. Skipped when no credential master key is
- * configured (the stored PATs cannot be decrypted).
- */
-async function starAidTick(): Promise<void> {
-  if (!config.credentialMasterKey) {
-    logger.warn("star-aid sweep skipped: CREDENTIAL_MASTER_KEY not configured");
-    return;
-  }
-  const result = await starAidSweep(database.db, {
-    cipher: createCredentialCipher(config.credentialMasterKey),
-    apiBaseUrl: config.githubApiBaseUrl,
-  }).catch((error: unknown) => {
-    logger.warn({ err: error }, "star-aid sweep failed");
-    return null;
-  });
-  if (result && result.processed > 0) {
-    logger.info(result, "star-aid sweep");
-  }
-}
-
 async function loop(): Promise<void> {
   logger.info({ workerId }, "scheduler starting");
   await sweep();
   void consolidationTick();
-  void starAidTick();
   let lastConsolidation = Date.now();
-  let lastStarAid = Date.now();
   while (!shutdown.signal.aborted) {
     await sleep(SWEEP_INTERVAL_MS, shutdown.signal);
     if (shutdown.signal.aborted) break;
@@ -94,10 +64,6 @@ async function loop(): Promise<void> {
     if (Date.now() - lastConsolidation >= CONSOLIDATION_INTERVAL_MS) {
       lastConsolidation = Date.now();
       void consolidationTick();
-    }
-    if (Date.now() - lastStarAid >= STAR_AID_INTERVAL_MS) {
-      lastStarAid = Date.now();
-      void starAidTick();
     }
   }
   await database.close();

@@ -18,7 +18,6 @@ import { UsersPage } from "./pages/UsersPage";
 import { SecurityPage } from "./pages/SecurityPage";
 import { MemoryPage } from "./pages/MemoryPage";
 import { AgentPage } from "./pages/AgentPage";
-import { StarAidPage } from "./pages/StarAidPage";
 import { AboutPage } from "./pages/AboutPage";
 import { SetupPage } from "./pages/SetupPage";
 import {
@@ -35,7 +34,6 @@ import {
   PullRequestIcon,
   ShieldIcon,
   SparkleIcon,
-  StarIcon,
 } from "./components/icons";
 
 const STATUS_TEXT: Record<string, string> = {
@@ -75,7 +73,6 @@ const NAV: NavGroup[] = [
     title: "Agent 与互助",
     items: [
       { path: "/agent", label: "Agent 能力", icon: SparkleIcon },
-      { path: "/star-aid", label: "仓库互助", icon: StarIcon },
     ],
   },
   {
@@ -173,7 +170,6 @@ function AuthedConsole(props: { onLogout: () => void }) {
   else if (active === "/vector") page = <VectorPage />;
   else if (active === "/memory") page = <MemoryPage />;
   else if (active === "/agent") page = <AgentPage />;
-  else if (active === "/star-aid") page = <StarAidPage />;
   else if (active === "/provider") page = <ProviderPage />;
   else if (active === "/config") page = <ConfigPage />;
   else if (active === "/security") page = <SecurityPage />;

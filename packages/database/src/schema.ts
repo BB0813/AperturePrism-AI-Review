@@ -416,60 +416,6 @@ export const auditLogs = pgTable(
 );
 
 /**
- * Registered GitHub accounts used by star_aid: a login plus the AES-GCM sealed
- * PAT. Only the login is ever surfaced; the token stays in the DB.
- */
-export const starAidAccounts = pgTable(
-  "star_aid_accounts",
-  {
-    id: uuid("id").defaultRandom().primaryKey(),
-    login: text("login").notNull(),
-    encryptedToken: text("encrypted_token").notNull(),
-    enabled: boolean("enabled").default(true).notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-  },
-  (table) => [uniqueIndex("star_aid_accounts_login_unique").on(table.login)],
-);
-
-/**
- * Target repositories each star_aid account is asked to star. `starred` flips
- * once the PUT /user/starred/{owner}/{repo} call succeeds; failures are kept in
- * `last_error` so a later sweep can retry.
- */
-export const starAidTargets = pgTable(
-  "star_aid_targets",
-  {
-    id: uuid("id").defaultRandom().primaryKey(),
-    accountId: uuid("account_id")
-      .notNull()
-      .references(() => starAidAccounts.id, { onDelete: "cascade" }),
-    fullName: text("full_name").notNull(),
-    description: text("description").default("").notNull(),
-    starred: boolean("starred").default(false).notNull(),
-    starredAt: timestamp("starred_at", { withTimezone: true }),
-    lastError: text("last_error"),
-    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-  },
-  (table) => [
-    uniqueIndex("star_aid_targets_account_full_name_unique").on(
-      table.accountId,
-      table.fullName,
-    ),
-  ],
-);
-
-/**
  * Repository memory. `kind` is one of `reflection` | `rule` | `knowledge`:
  * reflections are raw distilled outcomes from completed issue analyses / PR
  * reviews, later merged (consolidated=true) by the memory-consolidation agent

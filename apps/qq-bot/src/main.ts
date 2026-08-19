@@ -1,4 +1,9 @@
+import { eq, or } from "drizzle-orm";
 import { loadConfig } from "../../../packages/config/src/index.js";
+import {
+  createDatabaseClient,
+  systemSettings,
+} from "../../../packages/database/src/index.js";
 import {
   createOfficialQqTokenStore,
   normalizeMilkyMessage,
@@ -17,8 +22,73 @@ import { dispatchBotTurn } from "./dispatch.js";
 const config = loadConfig(process.env);
 const logger = createLogger(config.logLevel);
 
-const OFFICIAL_GATEWAY_URL =
-  config.qqOfficialGatewayUrl ?? "wss://api.sgroup.qq.com/websocket";
+/**
+ * Effective QQ bot config. Runtime settings (`qq_bot_protocols`,
+ * `qq_official_*`) stored via the WebUI override the env values, so credentials
+ * no longer have to be injected as environment variables. Overrides load at
+ * startup (restart the bot to apply a change).
+ */
+type QqProtocol = { baseUrl: string; accessToken?: string; gatewayUrl?: string };
+type EffectiveQq = {
+  protocols: Record<string, QqProtocol>;
+  officialAppId: string;
+  officialAppSecret: string;
+  officialGatewayUrl: string;
+  officialIntents: number;
+};
+const qq: EffectiveQq = {
+  protocols: config.qqBotProtocols as Record<string, QqProtocol>,
+  officialAppId: config.qqOfficialAppId ?? "",
+  officialAppSecret: config.qqOfficialAppSecret ?? "",
+  officialGatewayUrl:
+    config.qqOfficialGatewayUrl ?? "wss://api.sgroup.qq.com/websocket",
+  officialIntents: config.qqOfficialIntents,
+};
+
+async function loadQqOverrides(): Promise<void> {
+  try {
+    const database = createDatabaseClient(config.databaseUrl);
+    try {
+      const rows = await database.db
+        .select({ key: systemSettings.key, value: systemSettings.value })
+        .from(systemSettings)
+        .where(
+          or(
+            eq(systemSettings.key, "qq_bot_protocols"),
+            eq(systemSettings.key, "qq_official_app_id"),
+            eq(systemSettings.key, "qq_official_app_secret"),
+            eq(systemSettings.key, "qq_official_gateway_url"),
+            eq(systemSettings.key, "qq_official_intents"),
+          ),
+        );
+      const map = new Map(rows.map((row) => [row.key, row.value]));
+      const protocolsRaw = map.get("qq_bot_protocols");
+      if (protocolsRaw && protocolsRaw.trim().length > 0) {
+        try {
+          const parsed: unknown = JSON.parse(protocolsRaw);
+          if (typeof parsed === "object" && parsed !== null)
+            qq.protocols = parsed as Record<string, QqProtocol>;
+        } catch {
+          // keep env defaults when the stored JSON is malformed
+        }
+      }
+      const appId = map.get("qq_official_app_id");
+      if (appId && appId.trim()) qq.officialAppId = appId;
+      const secret = map.get("qq_official_app_secret");
+      if (secret && secret.trim()) qq.officialAppSecret = secret;
+      const gateway = map.get("qq_official_gateway_url");
+      if (gateway && gateway.trim()) qq.officialGatewayUrl = gateway;
+      const intents = Number(map.get("qq_official_intents"));
+      if (Number.isFinite(intents) && intents > 0) qq.officialIntents = intents;
+    } finally {
+      await database.close();
+    }
+  } catch (error) {
+    logger.warn({ err: error }, "QQ settings override load failed");
+  }
+}
+
+const OFFICIAL_GATEWAY_URL = qq.officialGatewayUrl;
 
 function normalize(
   protocol: ChannelProtocol,
@@ -37,7 +107,7 @@ function normalize(
 }
 
 function listen(protocol: ChannelProtocol): boolean {
-  const settings = config.qqBotProtocols[protocol];
+  const settings = qq.protocols[protocol];
   if (!settings?.gatewayUrl) return false;
 
   const connector = {
@@ -115,8 +185,9 @@ async function handleEvent(
 }
 
 async function main(): Promise<void> {
-  if (!config.qqOfficialAppId || !config.qqOfficialAppSecret) {
-    if (Object.keys(config.qqBotProtocols).length === 0) {
+  await loadQqOverrides();
+  if (!qq.officialAppId || !qq.officialAppSecret) {
+    if (Object.keys(qq.protocols).length === 0) {
       logger.info("no QQ bot protocols configured; exiting");
       return;
     }
@@ -124,7 +195,7 @@ async function main(): Promise<void> {
     connectOfficialQq();
   }
 
-  for (const protocol of Object.keys(config.qqBotProtocols)) {
+  for (const protocol of Object.keys(qq.protocols)) {
     if (["onebot11", "satori", "milky"].includes(protocol)) {
       listen(protocol as ChannelProtocol);
     }
@@ -148,10 +219,10 @@ async function main(): Promise<void> {
  * AppID/AppSecret; the pure normalization/send logic is unit-tested.
  */
 function connectOfficialQq(): void {
-  if (!config.qqOfficialAppId || !config.qqOfficialAppSecret) return;
+  if (!qq.officialAppId || !qq.officialAppSecret) return;
   const tokenStore = createOfficialQqTokenStore({
-    appId: config.qqOfficialAppId,
-    clientSecret: config.qqOfficialAppSecret,
+    appId: qq.officialAppId,
+    clientSecret: qq.officialAppSecret,
   });
   let attempt = 0;
   let heartbeatMs = 30_000;
@@ -187,7 +258,7 @@ function connectOfficialQq(): void {
             op: 2,
             d: {
               token: `QQBot ${token}`,
-              intents: config.qqOfficialIntents,
+              intents: qq.officialIntents,
               shard: [0, 1],
             },
           }),

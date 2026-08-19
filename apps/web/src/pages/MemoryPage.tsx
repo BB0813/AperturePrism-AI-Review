@@ -11,6 +11,7 @@ import {
 } from "../lib/api";
 import { RefreshIcon, SparkleIcon } from "../components/icons";
 import { LoadingRows, fmtTime } from "../components/ui";
+import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 
 const KIND_LABEL: Record<string, string> = {
   reflection: "反思",
@@ -84,6 +85,15 @@ export function MemoryPage() {
       setMessage({ text: `加载失败：${err instanceof Error ? err.message : err}`, ok: false });
     }
   };
+
+  const hasMore = nextOffset !== undefined;
+  const sentinelRef = useInfiniteScroll({
+    hasMore,
+    loading: false,
+    onLoadMore: () => {
+      void loadMore();
+    },
+  });
 
   const consolidate = async () => {
     setBusy("consolidate");
@@ -251,11 +261,9 @@ export function MemoryPage() {
               </div>
             )}
 
-            {nextOffset !== undefined ? (
-              <div className="actions" style={{ marginTop: 12 }}>
-                <button className="btn" onClick={loadMore}>
-                  加载更多
-                </button>
+            {hasMore ? (
+              <div ref={sentinelRef} className="load-more-hint">
+                向下滚动加载更多
               </div>
             ) : null}
 

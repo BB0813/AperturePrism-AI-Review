@@ -1,6 +1,6 @@
 # AperturePrism-AI-Review
 
-独立开发的 **GitHub Issue 分析与 Pull Request 审查平台**：接入 GitHub 事件（Webhook/OAuth），由任务引擎 + 多模型路由器驱动分析 Worker，对 Issue 做结构化分级分析、对 PR 做多专家审查并发布评论/Review；附带 Web 控制台（深色玻璃 UI）、QQ 机器人渠道、重复检测（全文+信号+向量 RAG）、仓库记忆、Agent Skills / 专家团队、仓库互助点星与完整运维能力（审计、备份、速率限制、Docker 一键部署）。
+独立开发的 **GitHub Issue 分析与 Pull Request 审查平台**：接入 GitHub 事件（Webhook/OAuth），由任务引擎 + 多模型路由器驱动分析 Worker，对 Issue 做结构化分级分析、对 PR 做多专家审查并发布评论/Review；附带 Web 控制台（深色玻璃 UI）、QQ 机器人渠道、重复检测（全文+信号+向量 RAG）、仓库记忆、Agent Skills / 专家团队与完整运维能力（审计、备份、速率限制、Docker 一键部署）。
 
 仓库：[BB0813/AperturePrism-AI-Review](https://github.com/BB0813/AperturePrism-AI-Review)
 
@@ -47,8 +47,7 @@ AperturePrism 把「AI 代码审查」做成了一条可落地的产品链路，
 | 重复检测 | 模板清洗标准化 + 信号抽取（错误码/路径/堆栈/语言）+ 全文 GIN + pgvector 召回 → 模型裁决 |
 | 仓库记忆 | 每次分析/审查自动沉淀「反思」；Scheduler 定期用模型合并成规则/知识；再次分析时回灌上下文 |
 | Agent Skills / 专家团队 | 6 个内置技能（triage/security/dependency/performance/docs/test）+ 多专家并行审查 + 主编合并（可选开关） |
-| 仓库互助 | 注册 GitHub 账户（token AES-GCM 加密）→ 定时给目标展示仓库点星，互相引流 |
-| Web 控制台 | 深色玻璃 UI：概览 / 日志 / Issue / PR / 队列 / 仓库 / 向量存储 / 记忆 / Agent / 互助 / 配置 / 安全 / 用户 |
+| Web 控制台 | 深色玻璃 UI：概览 / 日志 / Issue / PR / 队列 / 仓库 / 向量存储 / 记忆 / Agent / 配置 / 安全 / 用户 |
 | 认证与安全 | GitHub OAuth 登录 + Bearer 令牌；首个登录用户自动为管理员；敏感操作审计日志；速率限制 |
 | 索引与 RAG | index-worker 定时索引仓库 Issue（内容哈希去重 + 批量 embedding + 重建）；只读召回接口 |
 | QQ 机器人 | NTQQ 第三方协议（OneBot 11 / Satori / Milky）+ 官方开放平台 api-v2；AstrBot 插件（`plugins/astrbot_plugin_apertureprism/`，支持 napcat + QQ 官方） |
@@ -167,7 +166,7 @@ curl http://<host>/health/ready    # 200 才代表 DB+Redis 均就绪
 | `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY_PATH` / `GITHUB_WEBHOOK_SECRET` | GitHub App（Webhook 验签、installation token、评论发布） |
 | `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET` | WebUI 登录；**回调必须指向本实例**（本地 `http://127.0.0.1:30001/auth/callback`，见下） |
 | `MODEL_PROVIDER_BASE_URLS` | Provider → OpenAI 兼容 baseUrl 的 JSON 映射 |
-| `CREDENTIAL_MASTER_KEY` | AES-GCM 主密钥：解密 provider 密钥 / star-aid token / 记忆与专家团队模型调用 |
+| `CREDENTIAL_MASTER_KEY` | AES-GCM 主密钥：解密 provider 密钥 / 记忆与专家团队模型调用 |
 | `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY` / `EMBEDDING_MODEL` | 与 review 模型独立配置（默认 `nvidia/nv-embed-v1`，4096 维） |
 | `QQ_BOT_PROTOCOLS` | NTQQ 网关 JSON（onebot11 / satori / milky） |
 | `QQ_OFFICIAL_APP_ID` / `QQ_OFFICIAL_APP_SECRET` / `QQ_OFFICIAL_GATEWAY_URL` / `QQ_OFFICIAL_INTENTS` | 官方开放平台 api-v2 |
@@ -177,7 +176,7 @@ curl http://<host>/health/ready    # 200 才代表 DB+Redis 均就绪
 
 ## WebUI 功能对齐
 
-参考产品 Sakura-AI 的功能清单，AperturePrism 采用「能整合的整合、能写出的写出」。M8/M9/M11 及后续能力（一键安装、安全管理、记忆管理、Agent Skills + 专家团队、仓库互助）已全部上线：
+参考产品 Sakura-AI 的功能清单，AperturePrism 采用「能整合的整合、能写出的写出」。M8/M9/M11 及后续能力（一键安装、安全管理、记忆管理、Agent Skills + 专家团队）已全部上线：
 
 | 参考功能 | 当前状态 | 落点 / 计划 |
 | --- | --- | --- |
@@ -193,7 +192,6 @@ curl http://<host>/health/ready    # 200 才代表 DB+Redis 均就绪
 | 安全管理 | ✅ 已上线 | 独立安全页（访问控制 + 速率限制 + 操作审计 `/audit`）+ 管理员门禁 |
 | 安装向导 | ✅ 已上线 | `/setup` 环境检测 + 一键初始化 |
 | Agent Skills / 专家团队 | ✅ 已上线 | 技能注册表（6 内置）+ 多专家并行审查（MVP）；`/capabilities` 开关，配置 `expert_review` 策略后启用 |
-| 仓库互助 | ✅ 已上线 | star-aid：账户/token 加密 + 目标仓库 + 调度点星 + 互助页 |
 | 用户管理 / 个人设置 | ✅ 已上线 | `/users` 管理员角色（首个 OAuth 用户自动为管理员）；`/account` 显示名设置 |
 | 配置备份 | ✅ 已上线 | `/backup` 导出（密钥脱敏）+ `/backup/import` 导入 |
 | Aprism 记忆管理 | ✅ 已上线 | `repo_memory` 反思沉淀 + 合并 Agent + 上下文回灌 + 记忆页 |
@@ -221,7 +219,6 @@ curl http://<host>/health/ready    # 200 才代表 DB+Redis 均就绪
 | GET | `/audit` | 操作审计日志（需管理员） |
 | GET·POST·DELETE | `/memory` `/memory/consolidate` `/memory/:id` | 仓库记忆列表 / 触发合并（管理员）/ 删除（管理员） |
 | GET·PUT | `/capabilities` | Agent 技能 + 专家团队目录 / 开关（PUT 需管理员） |
-| GET·POST·DELETE | `/star-aid` | 仓库互助账户/目标管理 + 立即点星（需管理员） |
 | GET·POST | `/setup/status` `/setup/init` | 安装向导检测 / 一键初始化（init 需管理员） |
 
 ## 开发阶段
@@ -241,7 +238,7 @@ curl http://<host>/health/ready    # 200 才代表 DB+Redis 均就绪
 | M10 | QQ 机器人（NTQQ + 官方 api-v2） | ✅ 已完成 |
 | M11 | 生产加固与发布（scheduler/速率限制/compose/迁移备份/runbook） | ✅ 已完成 |
 | M12 | QQ 机器人 AstrBot 插件兼容（napcat + QQ 官方，`plugins/astrbot_plugin_apertureprism/`） | ✅ 已完成 |
-| 后续 | 一键安装、安全管理、仓库记忆、Agent Skills/专家团队、仓库互助 | ✅ 已完成 |
+| 后续 | 一键安装、安全管理、仓库记忆、Agent Skills/专家团队 | ✅ 已完成 |
 
 > 阶段编号沿用[模块化开发计划](docs/APERTUREPRISM_MODULAR_DEVELOPMENT_PLAN.md)，实现顺序以仓库为准；WebUI（M8）按需求提前到 M7 之前。
 
@@ -249,10 +246,10 @@ curl http://<host>/health/ready    # 200 才代表 DB+Redis 均就绪
 
 ```text
 apps/
-  api/                HTTP 入口：webhook/认证/任务/结果/SSE/配置/审计/记忆/互助
+  api/                HTTP 入口：webhook/认证/任务/结果/SSE/配置/审计/记忆
   analysis-worker/    Issue/PR 分析执行者（多模型路由 + 专家团队 + 记忆沉淀）
   index-worker/       仓库 Issue 索引（哈希去重 + embedding + 重建）
-  scheduler/          租约回收、重试释放、记忆合并 Agent、star-aid 点星
+  scheduler/          租约回收、重试释放、记忆合并 Agent
   qq-bot/             QQ 机器人（NTQQ / 官方开放平台）
   web/                Web 控制台（React + Vite，独立 workspace）
 packages/
@@ -266,7 +263,6 @@ packages/
   duplicate-detection/ 重复检测（标准化/信号/召回/裁决/评测）
   repo-memory / database 记忆表  反思沉淀 + 合并 + 回灌
   agent-capabilities/ Agent Skills + 多专家编排
-  star-aid/           仓库互助（token 加密/点星/调度）
   github-adapter/     GitHub App 客户端（JWT/installation/Issue/PR/标签）
   channel-adapters/   QQ 协议规范化（OneBot/Satori/Milky）
   event-stream/       SSE 序列化

@@ -224,6 +224,8 @@ a:hover { text-decoration: underline; }
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .input:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
+select.input, textarea.input { appearance: none; resize: vertical; }
+select.input { background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 16px) 55%, calc(100% - 11px) 55%; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 28px; }
 
 /* ============================================================
    Segmented control (filters)
@@ -285,14 +287,20 @@ a:hover { text-decoration: underline; }
 /* ============================================================
    Tables
    ============================================================ */
-.tablewrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); max-width: 100%; }
-.table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 720px; }
-.table th, .table td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--border); }
-.table th { color: var(--faint); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; }
+.tablewrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); max-width: 100%; scrollbar-gutter: stable; }
+.table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; min-width: 720px; }
+.table th, .table td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.table th {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--panel-2);
+  color: var(--faint); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px;
+  border-bottom: 1px solid var(--border-2);
+}
 .table tr:last-child td { border-bottom: 0; }
 .table tbody tr { transition: background 0.12s; }
+.table tbody tr:hover { background: rgba(56, 189, 248, 0.05); }
 .table tbody tr.clickable { cursor: pointer; }
-.table tbody tr.clickable:hover { background: rgba(56, 189, 248, 0.06); }
+.table tbody tr.clickable:hover { background: rgba(56, 189, 248, 0.1); }
 .table .num { font-family: var(--mono); }
 
 /* ============================================================
@@ -484,6 +492,16 @@ a:hover { text-decoration: underline; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--panel-2); border-radius: 999px; border: 2px solid var(--bg); }
 ::-webkit-scrollbar-thumb:hover { background: var(--raised); }
+
+/* Infinite-scroll sentinel hint at the bottom of paged lists. */
+.load-more-hint {
+  margin-top: 14px;
+  padding: 10px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  opacity: 0.75;
+}
 
 /* ============================================================
    Focus + reduced motion + responsive

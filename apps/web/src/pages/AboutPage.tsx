@@ -12,7 +12,7 @@ const MODULES = [
 ] as const;
 
 const NOT_IN_SCOPE = [
-  "Agent 专家团队 / Agent Skills / 仓库互助",
+  "Agent 专家团队 / Agent Skills",
   "Sakura 记忆管理（跨 Agent 记忆本体）",
   "多用户账号体系（当前为 Bearer 单令牌访问）",
   "由 WebUI 直接修改数据库 / 模型配置（读写走 API / 迁移）",
