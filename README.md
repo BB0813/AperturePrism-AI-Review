@@ -67,6 +67,8 @@ npm run build
 
 依赖：Node ≥ 22、PostgreSQL（pgvector 扩展）、Redis。
 
+0. GitHub 直跑（仓库为公开时）：`curl -fsSL https://raw.githubusercontent.com/BB0813/AperturePrism-AI-Review/main/scripts/bootstrap.sh | bash`；传参加 `-s -- --skip-docker`。默认把源码放到 `~/.apertureprism/AperturePrism-AI-Review`（可用 `APERTUREPRISM_SRC_DIR` 覆盖），复用已拉取的副本，再执行下面的安装。
+0. 一键安装（可选，替代 1–3 步）：`node scripts/install.mjs`（或 `./scripts/install.sh` / `npm run setup`）——自动探测并拉起 PG+Redis（docker compose）、生成 `.env`（自动生成 `CREDENTIAL_MASTER_KEY` 与 `WEBUI_API_TOKEN`）、装依赖、迁移。
 1. 安装与构建（Monorepo）：
 
    ```bash
