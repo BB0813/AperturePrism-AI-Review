@@ -324,6 +324,42 @@ export async function importBackup(snapshot: unknown): Promise<BackupImportResul
   return JSON.parse(text) as BackupImportResult;
 }
 
+export type LabelRuleItem = {
+  key: string;
+  label: string;
+  enabled: boolean;
+};
+
+export type LabelRulesResult = {
+  items: LabelRuleItem[];
+  prefixes: string[];
+};
+
+/** Lists configured label rules (analysis field -> GitHub label). */
+export async function fetchLabelRules(): Promise<LabelRulesResult> {
+  return (await getJson("/label-rules")) as LabelRulesResult;
+}
+
+/** Upserts a label rule; an empty label deletes the rule. */
+export async function saveLabelRule(rule: LabelRuleItem): Promise<void> {
+  const response = await fetch("/label-rules", {
+    method: "PUT",
+    headers: { "content-type": "application/json", ...authHeaders() },
+    body: JSON.stringify(rule),
+  });
+  if (!response.ok) throw new Error(`save label rule ${response.status}`);
+}
+
+/** Deletes a label rule by its key. */
+export async function deleteLabelRule(key: string): Promise<void> {
+  const response = await fetch(
+    `/label-rules/${encodeURIComponent(key)}`,
+    { method: "DELETE", headers: authHeaders() },
+  );
+  if (!response.ok && response.status !== 404)
+    throw new Error(`delete label rule ${response.status}`);
+}
+
 export type OAuthStatus = { oauthConfigured: boolean };
 
 /** Whether GitHub OAuth login is wired up (unauthenticated endpoint). */

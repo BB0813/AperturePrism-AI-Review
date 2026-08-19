@@ -20,8 +20,11 @@ import {
   closeRedisClient,
   createDatabaseClient,
   createRedisClient,
+  deleteLabelRule,
   ingestGitHubWebhook,
   issueDocuments,
+  LABEL_RULE_PREFIXES,
+  listLabelRules,
   modelRolePolicies,
   providerAccounts,
   repositories,
@@ -29,6 +32,7 @@ import {
   systemSettings,
   taskAttempts,
   taskEvents,
+  upsertLabelRule,
   webhookDeliveries,
 } from "../../../packages/database/src/index.js";
 import {
@@ -216,6 +220,7 @@ const protectedPaths = [
   "/vector",
   "/index",
   "/backup",
+  "/label-rules",
   "/config",
   "/settings",
   "/events",
@@ -1137,6 +1142,66 @@ async function handleBackupImport(
   }
 }
 
+/** Label rules: list all, or upsert/delete by path. */
+async function handleLabelRules(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const url = new URL(request.url ?? "/", "http://localhost");
+  const path = url.pathname;
+
+  if (path === "/label-rules" && request.method === "GET") {
+    const items = await listLabelRules(database.db);
+    json(response, 200, { items, prefixes: LABEL_RULE_PREFIXES }, requestId);
+    return;
+  }
+
+  if (path === "/label-rules" && request.method === "PUT") {
+    const body = await readBody(request);
+    let parsed: { key?: unknown; label?: unknown; enabled?: unknown };
+    try {
+      parsed = JSON.parse(body.toString("utf8"));
+    } catch {
+      json(response, 400, { status: "error", reason: "invalid JSON" }, requestId);
+      return;
+    }
+    const key = typeof parsed.key === "string" ? parsed.key.trim() : "";
+    const label = typeof parsed.label === "string" ? parsed.label.trim() : "";
+    const enabled = parsed.enabled !== false;
+    if (!key) {
+      json(response, 400, { status: "error", reason: "rule key required" }, requestId);
+      return;
+    }
+    try {
+      await upsertLabelRule(database.db, { key, label, enabled });
+      json(response, 200, { status: "ok", key, label, enabled }, requestId);
+    } catch (error) {
+      logger.warn({ err: error }, "label rule upsert failed");
+      json(response, 500, { status: "error", reason: "upsert_failed" }, requestId);
+    }
+    return;
+  }
+
+  if (path.startsWith("/label-rules/") && request.method === "DELETE") {
+    const key = decodeURIComponent(path.slice("/label-rules/".length)).trim();
+    if (!key) {
+      json(response, 400, { status: "error", reason: "rule key required" }, requestId);
+      return;
+    }
+    const deleted = await deleteLabelRule(database.db, key);
+    json(response, deleted ? 200 : 404, { status: deleted ? "ok" : "error" }, requestId);
+    return;
+  }
+
+  json(
+    response,
+    405,
+    { status: "error", reason: "method not allowed" },
+    requestId,
+  );
+}
+
 /** Non-secret runtime configuration snapshot (no keys, no secrets). */
 async function handleConfig(
   response: ServerResponse,
@@ -1714,6 +1779,11 @@ async function handleRequest(
       return;
     }
     await handleIndexRelated(request, response, requestId);
+    return;
+  }
+
+  if (path === "/label-rules" || path.startsWith("/label-rules/")) {
+    await handleLabelRules(request, response, requestId);
     return;
   }
 

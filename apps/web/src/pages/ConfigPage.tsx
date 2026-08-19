@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  deleteLabelRule as deleteLabelRuleApi,
   fetchBackup,
   fetchConfig,
+  fetchLabelRules,
   fetchSettings,
   importBackup,
+  saveLabelRule as saveLabelRuleApi,
   saveSetting,
+  type LabelRuleItem,
   type RuntimeConfig,
   type SettingItem,
 } from "../lib/api";
-import { DownloadIcon, GearIcon, RefreshIcon, UploadIcon } from "../components/icons";
+import { DownloadIcon, GearIcon, RefreshIcon, UploadIcon, XCircleIcon } from "../components/icons";
 import { LoadingRows } from "../components/ui";
 
 function BoolBadge({ ok, yes = "已启用", no = "未配置" }: { ok: boolean; yes?: string; no?: string }) {
@@ -126,6 +130,63 @@ export function ConfigPage() {
   const [backupBusy, setBackupBusy] = useState(false);
   const [backupMsg, setBackupMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
+
+  const [labelItems, setLabelItems] = useState<LabelRuleItem[]>([]);
+  const [labelPrefixes, setLabelPrefixes] = useState<string[]>([]);
+  const [labelDraft, setLabelDraft] = useState({ key: "", label: "", enabled: true });
+  const [labelBusy, setLabelBusy] = useState(false);
+  const [labelMsg, setLabelMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  const loadLabelRules = useCallback(() => {
+    fetchLabelRules()
+      .then((result) => {
+        setLabelItems(result.items);
+        setLabelPrefixes(result.prefixes);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => loadLabelRules(), [loadLabelRules]);
+
+  const saveLabel = async () => {
+    const key = labelDraft.key.trim();
+    const label = labelDraft.label.trim();
+    if (!key) {
+      setLabelMsg({ text: "规则键不能为空", ok: false });
+      return;
+    }
+    setLabelBusy(true);
+    setLabelMsg(null);
+    try {
+      await saveLabelRuleApi({ key, label, enabled: labelDraft.enabled });
+      setLabelMsg({
+        text: label
+          ? `已保存规则：${key} → ${label}（${labelDraft.enabled ? "启用" : "停用"}）`
+          : `已删除规则：${key}`,
+        ok: true,
+      });
+      setLabelDraft({ key: "", label: "", enabled: true });
+      loadLabelRules();
+    } catch (err) {
+      setLabelMsg({ text: `保存失败：${err instanceof Error ? err.message : err}`, ok: false });
+    } finally {
+      setLabelBusy(false);
+    }
+  };
+
+  const removeLabel = async (key: string) => {
+    setLabelBusy(true);
+    setLabelMsg(null);
+    try {
+      await deleteLabelRuleApi(key);
+      setLabelMsg({ text: `已删除规则：${key}`, ok: true });
+      loadLabelRules();
+    } catch (err) {
+      setLabelMsg({ text: `删除失败：${err instanceof Error ? err.message : err}`, ok: false });
+    } finally {
+      setLabelBusy(false);
+    }
+  };
 
   const doExport = async () => {
     setBackupBusy(true);
@@ -300,6 +361,78 @@ export function ConfigPage() {
             <p className="faint" style={{ marginTop: 12, fontSize: 12 }}>
               导出包含热更新设置（密钥值脱敏）、模型角色策略与 Provider 名称；导入仅恢复非密钥设置与
               issue_analysis / pr_review / duplicate_judgment 策略。Provider 凭据始终保存在数据库，不从备份还原。
+            </p>
+          </section>
+
+          <section className="panel">
+            <div className="panel-title"><h2><GearIcon size={14} /> 标签配置</h2><span className="count">分析结果字段 → GitHub 标签</span></div>
+            {labelMsg ? (
+              <p className={`state ${labelMsg.ok ? "state-ok" : "state-error"}`} style={{ margin: "0 0 12px" }}>
+                {labelMsg.text}
+              </p>
+            ) : null}
+
+            <div className="stack" style={{ gap: 8 }}>
+              {labelItems.length === 0 ? (
+                <p className="faint" style={{ margin: 0, fontSize: 12 }}>尚未配置标签规则。Issue 分析完成后，命中规则会由 worker 自动给 GitHub Issue 打标签。</p>
+              ) : (
+                labelItems.map((item) => (
+                  <div key={item.key} className="result-card" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <code className="mono" style={{ fontSize: 12 }}>{item.key}</code>
+                    <span className="chip">→ {item.label}</span>
+                    <span className={`pill ${item.enabled ? "pill-ok" : "pill-dim"}`}>{item.enabled ? "启用" : "停用"}</span>
+                    <button
+                      className="btn"
+                      style={{ marginLeft: "auto" }}
+                      onClick={() => removeLabel(item.key)}
+                      disabled={labelBusy}
+                      aria-label={`删除 ${item.key}`}
+                    >
+                      <XCircleIcon size={14} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <input
+                className="input"
+                style={{ flex: "1 1 200px" }}
+                list="label-rule-keys"
+                placeholder="规则键，如 severity:S1"
+                value={labelDraft.key}
+                onChange={(event) => setLabelDraft((prev) => ({ ...prev, key: event.target.value }))}
+              />
+              <datalist id="label-rule-keys">
+                {labelPrefixes.flatMap((prefix) =>
+                  ["bug", "feature", "question", "security", "other", "S0", "S1", "S2", "S3", "unknown", "P0", "P1", "P2", "P3", "needs_triage", "complete", "actionable", "incomplete", "invalid"].map(
+                    (value) => <option key={`${prefix}:${value}`} value={`${prefix}:${value}`} />,
+                  ),
+                )}
+              </datalist>
+              <input
+                className="input"
+                style={{ flex: "1 1 160px" }}
+                placeholder="GitHub 标签名（留空=删除该规则）"
+                value={labelDraft.label}
+                onChange={(event) => setLabelDraft((prev) => ({ ...prev, label: event.target.value }))}
+              />
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+                <input
+                  type="checkbox"
+                  checked={labelDraft.enabled}
+                  onChange={(event) => setLabelDraft((prev) => ({ ...prev, enabled: event.target.checked }))}
+                />
+                启用
+              </label>
+              <button className="btn btn-primary" onClick={saveLabel} disabled={labelBusy}>
+                {labelBusy ? "保存中…" : "保存规则"}
+              </button>
+            </div>
+            <p className="faint" style={{ marginTop: 12, fontSize: 12 }}>
+              规则键形如 <code>category:bug</code> / <code>severity:S1</code> / <code>priority:P0</code> / <code>quality:incomplete</code>；
+              分析结果命中即把对应 GitHub 标签加到 Issue（幂等，失败不影响分析任务）。
             </p>
           </section>
         </div>

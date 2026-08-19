@@ -351,3 +351,24 @@ export const systemSettings = pgTable(
   },
   (table) => [index("system_settings_key_idx").on(table.key)],
 );
+
+/**
+ * Label rules map an analysis field value (e.g. `severity:S1`) to a GitHub
+ * label name that the worker applies to an issue after a completed analysis.
+ */
+export const labelRules = pgTable(
+  "label_rules",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    key: text("key").notNull(),
+    label: text("label").notNull(),
+    enabled: boolean("enabled").default(true).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [uniqueIndex("label_rules_key_unique").on(table.key)],
+);

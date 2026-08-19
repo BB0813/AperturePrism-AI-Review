@@ -148,6 +148,20 @@ export type GitHubClient = {
     },
     signal?: AbortSignal,
   ) => Promise<GitHubCreatedComment>;
+  /**
+   * Adds labels to an issue. Idempotent: GitHub ignores labels that already
+   * exist. Used by the worker to apply configured label rules after analysis.
+   */
+  addIssueLabels: (
+    input: {
+      installationId: string;
+      owner: string;
+      name: string;
+      number: number;
+      labels: readonly string[];
+    },
+    signal?: AbortSignal,
+  ) => Promise<void>;
   updateIssueComment: (
     input: {
       installationId: string;
@@ -466,6 +480,23 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
         signal,
       );
       return mapComment(comment);
+    },
+
+    addIssueLabels: async (
+      { installationId, owner, name, number, labels },
+      signal,
+    ) => {
+      const unique = [...new Set(labels)].filter((label) => label.trim().length > 0);
+      if (unique.length === 0) return;
+      await authorized<Record<string, unknown>>(
+        installationId,
+        {
+          method: "POST",
+          path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues/${number}/labels`,
+          body: { labels: unique },
+        },
+        signal,
+      );
     },
 
     updateIssueComment: async (

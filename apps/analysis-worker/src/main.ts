@@ -9,6 +9,8 @@ import {
 import {
   createDatabaseClient,
   externalPublications,
+  labelsForAnalysis,
+  listLabelRules,
   modelRolePolicies,
   providerAccounts,
   subjectResults,
@@ -333,6 +335,17 @@ async function main(): Promise<void> {
         revision: payload.subjectRevision,
         result: analysis,
       });
+      // Apply configured label rules to the issue (best-effort, idempotent).
+      await applyConfiguredLabels({
+        github: assertGithub(github),
+        installationId: payload.installationId,
+        owner: identity.owner,
+        name: identity.name,
+        issueNumber: payload.subjectNumber,
+        analysis: analysis.result,
+      }).catch((error: unknown) =>
+        logger.warn({ err: error, taskId: task.id }, "label application skipped"),
+      );
     },
 
     recordUsage: async (task, outcome) => {
@@ -498,6 +511,40 @@ async function persistSubjectResult(input: {
 function assertGithub(github: ReturnType<typeof createGitHubClient> | null) {
   if (!github) throw new Error("GitHub App is not configured");
   return github;
+}
+
+/** Applies configured label rules to an analyzed issue (idempotent). */
+async function applyConfiguredLabels(input: {
+  github: ReturnType<typeof createGitHubClient>;
+  installationId: string;
+  owner: string;
+  name: string;
+  issueNumber: number;
+  analysis: { category: string; severity: string; priority: string; quality: string };
+}): Promise<void> {
+  const rules = await listLabelRules(database.db);
+  if (rules.length === 0) return;
+  const labels = labelsForAnalysis(
+    {
+      category: input.analysis.category,
+      severity: input.analysis.severity,
+      priority: input.analysis.priority,
+      quality: input.analysis.quality,
+    },
+    rules,
+  );
+  if (labels.length === 0) return;
+  logger.info(
+    { owner: input.owner, name: input.name, issueNumber: input.issueNumber, labels },
+    "applying configured labels",
+  );
+  await input.github.addIssueLabels({
+    installationId: input.installationId,
+    owner: input.owner,
+    name: input.name,
+    number: input.issueNumber,
+    labels,
+  });
 }
 
 function requestShutdown(signal: string): void {
