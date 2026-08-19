@@ -69,10 +69,26 @@ function startServer({
 
 async function stopServer(handle: ServerHandle | undefined): Promise<void> {
   if (!handle) return;
+  if (handle.process.exitCode !== null || handle.process.signalCode !== null)
+    return;
   handle.process.kill("SIGTERM");
-  await new Promise<void>((resolve) =>
-    handle.process.once("exit", () => resolve()),
-  );
+  await Promise.race([
+    new Promise<void>((resolve) =>
+      handle.process.once("exit", () => resolve()),
+    ),
+    // Graceful shutdown can linger when the spawned API is closing
+    // unreachable DB/Redis connections; fall back to SIGKILL after 8s.
+    new Promise<void>((resolve) =>
+      setTimeout(() => {
+        try {
+          handle.process.kill("SIGKILL");
+        } catch {
+          // process already gone
+        }
+        resolve();
+      }, 8_000),
+    ),
+  ]);
 }
 
 async function fetchJson(
