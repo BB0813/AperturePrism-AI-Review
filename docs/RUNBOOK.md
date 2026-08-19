@@ -40,9 +40,12 @@ curl http://<host>:3000/health/ready   # 200 才代表 DB+Redis 均就绪
    DATABASE_URL=... npx drizzle-kit generate --config packages/database/drizzle.config.ts
    ```
    （已提交的 `0007`、`0008` 为手工维护的增量 SQL，同样追加到 `migrations/meta/_journal.json`。）
-2. 先在隔离测试库执行：`DATABASE_URL=<test> node scripts/migrate.mjs`。
-3. 生产发布：停应用容器 → 执行 `node scripts/migrate.mjs` → 启动新镜像。
-4. 迁移可重入（drizzle 记录已执行版本），失败后修复再跑即可。
+2. 应用迁移使用自研执行器 `node scripts/migrate.mjs`：按 `_journal.json` 顺序直接执行 `<tag>.sql`
+   并记录到 `drizzle.__drizzle_migrations`。不要用 `drizzle-kit migrate` 应用——它对无 snapshot
+   的手写迁移会静默失败（NAS 真机实测发现并已修复）。
+3. 先在隔离测试库执行：`DATABASE_URL=<test> node scripts/migrate.mjs`。
+4. 生产发布：停应用容器 → 执行 `node scripts/migrate.mjs` → 启动新镜像。
+5. 迁移可重入（记录已执行版本），失败后修复再跑即可。
 
 ## 4. 备份与恢复
 
