@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { fetchHealth, fetchSummary, STATUS_ORDER, type ReadyHealth, type Summary } from "../lib/api";
+import { bumpCache, fetchHealth, fetchSummary, STATUS_ORDER, type ReadyHealth, type Summary } from "../lib/api";
 import type { SseState } from "../hooks/useSse";
 import { navigate } from "../hooks/useHash";
 import { CheckCircleIcon, RefreshIcon, XCircleIcon } from "../components/icons";
-import { Empty } from "../components/ui";
+import { Empty, ErrorPanel, JsonBlock } from "../components/ui";
 
 const STATUS_TONE: Record<string, { c: string; label: string }> = {
   running: { c: "var(--accent-2)", label: "运行中" },
@@ -55,7 +55,7 @@ export function Overview({ sse }: { sse: SseState }) {
           <p className="page-desc">任务、分析结果与模型路由的实时总览</p>
         </div>
         <div className="actions">
-          <button className="btn" onClick={refresh}>
+          <button className="btn" onClick={() => { bumpCache(); refresh(); }}>
             <RefreshIcon size={16} />
             刷新
           </button>
@@ -64,7 +64,7 @@ export function Overview({ sse }: { sse: SseState }) {
 
       {error ? (
         <div className="panel">
-          <p className="state state-error">加载失败: {error}</p>
+          <ErrorPanel error={error} onRetry={refresh} />
         </div>
       ) : (
         <div className="kpi-grid">
@@ -131,7 +131,7 @@ export function Overview({ sse }: { sse: SseState }) {
               <li key={`${event.seq}-${index}`}>
                 <code className="ev-id">#{event.seq}</code>
                 <span className="state-ok">{event.type}</span>
-                <pre>{JSON.stringify(event.data)}</pre>
+                <JsonBlock data={event.data} />
               </li>
             ))}
           </ul>

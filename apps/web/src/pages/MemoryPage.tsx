@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  bumpCache,
   deleteRepoMemory,
   fetchMe,
   fetchRepoMemory,
@@ -10,7 +11,7 @@ import {
   type Repository,
 } from "../lib/api";
 import { RefreshIcon, SparkleIcon } from "../components/icons";
-import { LoadingRows, fmtTime } from "../components/ui";
+import { ErrorPanel, LoadingRows, fmtTime } from "../components/ui";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 
 const KIND_LABEL: Record<string, string> = {
@@ -146,7 +147,7 @@ export function MemoryPage() {
               {busy === "consolidate" ? "合并中…" : "触发合并"}
             </button>
           ) : null}
-          <button className="btn" onClick={load} disabled={loading}>
+          <button className="btn" onClick={() => { bumpCache(); load(); }} disabled={loading}>
             <RefreshIcon size={16} />
             刷新
           </button>
@@ -160,7 +161,7 @@ export function MemoryPage() {
       ) : null}
 
       {error ? (
-        <div className="panel"><p className="state state-error">{error}</p></div>
+        <ErrorPanel error={error} onRetry={load} />
       ) : loading ? (
         <div className="panel"><LoadingRows /></div>
       ) : (
@@ -177,7 +178,7 @@ export function MemoryPage() {
               <span className="count">{items.length}</span>
             </div>
 
-            <div className="dist-row" style={{ gridTemplateColumns: "1fr 1fr auto", maxWidth: 520 }}>
+            <div className="filters" style={{ marginBottom: 10 }}>
               <select
                 className="input"
                 value={repoFilter}
@@ -189,17 +190,13 @@ export function MemoryPage() {
                   <option key={repo.id} value={repo.id}>{repo.fullName}</option>
                 ))}
               </select>
-              <select
-                className="input"
-                value={kindFilter}
-                onChange={(event) => setKindFilter(event.target.value)}
-                aria-label="按类型筛选"
-              >
-                <option value="">全部类型</option>
-                <option value="reflection">反思</option>
-                <option value="rule">规则</option>
-                <option value="knowledge">知识</option>
-              </select>
+              <div className="seg">
+                {(["", "reflection", "rule", "knowledge"] as const).map((k) => (
+                  <button key={k} className={kindFilter === k ? "on" : ""} onClick={() => setKindFilter(k)}>
+                    {k === "" ? "全部类型" : KIND_LABEL[k]}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {items.length === 0 ? (

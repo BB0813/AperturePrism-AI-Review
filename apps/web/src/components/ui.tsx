@@ -12,6 +12,57 @@ const STATUS_STYLE: Record<string, string> = {
   canceled: "pill-dim",
 };
 
+/** JSON 词法高亮：匹配字符串(含 key)、布尔/null、数字；避免 dangerouslySetInnerHTML。 */
+const JSON_TOKEN_RE =
+  /("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
+
+export function JsonBlock({ data }: { data: unknown }) {
+  const text = JSON.stringify(data, null, 2) ?? "";
+  const nodes: ReactNode[] = [];
+  let last = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+  while ((match = JSON_TOKEN_RE.exec(text)) !== null) {
+    const [full, str, colon] = match;
+    if (match.index > last) nodes.push(text.slice(last, match.index));
+    if (str) {
+      if (colon) {
+        nodes.push(
+          <span key={key++} className="j-key">
+            {str}
+          </span>,
+        );
+        nodes.push(
+          <span key={key++} className="j-colon">
+            :
+          </span>,
+        );
+      } else {
+        nodes.push(
+          <span key={key++} className="j-str">
+            {str}
+          </span>,
+        );
+      }
+    } else if (full === "true" || full === "false" || full === "null") {
+      nodes.push(
+        <span key={key++} className="j-bool">
+          {full}
+        </span>,
+      );
+    } else {
+      nodes.push(
+        <span key={key++} className="j-num">
+          {full}
+        </span>,
+      );
+    }
+    last = match.index + full.length;
+  }
+  if (last < text.length) nodes.push(text.slice(last));
+  return <pre className="jsonbox">{nodes}</pre>;
+}
+
 export function StatusPill({ status }: { status: string }) {
   return <span className={`pill ${STATUS_STYLE[status] ?? "pill-dim"}`}>{status}</span>;
 }
@@ -75,6 +126,28 @@ export function Empty(props: { icon?: ReactNode; title: string; hint?: string })
       <div>
         <div style={{ fontWeight: 600, color: "var(--text)" }}>{props.title}</div>
         {props.hint ? <div style={{ fontSize: 12, marginTop: 3, color: "var(--faint)" }}>{props.hint}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+/** 统一的加载失败面板：错误信息 + 可选的重试按钮。 */
+export function ErrorPanel({ error, onRetry }: { error: string; onRetry?: () => void }) {
+  return (
+    <div className="panel err-panel">
+      <div className="err-panel-row">
+        <span className="err-panel-mark" aria-hidden="true">
+          !
+        </span>
+        <div style={{ minWidth: 0 }}>
+          <div className="err-panel-title">加载失败</div>
+          <p className="err-panel-detail">{error}</p>
+        </div>
+        {onRetry ? (
+          <button className="btn" onClick={onRetry} style={{ marginLeft: "auto", flexShrink: 0 }}>
+            重试
+          </button>
+        ) : null}
       </div>
     </div>
   );

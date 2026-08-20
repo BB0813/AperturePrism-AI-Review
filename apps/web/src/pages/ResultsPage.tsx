@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
-import { fetchResults, type ResultList, type SubjectResult } from "../lib/api";
-import { ChevronDownIcon, ChevronRightIcon, RefreshIcon } from "../components/icons";
-import { Empty, LoadingRows, fmtTime, shortText } from "../components/ui";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { bumpCache, fetchResults, type ResultList, type SubjectResult } from "../lib/api";
+import { ChevronDownIcon, ChevronRightIcon, RefreshIcon, SearchIcon } from "../components/icons";
+import { Empty, ErrorPanel, JsonBlock, LoadingRows, fmtTime, shortText } from "../components/ui";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 
 type NormResult = {
@@ -31,6 +31,7 @@ export function ResultsPage(props: { type: "issue" | "pr"; label: string }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [search, setSearch] = useState("");
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -60,6 +61,20 @@ export function ResultsPage(props: { type: "issue" | "pr"; label: string }) {
       .finally(() => setLoadingMore(false));
   }, [list, loadingMore, props.type]);
 
+  const filtered = useMemo(() => {
+    if (!list) return [];
+    const q = search.trim().toLowerCase();
+    if (!q) return list.items;
+    return list.items.filter((item) => {
+      const n = normalizeResult(item.result);
+      return (
+        String(item.subjectNumber).includes(q) ||
+        item.repositoryFullName.toLowerCase().includes(q) ||
+        n.summary.toLowerCase().includes(q)
+      );
+    });
+  }, [list, search]);
+
   const hasMore = list?.nextOffset !== undefined;
   const sentinelRef = useInfiniteScroll({
     hasMore,
@@ -75,7 +90,7 @@ export function ResultsPage(props: { type: "issue" | "pr"; label: string }) {
           <p className="page-desc">已持久化的结构化分析结果</p>
         </div>
         <div className="actions">
-          <button className="btn" onClick={refresh} disabled={loading}>
+          <button className="btn" onClick={() => { bumpCache(); refresh(); }} disabled={loading}>
             <RefreshIcon size={16} />
             刷新
           </button>
@@ -87,16 +102,29 @@ export function ResultsPage(props: { type: "issue" | "pr"; label: string }) {
           <h2>结果</h2>
           <span className="count">{list?.items.length ?? "–"} 条</span>
         </div>
+        <div className="filters" style={{ marginBottom: 14 }}>
+          <label className="searchbox">
+            <SearchIcon size={15} />
+            <input
+              className="input"
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="搜索 #编号 / 仓库/摘要…"
+              aria-label="搜索结果"
+            />
+          </label>
+        </div>
 
         {error ? (
-          <p className="state state-error">加载失败：{error}</p>
+          <ErrorPanel error={error} onRetry={refresh} />
         ) : loading || !list ? (
           loading ? <LoadingRows /> : <Empty title="暂无数据" />
-        ) : list.items.length === 0 ? (
-          <Empty title="暂无结果" hint="Worker 完成一次分析并发布后，结构化结果将显示在这里" />
+        ) : filtered.length === 0 ? (
+          <Empty title={search ? "无匹配结果" : "暂无结果"} hint={search ? "换个关键词试试" : "Worker 完成一次分析并发布后，结构化结果将显示在这里"} />
         ) : (
           <div className="stack">
-            {list.items.map((item) => (
+            {filtered.map((item) => (
               <ResultCard key={item.createdAt + item.subjectNumber} item={item} />
             ))}
           </div>
@@ -142,7 +170,7 @@ function ResultCard({ item }: { item: SubjectResult }) {
         {open ? <ChevronDownIcon size={14} /> : <ChevronRightIcon size={14} />}
         {open ? "收起原始数据" : "查看原始数据"}
       </button>
-      {open ? <pre className="jsonbox">{JSON.stringify(item.result, null, 2)}</pre> : null}
+      {open ? <JsonBlock data={item.result} /> : null}
     </article>
   );
 }

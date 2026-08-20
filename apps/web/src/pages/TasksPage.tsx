@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { fetchTasks, type TaskList, type TaskSummary } from "../lib/api";
+import { bumpCache, fetchTasks, type TaskList, type TaskSummary } from "../lib/api";
 import { navigate } from "../hooks/useHash";
-import { RefreshIcon, ChevronRightIcon } from "../components/icons";
-import { Empty, LoadingRows, StatusPill, TypeChip, timeAgo } from "../components/ui";
+import { ChevronRightIcon, RefreshIcon, SearchIcon } from "../components/icons";
+import { Empty, ErrorPanel, LoadingRows, StatusPill, TypeChip, timeAgo } from "../components/ui";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 
 const TYPE_FILTERS = ["all", "issue_analysis", "pr_review", "repository_index"] as const;
@@ -15,6 +15,7 @@ export function TasksPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [type, setType] = useState<string>("all");
   const [status, setStatus] = useState<string>("all");
+  const [search, setSearch] = useState("");
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -52,12 +53,14 @@ export function TasksPage() {
 
   const items = useMemo(() => {
     if (!list) return [];
+    const q = search.toLowerCase();
     return list.items.filter(
       (t) =>
         (type === "all" || t.taskType === type) &&
-        (status === "all" || t.status === status),
+        (status === "all" || t.status === status) &&
+        (!q || t.id.includes(q) || String(t.subjectNumber ?? "").includes(q) || t.policyVersion.toLowerCase().includes(q) || t.status.includes(q)),
     );
-  }, [list, type, status]);
+  }, [list, type, status, search]);
 
   return (
     <div className="stack">
@@ -67,7 +70,7 @@ export function TasksPage() {
           <p className="page-desc">Issue 分析与 PR 审查任务的执行状态</p>
         </div>
         <div className="actions">
-          <button className="btn" onClick={refresh} disabled={loading}>
+          <button className="btn" onClick={() => { bumpCache(); refresh(); }} disabled={loading}>
             <RefreshIcon size={16} />
             刷新
           </button>
@@ -78,7 +81,7 @@ export function TasksPage() {
         <div className="panel-title">
           <h2>筛选</h2>
         </div>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div className="filters">
           <div className="seg">
             {TYPE_FILTERS.map((t) => (
               <button key={t} className={type === t ? "on" : ""} onClick={() => setType(t)}>
@@ -93,6 +96,17 @@ export function TasksPage() {
               </button>
             ))}
           </div>
+          <label className="searchbox">
+            <SearchIcon size={15} />
+            <input
+              className="input"
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="搜索任务 ID / 对象 / 策略…"
+              aria-label="搜索任务"
+            />
+          </label>
         </div>
       </div>
 
@@ -103,7 +117,7 @@ export function TasksPage() {
         </div>
 
         {error ? (
-          <p className="state state-error">加载失败：{error}</p>
+          <ErrorPanel error={error} onRetry={refresh} />
         ) : loading ? (
           <LoadingRows />
         ) : items.length === 0 ? (

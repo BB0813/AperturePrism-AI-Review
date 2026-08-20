@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  bumpCache,
   fetchConfig,
   fetchLogHistory,
   fetchLogs,
@@ -180,7 +181,7 @@ export function LogOverviewPage() {
           <button className="btn btn-primary" onClick={copyDiagnostics} disabled={loading}>
             {copied ? "已复制到剪贴板 ✓" : "复制诊断包"}
           </button>
-          <button className="btn" onClick={loadInitial} disabled={loading}>
+          <button className="btn" onClick={() => { bumpCache(); loadInitial(); }} disabled={loading}>
             <RefreshIcon size={16} />
             刷新
           </button>

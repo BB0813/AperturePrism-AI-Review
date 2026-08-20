@@ -9,7 +9,7 @@ import {
   PlayIcon,
   XCircleIcon,
 } from "../components/icons";
-import { LoadingRows, StatusPill, TypeChip, fmtTime, timeAgo } from "../components/ui";
+import { ErrorPanel, LoadingRows, StatusPill, TypeChip, fmtTime, timeAgo } from "../components/ui";
 
 const EVENT_META: Record<
   string,
@@ -54,8 +54,7 @@ export function TaskDetailPage({ id }: { id: string }) {
       <div className="stack">
         <button className="btn btn-ghost" onClick={() => navigate("/tasks")}>← 返回任务列表</button>
         <div className="panel">
-          <p className="state state-error">加载失败：{error}</p>
-          <button className="btn" onClick={load}>重试</button>
+          <ErrorPanel error={error} onRetry={load} />
         </div>
       </div>
     );

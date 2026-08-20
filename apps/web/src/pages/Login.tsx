@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { fetchOAuthStatus, fetchSetupStatus } from "../lib/api";
+import { useTheme } from "../hooks/useTheme";
+import { MoonIcon, SunIcon } from "../components/icons";
 
 /** Full-screen gate shown when no access token is stored. */
 export function Login(props: { onAuthenticated: (token: string) => void }) {
@@ -9,6 +11,7 @@ export function Login(props: { onAuthenticated: (token: string) => void }) {
   const [oauthOn, setOauthOn] = useState(false);
   // The install wizard is only offered on a fresh (uninitialized) install.
   const [setupOn, setSetupOn] = useState(false);
+  const { theme, toggle } = useTheme();
 
   useEffect(() => {
     fetchOAuthStatus()
@@ -31,6 +34,16 @@ export function Login(props: { onAuthenticated: (token: string) => void }) {
 
   return (
     <div className="login-wrap">
+      <button
+        className="theme-toggle login-theme-btn"
+        onClick={toggle}
+        aria-label={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
+        title={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
+      >
+        {theme === "dark" ? <SunIcon size={14} /> : <MoonIcon size={14} />}
+        {theme === "dark" ? "浅色" : "深色"}
+      </button>
+
       <div className="login-card">
         <div className="login-brand">
           <img src="/aprism-logo.png" alt="AperturePrism" className="logo-img" />

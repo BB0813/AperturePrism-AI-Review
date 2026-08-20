@@ -224,6 +224,26 @@ export const ShieldIcon = (p: IconProps) => (
   </Base>
 );
 
+export const SunIcon = (p: IconProps) => (
+  <Base {...p}>
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 3v2M12 19v2M5 5l1.5 1.5M17.5 17.5L19 19M3 12h2M19 12h2M5 19l1.5-1.5M17.5 6.5L19 5" />
+  </Base>
+);
+
+export const SearchIcon = (p: IconProps) => (
+  <Base {...p}>
+    <circle cx="11" cy="11" r="7" />
+    <path d="M21 21l-4.35-4.35" />
+  </Base>
+);
+
+export const MoonIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M20 14.5A8 8 0 0110 4a8 8 0 1010 10.5z" />
+  </Base>
+);
+
 export const LayersIcon = (p: IconProps) => (
   <Base {...p}>
     <path d="M12 3l9 5-9 5-9-5 9-5z" />

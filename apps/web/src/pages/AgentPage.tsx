@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  bumpCache,
   fetchCapabilities,
   fetchMe,
   setExpertTeamEnabled,
   type Capabilities,
 } from "../lib/api";
 import { RefreshIcon, SparkleIcon } from "../components/icons";
-import { LoadingRows } from "../components/ui";
+import { ErrorPanel, LoadingRows } from "../components/ui";
 
 export function AgentPage() {
   const [data, setData] = useState<Capabilities | null>(null);
@@ -77,7 +78,7 @@ export function AgentPage() {
               {busy ? "切换中…" : data?.enabled ? "停用专家团队" : "启用专家团队"}
             </button>
           ) : null}
-          <button className="btn" onClick={load} disabled={loading}>
+          <button className="btn" onClick={() => { bumpCache(); load(); }} disabled={loading}>
             <RefreshIcon size={16} />
             刷新
           </button>
@@ -114,7 +115,7 @@ export function AgentPage() {
           <span className="count">{data?.skills.length ?? "–"} skills</span>
         </div>
         {error ? (
-          <p className="state state-error">加载失败：{error}</p>
+          <ErrorPanel error={error} onRetry={load} />
         ) : loading ? (
           <LoadingRows />
         ) : !data || data.skills.length === 0 ? (
@@ -151,7 +152,7 @@ export function AgentPage() {
           <span className="count">{data?.experts.length ?? "–"} experts</span>
         </div>
         {error ? (
-          <p className="state state-error">加载失败：{error}</p>
+          <ErrorPanel error={error} onRetry={load} />
         ) : loading ? (
           <LoadingRows />
         ) : !data || data.experts.length === 0 ? (

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  bumpCache,
   fetchAuditLog,
   fetchConfig,
   fetchSettings,
@@ -10,7 +11,7 @@ import {
   type UserRow,
 } from "../lib/api";
 import { GearIcon, RefreshIcon, ShieldIcon } from "../components/icons";
-import { LoadingRows } from "../components/ui";
+import { ErrorPanel, LoadingRows } from "../components/ui";
 
 const ACTION_TEXT: Record<string, string> = {
   "user.set_admin": "修改管理员角色",
@@ -75,7 +76,7 @@ export function SecurityPage() {
           <p className="page-desc">访问控制、速率限制与操作审计</p>
         </div>
         <div className="actions">
-          <button className="btn" onClick={load} disabled={loading}>
+          <button className="btn" onClick={() => { bumpCache(); load(); }} disabled={loading}>
             <RefreshIcon size={16} />
             刷新
           </button>
@@ -83,7 +84,7 @@ export function SecurityPage() {
       </div>
 
       {error ? (
-        <div className="panel"><p className="state state-error">{error}</p></div>
+        <ErrorPanel error={error} onRetry={load} />
       ) : loading ? (
         <div className="panel"><LoadingRows /></div>
       ) : (

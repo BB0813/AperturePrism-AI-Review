@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  bumpCache,
   fetchIndexStatus,
   fetchVectorStats,
   rebuildIndex,
@@ -8,7 +9,7 @@ import {
   type VectorStats,
 } from "../lib/api";
 import { RefreshIcon } from "../components/icons";
-import { LoadingRows, fmtTime } from "../components/ui";
+import { ErrorPanel, LoadingRows, fmtTime } from "../components/ui";
 
 export function VectorPage() {
   const [stats, setStats] = useState<VectorStats | null>(null);
@@ -78,7 +79,7 @@ export function VectorPage() {
           <button className="btn" onClick={runRebuild} disabled={rebuilding || triggering}>
             {rebuilding ? "重建中…" : "重建索引"}
           </button>
-          <button className="btn" onClick={load} disabled={loading}>
+          <button className="btn" onClick={() => { bumpCache(); load(); }} disabled={loading}>
             <RefreshIcon size={16} />
             刷新
           </button>
@@ -92,7 +93,7 @@ export function VectorPage() {
       ) : null}
 
       {error ? (
-        <div className="panel"><p className="state state-error">加载失败：{error}</p></div>
+        <ErrorPanel error={error} onRetry={load} />
       ) : loading || !stats ? (
         <div className="panel"><LoadingRows /></div>
       ) : (

@@ -1,6 +1,7 @@
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { useSse } from "./hooks/useSse";
 import { navigate, tabOf, useHashRoute } from "./hooks/useHash";
+import { useTheme } from "./hooks/useTheme";
 import { eventsUrl, getToken, setToken } from "./lib/auth";
 import { fetchSetupStatus } from "./lib/api";
 import { Login } from "./pages/Login";
@@ -31,9 +32,11 @@ import {
   InfoIcon,
   ListIcon,
   LogoutIcon,
+  MoonIcon,
   PullRequestIcon,
   ShieldIcon,
   SparkleIcon,
+  SunIcon,
 } from "./components/icons";
 
 const STATUS_TEXT: Record<string, string> = {
@@ -157,6 +160,16 @@ function AuthedConsole(props: { onLogout: () => void }) {
   const route = useHashRoute();
   const active = tabOf(route);
   const sse = useSse(eventsUrl());
+  const { theme, toggle } = useTheme();
+
+  const pageTitle = useMemo(() => {
+    if (route.startsWith("/tasks/") && route.length > "/tasks/".length) {
+      return { eyebrow: "审查队列", title: `任务 #${route.slice("/tasks/".length).slice(0, 8)}` };
+    }
+    const match = NAV.flatMap((g) => g.items).find((i) => i.path === active);
+    if (match) return { eyebrow: routeGroupTitle(active) ?? "工作台", title: match.label };
+    return { eyebrow: "工作台", title: "关于" };
+  }, [route, active]);
 
   let page;
   if (route.startsWith("/tasks/") && route.length > "/tasks/".length) {
@@ -181,12 +194,10 @@ function AuthedConsole(props: { onLogout: () => void }) {
     <div className="shell">
       <aside className="sidebar">
         <div>
-          <div className="brand">
-            <span className="brand-mark">
-              <SparkleIcon size={18} />
-            </span>
+          <a className="brand" href="#/" onClick={(e) => { e.preventDefault(); navigate("/"); }}>
+            <img src="/aprism-logo.png" alt="AperturePrism" className="brand-logo" />
             <span>AperturePrism</span>
-          </div>
+          </a>
           <div className="brand-sub">AI Code Review</div>
         </div>
 
@@ -196,13 +207,13 @@ function AuthedConsole(props: { onLogout: () => void }) {
               {group.title ? <div className="nav-title">{group.title}</div> : null}
               {group.items.map((item) => {
                 const Icon = item.icon;
-                const isActive =
-                  active === item.path || (item.path !== "/" && route.startsWith(item.path));
+                const isActive = active === item.path;
                 return (
                   <a
                     key={item.path}
                     href={`#${item.path}`}
                     className={isActive ? "nav-item nav-item-active" : "nav-item"}
+                    aria-current={isActive ? "page" : undefined}
                     onClick={(event) => {
                       event.preventDefault();
                       navigate(item.path);
@@ -229,7 +240,38 @@ function AuthedConsole(props: { onLogout: () => void }) {
         </div>
       </aside>
 
-      <main className="main">{page}</main>
+      <main className="main" id="main">
+        <div className="topbar">
+          <div className="topbar-meta">
+            <span className="topbar-eyebrow">{pageTitle.eyebrow}</span>
+            <span className="topbar-dot" aria-hidden="true" />
+            <span className="topbar-title">{pageTitle.title}</span>
+          </div>
+          <div className="topbar-actions">
+            <span className={`status-badge status-${sse.status} status-pill-compact`}>
+              <span className="dot-pulse" />
+              {STATUS_TEXT[sse.status]}
+            </span>
+            <button
+              className="theme-toggle"
+              onClick={toggle}
+              aria-label={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
+              title={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
+            >
+              {theme === "dark" ? <SunIcon size={13} /> : <MoonIcon size={13} />}
+              {theme === "dark" ? "浅色" : "深色"}
+            </button>
+          </div>
+        </div>
+        {page}
+      </main>
     </div>
   );
+}
+
+function routeGroupTitle(active: string): string | undefined {
+  for (const group of NAV) {
+    if (group.items.some((it) => it.path === active)) return group.title;
+  }
+  return undefined;
 }

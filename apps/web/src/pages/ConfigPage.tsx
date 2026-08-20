@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  bumpCache,
   deleteLabelRule as deleteLabelRuleApi,
   fetchBackup,
   fetchConfig,
@@ -13,7 +14,7 @@ import {
   type SettingItem,
 } from "../lib/api";
 import { DownloadIcon, GearIcon, RefreshIcon, UploadIcon, XCircleIcon } from "../components/icons";
-import { LoadingRows } from "../components/ui";
+import { ErrorPanel, LoadingRows } from "../components/ui";
 
 function BoolBadge({ ok, yes = "已启用", no = "未配置" }: { ok: boolean; yes?: string; no?: string }) {
   return <span className={ok ? "pill pill-ok" : "pill pill-dim"}>{ok ? yes : no}</span>;
@@ -298,7 +299,7 @@ export function ConfigPage() {
           <p className="page-desc">运行时配置（含可热更新项）与接入状态总览</p>
         </div>
         <div className="actions">
-          <button className="btn" onClick={load} disabled={loading}>
+          <button className="btn" onClick={() => { bumpCache(); load(); }} disabled={loading}>
             <RefreshIcon size={16} />
             刷新
           </button>
@@ -306,7 +307,7 @@ export function ConfigPage() {
       </div>
 
       {error ? (
-        <div className="panel"><p className="state state-error">加载失败：{error}</p></div>
+        <ErrorPanel error={error} onRetry={load} />
       ) : loading ? (
         <div className="panel"><LoadingRows /></div>
       ) : (

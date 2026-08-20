@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  bumpCache,
   fetchModels,
   fetchSetupStatus,
   genWebhookSecret,
@@ -251,7 +252,7 @@ export function SetupPage() {
             </p>
           ) : null}
           <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-            <button className="btn" onClick={check}><RefreshIcon size={16} /> 重新检测</button>
+            <button className="btn" onClick={() => { bumpCache(); check(); }}><RefreshIcon size={16} /> 重新检测</button>
             <button className="btn btn-primary" onClick={() => setStep(1)}>开始 →</button>
           </div>
         </section>
@@ -261,7 +262,7 @@ export function SetupPage() {
         <section className="panel">
           <div className="panel-title">
             <h2><GearIcon size={14} /> 环境检测</h2>
-            <button className="btn btn-ghost" onClick={check}><RefreshIcon size={14} /> 重新检测</button>
+            <button className="btn btn-ghost" onClick={() => { bumpCache(); check(); }}><RefreshIcon size={14} /> 重新检测</button>
           </div>
           {!status ? (
             <p className="state state-loading">正在检测…</p>
@@ -424,7 +425,7 @@ export function SetupPage() {
                 : <span style={{ color: "var(--warn)" }}> 当前：未配置</span>}
             </p>
             <div style={{ marginTop: 8 }}>
-              <button className="btn" onClick={check}><RefreshIcon size={14} /> 重新检测</button>
+              <button className="btn" onClick={() => { bumpCache(); check(); }}><RefreshIcon size={14} /> 重新检测</button>
             </div>
           </div>
 

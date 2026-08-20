@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchMe, saveMe, type AccountInfo } from "../lib/api";
+import { bumpCache, fetchMe, saveMe, type AccountInfo } from "../lib/api";
 import { GearIcon, RefreshIcon } from "../components/icons";
-import { LoadingRows } from "../components/ui";
+import { ErrorPanel, LoadingRows } from "../components/ui";
 
 export function AccountPage() {
   const [account, setAccount] = useState<AccountInfo | null>(null);
@@ -50,7 +50,7 @@ export function AccountPage() {
           <p className="page-desc">当前登录账号与个性化设置</p>
         </div>
         <div className="actions">
-          <button className="btn" onClick={load} disabled={loading}>
+          <button className="btn" onClick={() => { bumpCache(); load(); }} disabled={loading}>
             <RefreshIcon size={16} />
             刷新
           </button>
@@ -58,7 +58,7 @@ export function AccountPage() {
       </div>
 
       {error ? (
-        <div className="panel"><p className="state state-error">加载失败：{error}</p></div>
+        <ErrorPanel error={error} onRetry={load} />
       ) : loading || !account ? (
         <div className="panel"><LoadingRows /></div>
       ) : (

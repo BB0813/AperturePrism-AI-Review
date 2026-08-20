@@ -1,5 +1,51 @@
 import { authHeaders } from "./auth";
 
+/* ---------- 短期 GET 缓存（改善切页/轮询的响应体感） ----------
+   只缓存只读 GET，5s 后自动失效；显式"刷新/写操作"调用 bumpCache()
+   递增版本号，使下一个请求绕过缓存拿到最新数据。 */
+const CACHE_TTL_MS = 5_000;
+let cacheVersion = 0;
+const responseCache = new Map<string, { at: number; data: unknown }>();
+
+/** 使下一次请求绕过缓存（页面"刷新"按钮、写操作后调用）。 */
+export function bumpCache(): void {
+  cacheVersion += 1;
+}
+
+function cacheKey(url: string): string {
+  return `${cacheVersion}|${url}`;
+}
+
+async function getJson(url: string): Promise<unknown> {
+  const key = cacheKey(url);
+  const hit = responseCache.get(key);
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.data;
+  const data = await fetchJson(url);
+  responseCache.set(key, { at: Date.now(), data });
+  // 防止缓存无限增长
+  if (responseCache.size > 100) {
+    for (const [k, v] of responseCache) {
+      if (Date.now() - v.at >= CACHE_TTL_MS) responseCache.delete(k);
+    }
+  }
+  return data;
+}
+
+async function fetchJson(url: string): Promise<unknown> {
+  const response = await fetch(url, {
+    headers: { accept: "application/json", ...authHeaders() },
+  });
+  if (response.status === 401) throw new Error("unauthorized");
+  if (!response.ok) {
+    const reason =
+      response.status === 404
+        ? "not found"
+        : `request failed with ${response.status}`;
+    throw new Error(reason);
+  }
+  return response.json();
+}
+
 export type HealthDependency = {
   name: string;
   status: "ok" | "error";
@@ -672,21 +718,6 @@ export async function saveOAuth(input: {
   };
 }
 
-async function getJson(url: string): Promise<unknown> {
-  const response = await fetch(url, {
-    headers: { accept: "application/json", ...authHeaders() },
-  });
-  if (response.status === 401) throw new Error("unauthorized");
-  if (!response.ok) {
-    const reason =
-      response.status === 404
-        ? "not found"
-        : `request failed with ${response.status}`;
-    throw new Error(reason);
-  }
-  return response.json();
-}
-
 async function putJson(url: string, body: unknown): Promise<void> {
   const response = await fetch(url, {
     method: "PUT",
@@ -705,6 +736,7 @@ async function putJson(url: string, body: unknown): Promise<void> {
         : `request failed with ${response.status}`;
     throw new Error(reason);
   }
+  bumpCache();
 }
 
 /** Fetches both liveness and readiness; the UI shows a clear error on failure. */

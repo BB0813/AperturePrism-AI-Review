@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  bumpCache,
   fetchRepositories,
   triggerManualTask,
   type Repository,
 } from "../lib/api";
 import { FolderIcon, RefreshIcon } from "../components/icons";
-import { Empty, LoadingRows } from "../components/ui";
+import { Empty, ErrorPanel, LoadingRows } from "../components/ui";
 
 export function ReposPage() {
   const [repos, setRepos] = useState<Repository[] | null>(null);
@@ -71,7 +72,7 @@ export function ReposPage() {
           <p className="page-desc">GitHub App 授权仓库及其分析任务 / 结果统计</p>
         </div>
         <div className="actions">
-          <button className="btn" onClick={load} disabled={loading}>
+          <button className="btn" onClick={() => { bumpCache(); load(); }} disabled={loading}>
             <RefreshIcon size={16} />
             刷新
           </button>
@@ -133,7 +134,7 @@ export function ReposPage() {
         <div className="panel-title"><h2>仓库</h2><span className="count">{repos?.length ?? "–"}</span></div>
 
         {error ? (
-          <p className="state state-error">加载失败：{error}</p>
+          <ErrorPanel error={error} onRetry={load} />
         ) : loading ? (
           <LoadingRows />
         ) : !repos || repos.length === 0 ? (

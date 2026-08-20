@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchMe, fetchUsers, setUserAdmin, type UserRow } from "../lib/api";
+import { bumpCache, fetchMe, fetchUsers, setUserAdmin, type UserRow } from "../lib/api";
 import { RefreshIcon, ShieldIcon } from "../components/icons";
-import { LoadingRows } from "../components/ui";
+import { ErrorPanel, LoadingRows } from "../components/ui";
 
 export function UsersPage() {
   const [users, setUsers] = useState<UserRow[]>([]);
@@ -55,7 +55,7 @@ export function UsersPage() {
           <p className="page-desc">GitHub OAuth 登录用户与管理员角色</p>
         </div>
         <div className="actions">
-          <button className="btn" onClick={load} disabled={loading}>
+          <button className="btn" onClick={() => { bumpCache(); load(); }} disabled={loading}>
             <RefreshIcon size={16} />
             刷新
           </button>
@@ -63,7 +63,7 @@ export function UsersPage() {
       </div>
 
       {error ? (
-        <div className="panel"><p className="state state-error">{error}</p></div>
+        <ErrorPanel error={error} onRetry={load} />
       ) : loading ? (
         <div className="panel"><LoadingRows /></div>
       ) : (

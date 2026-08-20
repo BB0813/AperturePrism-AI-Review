@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchProviders, type ProviderOverview } from "../lib/api";
+import { bumpCache, fetchProviders, type ProviderOverview } from "../lib/api";
 import { RefreshIcon } from "../components/icons";
-import { LoadingRows } from "../components/ui";
+import { ErrorPanel, LoadingRows } from "../components/ui";
 
 export function ProviderPage() {
   const [data, setData] = useState<ProviderOverview | null>(null);
@@ -30,7 +30,7 @@ export function ProviderPage() {
           <p className="page-desc">各分析角色的模型候选策略与已配置账户</p>
         </div>
         <div className="actions">
-          <button className="btn" onClick={load} disabled={loading}>
+          <button className="btn" onClick={() => { bumpCache(); load(); }} disabled={loading}>
             <RefreshIcon size={16} />
             刷新
           </button>
@@ -44,7 +44,7 @@ export function ProviderPage() {
         </div>
 
         {error ? (
-          <p className="state state-error">加载失败：{error}</p>
+          <ErrorPanel error={error} onRetry={load} />
         ) : loading ? (
           <LoadingRows />
         ) : !data ? (
