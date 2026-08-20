@@ -105,6 +105,7 @@ AperturePrism 把「AI 代码审查」做成了一条可落地的产品链路，
 | --- | --- |
 | [总体设计](docs/APERTUREPRISM_AI_REVIEW_PROJECT_DESIGN.md) | 系统设计、领域模型、模块边界 |
 | [模块化开发计划](docs/APERTUREPRISM_MODULAR_DEVELOPMENT_PLAN.md) | M0–M11 阶段划分与验收 |
+| [在线更新计划](docs/ONLINE_UPDATE_PLAN.md) | WebUI 一键检查/更新/回滚的接口与验收 |
 | [运维手册（Runbook）](docs/RUNBOOK.md) | 部署、迁移、备份/恢复、健康检查、故障处理 |
 | [交接说明](docs/HANDOFF_PROMPT.txt) | 环境与历史实现要点（含 NAS 测试约定） |
 | [环境变量模板](.env.example) | 全部可配置项与注释 |
