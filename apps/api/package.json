@@ -4,10 +4,10 @@
   "version": "1.0.0",
   "type": "module",
   "dependencies": {
-    "@apertureprism/config": "0.1.0",
-    "@apertureprism/database": "0.1.0",
-    "@apertureprism/github-adapter": "0.1.0",
-    "@apertureprism/observability": "0.1.0"
+    "@apertureprism/config": "1.0.0",
+    "@apertureprism/database": "1.0.0",
+    "@apertureprism/github-adapter": "1.0.0",
+    "@apertureprism/observability": "1.0.0"
   },
   "scripts": {
     "build": "tsc",
