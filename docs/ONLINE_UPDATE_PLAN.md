@@ -1,6 +1,6 @@
 # AperturePrism 在线更新（Online Update）落地计划
 
-> 版本：v1.0.1 · 状态：**P1–P3 已实现（v1.0.1）** · 关联：[总体设计](APERTUREPRISM_AI_REVIEW_PROJECT_DESIGN.md) · [运维手册](RUNBOOK.md)
+> 版本：v1.0.3 · 状态：**P1–P3 已实现（v1.0.3）** · 关联：[总体设计](APERTUREPRISM_AI_REVIEW_PROJECT_DESIGN.md) · [运维手册](RUNBOOK.md)
 >
 > 实现记录（v1.0.1）：
 > - `GET /update/status`：GHCR Registry 匿名查询 tags/digest，对比当前版本（`UPDATE_VERSION` 注入）
@@ -8,6 +8,10 @@
 > - `GET /update/history`：`system_settings.update_history` 持久化
 > - 执行通道：api 镜像内置 docker CLI + compose 插件，compose 挂载 `docker.sock:ro`；`AP_VERIFY=1` 时叠加 `compose.verify.yml`（NAS 地址池耗尽场景）
 > - 前端：系统配置页「版本与更新」区块（UpdatePanel.tsx：检查/更新/日志/历史）
+>
+> 修复记录（v1.0.3）：
+> - nginx / Vite 补 `/update` 反向代理，修复 WebUI 版本显示「未知」与 `Unexpected token '<'` JSON 解析错误（此前 `/update` 请求被 SPA 兜底返回 HTML）
+> - `currentVersion()` 增加镜像内 `package.json` 版本兜底：未注入 `IMAGE_TAG`/`UPDATE_VERSION` 时也显示真实版本
 
 ## 1. 背景与目标
 

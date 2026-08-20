@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { resolve } from "node:path";
 import { eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "../../../packages/database/src/schema.js";
@@ -37,10 +39,32 @@ export function isValidUpdateTarget(target: string): boolean {
   return TARGET_PATTERN.test(target);
 }
 
+let cachedPackageVersion: string | null = null;
+
+/**
+ * In-image version fallback: reads the root package.json version once so the
+ * UI can always show a real version, even when compose does not inject
+ * IMAGE_TAG / UPDATE_VERSION.
+ */
+function packageVersion(): string {
+  if (cachedPackageVersion) return cachedPackageVersion;
+  try {
+    const pkg = JSON.parse(
+      readFileSync(resolve(process.cwd(), "package.json"), "utf8"),
+    ) as { version?: string };
+    cachedPackageVersion = pkg.version ? `v${pkg.version}` : "unknown";
+  } catch {
+    cachedPackageVersion = "unknown";
+  }
+  return cachedPackageVersion;
+}
+
 /** Current running version, injected by compose as IMAGE_TAG / UPDATE_VERSION. */
 export function currentVersion(): string {
   const value = process.env.UPDATE_VERSION ?? process.env.IMAGE_TAG ?? "";
-  return value.trim().length > 0 ? value : "unknown";
+  const trimmed = value.trim();
+  if (trimmed.length > 0 && trimmed !== "latest") return trimmed;
+  return packageVersion();
 }
 
 async function registryToken(service: string): Promise<string> {

@@ -21,6 +21,7 @@
 - [开发阶段](#开发阶段)
 - [目录结构](#目录结构)
 - [说明与边界](#说明与边界)
+- [Todo](#todo)
 
 ---
 
@@ -113,34 +114,46 @@ AperturePrism 把「AI 代码审查」做成了一条可落地的产品链路，
 
 ## 快速开始
 
-### 方式 A：本地开发（Node ≥ 22 + PostgreSQL/pgvector + Redis）
+### 方式 A：一键安装 CLI（推荐）
+
+项目内置一键安装 CLI（`scripts/install.mjs`，含 bash 包装），自动完成：检查/拉起 PostgreSQL+Redis → 生成 `.env` → 安装依赖 → 应用迁移 → 构建 → 启动。
 
 ```bash
-# 1. 一键安装（替代下方 2-5 步）：拉起 PG+Redis、生成 .env、装依赖、迁移
-node scripts/install.mjs            # 或 ./scripts/install.sh / npm run setup
+# Linux / macOS：curl 直跑（无需先 clone，自动拉取 main 源码后执行完整安装）
+curl -fsSL https://raw.githubusercontent.com/BB0813/AperturePrism-AI-Review/main/scripts/bootstrap.sh | bash
 
-# 2. 普通安装
+# 跳过容器（仅本地 Node 运行）：
+curl -fsSL https://raw.githubusercontent.com/BB0813/AperturePrism-AI-Review/main/scripts/bootstrap.sh | bash -s -- --skip-docker
+
+# 本地已检出仓库：
+./scripts/install.sh               # Linux/macOS
+node scripts/install.mjs           # Windows（或 npm run setup）
+```
+
+环境变量覆盖：`APERTUREPRISM_SRC_DIR`（源码目录）、`APERTUREPRISM_REF`（分支/标签）、`APERTUREPRISM_REPO_URL`（仓库地址）。
+
+### 方式 B：本地开发（手动分步，Node ≥ 22 + PostgreSQL/pgvector + Redis）
+
+```bash
 npm install
 npm run build
-# 3. 配置 .env（参考 .env.example）
-# 4. 应用迁移
+# 配置 .env（参考 .env.example）
 node scripts/migrate.mjs
-# 5. 启动后端（各占一个终端）
+# 启动后端（各占一个终端）
 npm run dev --workspace apps/api
 npm run dev --workspace apps/analysis-worker
 npm run dev --workspace apps/index-worker
 npm run dev --workspace apps/scheduler
 # 可选：QQ 机器人
 npm run dev --workspace apps/qq-bot
-
-# 6. 启动 Web（apps/web 独立 workspace）
+# 启动 Web（apps/web 独立 workspace）
 cd apps/web && npm install && npm run dev
 ```
 
 - API：[http://127.0.0.1:30001](http://127.0.0.1:30001)（健康检查 `/health/live`、`/health/ready`）
 - Web：[http://localhost:5174](http://localhost:5174)（Vite 代理到 API :30001）
 
-### 方式 B：GitHub 直跑（仓库公开，无需先 clone）
+### 方式 C：GitHub 直跑（仓库公开，无需先 clone）
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/BB0813/AperturePrism-AI-Review/main/scripts/bootstrap.sh | bash
@@ -312,3 +325,7 @@ docker/
 - **重复检测**：向量仅用于召回，最终裁决由服务端策略完成，第一版不自动关闭 Issue。
 - **专家团队 / 记忆合并**：属于可选增强，需要配置对应模型角色策略（`expert_review` / `memory_consolidation`）后启用；未配置时自动降级为单模型审查。
 - **Docker 全栈**：`web` 通过 nginx 与 API 同源反代，浏览器无 CORS；SSE 已关闭代理缓冲。
+
+## Todo
+
+- [ ] **WebUI 功能管理与交互优化**：功能点已覆盖（任务/仓库/配置/日志/更新等），但整体交互与信息架构体验一般，待重新梳理导航层级、表格交互与状态反馈后改进。

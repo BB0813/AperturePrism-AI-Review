@@ -31,6 +31,7 @@ export default defineConfig({
       "/label-rules": proxyTarget,
       "/backup": proxyTarget,
       "/index": proxyTarget,
+      "/update": proxyTarget,
       "/events": { target: proxyTarget, changeOrigin: true, ws: false },
     },
   },
