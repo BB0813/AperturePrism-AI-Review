@@ -1,0 +1,28 @@
+# Optional network override: attach all services to an explicitly-subnetted
+# external network. Used when the Docker daemon has exhausted its default
+# address pools (the original NAS deployment ran into this), by setting
+# `AP_VERIFY=1` for the api service so the online updater uses the same files.
+# Default deployments do NOT use this file (AP_VERIFY defaults to 0).
+services:
+  postgres:
+    networks: [apnet]
+  redis:
+    networks: [apnet]
+  api:
+    networks: [apnet]
+  analysis-worker:
+    networks: [apnet]
+  index-worker:
+    networks: [apnet]
+  scheduler:
+    networks: [apnet]
+  migrate:
+    networks: [apnet]
+  web:
+    networks: [apnet]
+  qq-bot:
+    networks: [apnet]
+networks:
+  apnet:
+    external: true
+    name: apertureprism-verify
