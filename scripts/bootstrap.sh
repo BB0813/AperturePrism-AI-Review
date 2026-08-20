@@ -60,7 +60,55 @@ acquire() {
   return 0
 }
 
+# 确保 Node >= 22 存在。bootstrap 阶段还没有 Node，无法运行 .mjs，只能在 bash 层处理：
+# 缺 Node 或版本过低时，若传了 --auto-install（或 APERTUREPRISM_AUTO_INSTALL=1）则自动安装，
+# 否则给出明确提示。
+ensure_node() {
+  local major=0
+  if command -v node >/dev/null 2>&1; then
+    major="$(node -p "process.versions.node.split('.')[0]" 2>/dev/null || echo 0)"
+  fi
+  [[ "$major" -ge 22 ]] && return 0
+  local auto="${APERTUREPRISM_AUTO_INSTALL:-0}"
+  for a in "$@"; do
+    [[ "$a" = "--auto-install" ]] && auto=1
+  done
+  if [[ "$auto" != "1" ]]; then
+    if command -v node >/dev/null 2>&1; then
+      echo "[FAIL] 需要 Node.js >= 22（当前 $(node -v)）。可加 --auto-install 自动安装，或手动安装 https://nodejs.org/" >&2
+    else
+      echo "[FAIL] 未检测到 Node.js。可加 --auto-install 自动安装，或手动安装 https://nodejs.org/" >&2
+    fi
+    exit 1
+  fi
+  echo "[INFO] 未检测到满足要求的 Node.js，尝试自动安装…"
+  if [[ "$(id -u)" != "0" && "$(uname)" != "Darwin" ]]; then
+    echo "[FAIL] 自动安装 Node 需要 root/sudo 权限" >&2
+    exit 1
+  fi
+  if command -v brew >/dev/null 2>&1; then
+    brew install node
+  elif command -v curl >/dev/null 2>&1 && command -v tar >/dev/null 2>&1; then
+    local ver arch
+    ver="$(curl -fsSL --max-time 15 https://nodejs.org/dist/index.json 2>/dev/null \
+      | grep -o '"v22\.[0-9]*\.[0-9]*"' | head -1 | tr -d '"')"
+    [[ -n "$ver" ]] || ver="v22.14.0"
+    arch="linux-x64"; [[ "$(uname -m)" = "aarch64" ]] && arch="linux-arm64"
+    echo "[INFO] 下载 node-$ver-$arch"
+    curl -fsSL "https://nodejs.org/dist/$ver/node-$ver-$arch.tar.xz" -o /tmp/node-install.tar.xz \
+      || { echo "[FAIL] Node 下载失败" >&2; exit 1; }
+    tar -xJf /tmp/node-install.tar.xz -C /usr/local --strip-components=1 \
+      || { echo "[FAIL] Node 解压失败" >&2; exit 1; }
+    rm -f /tmp/node-install.tar.xz
+  else
+    echo "[FAIL] 未能自动安装 Node，请手动安装 https://nodejs.org/" >&2
+    exit 1
+  fi
+  command -v node >/dev/null 2>&1 || { echo "[FAIL] Node 安装后仍不可用，请重开终端再试" >&2; exit 1; }
+}
+
 main() {
+  ensure_node "$@"
   if is_local_checkout; then
     local root
     root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

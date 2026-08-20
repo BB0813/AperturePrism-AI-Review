@@ -116,21 +116,29 @@ AperturePrism 把「AI 代码审查」做成了一条可落地的产品链路，
 
 ### 方式 A：一键安装 CLI（推荐）
 
-项目内置一键安装 CLI（`scripts/install.mjs`，含 bash 包装），自动完成：检查/拉起 PostgreSQL+Redis → 生成 `.env` → 安装依赖 → 应用迁移 → 构建 → 启动。
+项目内置一键安装 CLI（`scripts/install.mjs`，含 bash 包装），支持**源码安装**与 **Docker Compose 全栈安装**二选一（交互选择，或 `--mode` 指定）；加 `--auto-install` 可在缺失 Node / Docker Compose 时自动安装。
 
 ```bash
 # Linux / macOS：curl 直跑（无需先 clone，自动拉取 main 源码后执行完整安装）
 curl -fsSL https://raw.githubusercontent.com/BB0813/AperturePrism-AI-Review/main/scripts/bootstrap.sh | bash
 
+# 交互选择安装方式（1=源码，2=Docker Compose 全栈）：
+curl -fsSL .../scripts/bootstrap.sh | bash -s -- --mode=compose
+
+# 缺失 Node/Docker 时自动安装（需 root/sudo），Compose 全栈安装：
+curl -fsSL .../scripts/bootstrap.sh | bash -s -- --mode=compose --auto-install --yes
+
 # 跳过容器（仅本地 Node 运行）：
-curl -fsSL https://raw.githubusercontent.com/BB0813/AperturePrism-AI-Review/main/scripts/bootstrap.sh | bash -s -- --skip-docker
+curl -fsSL .../scripts/bootstrap.sh | bash -s -- --skip-docker
 
 # 本地已检出仓库：
 ./scripts/install.sh               # Linux/macOS
 node scripts/install.mjs           # Windows（或 npm run setup）
 ```
 
-环境变量覆盖：`APERTUREPRISM_SRC_DIR`（源码目录）、`APERTUREPRISM_REF`（分支/标签）、`APERTUREPRISM_REPO_URL`（仓库地址）。
+常用参数：`--mode=source|compose`（安装方式）、`--yes`（跳过交互）、`--auto-install`（自动装 Node/Docker）、`--verify`（Compose 叠加 compose.verify.yml，NAS 地址池耗尽场景）、`--skip-docker` / `--skip-deps` / `--skip-migrate`（跳过对应步骤）。
+
+环境变量覆盖：`APERTUREPRISM_SRC_DIR`（源码目录）、`APERTUREPRISM_REF`（分支/标签）、`APERTUREPRISM_REPO_URL`（仓库地址）、`APERTUREPRISM_AUTO_INSTALL=1`（bootstrap 无 Node 时自动安装）。
 
 ### 方式 B：本地开发（手动分步，Node ≥ 22 + PostgreSQL/pgvector + Redis）
 
