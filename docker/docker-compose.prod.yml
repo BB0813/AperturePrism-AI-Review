@@ -10,9 +10,10 @@
 # 本地源码构建：docker compose -f docker/docker-compose.prod.yml -f docker/docker-compose.build.yml up -d --build
 # 本地开发数据库：docker compose -f docker/docker-compose.dev.yml up -d（只起 postgres+redis）
 #
-# 项目名固定为 aprism：容器名/网络名统一为 aprism-*（而不是默认取目录名）。
-# 已有旧部署需先 down 再 up 才能生效：docker compose ... down && docker compose ... up -d
-name: aprism
+# 项目名固定为 AperturePrism-AI-Review：容器名/网络名统一为 AperturePrism-AI-Review-*
+# （而不是默认取目录名）。已有旧部署需先 down 再 up 才能生效：
+#   docker compose ... down && docker compose ... up -d
+name: AperturePrism-AI-Review
 services:
   postgres:
     image: pgvector/pgvector:pg16

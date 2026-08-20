@@ -1,5 +1,5 @@
-# 本地开发数据库（postgres+redis）。项目名与生产一致，容器名统一 aprism-*。
-name: aprism
+# 本地开发数据库（postgres+redis）。项目名与生产一致，容器名统一 AperturePrism-AI-Review-*。
+name: AperturePrism-AI-Review
 services:
   postgres:
     image: pgvector/pgvector:pg16

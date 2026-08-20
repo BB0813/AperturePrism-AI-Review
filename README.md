@@ -173,7 +173,7 @@ curl http://<host>/health/ready    # 200 才代表 DB+Redis 均就绪
 
 > 说明：`docker/Dockerfile` 为多阶段构建（deps → build → base → 各服务），`web` 目标独立构建 `apps/web` 静态产物后由 nginx 提供。详细运维见[运维手册](docs/RUNBOOK.md)。
 
-**容器命名**：compose 顶层 `name: aprism` 固定项目名，容器 / 网络统一为 `aprism-*`（如 `aprism-api-1`、`aprism-web-1`），不随目录名变化。已有旧部署（默认目录名命名的 `docker-*`）需先 `down` 再 `up` 才能切换容器名：
+**容器命名**：compose 顶层 `name: AperturePrism-AI-Review` 固定项目名（compose 会规范化为小写），容器 / 网络统一为 `apertureprism-ai-review-*`（如 `apertureprism-ai-review-api-1`、`apertureprism-ai-review-web-1`），不随目录名变化。已有旧部署（默认目录名命名的 `docker-*`）需先 `down` 再 `up` 才能切换容器名：
 
 ```bash
 docker compose -f docker/docker-compose.prod.yml --env-file .env.production down
