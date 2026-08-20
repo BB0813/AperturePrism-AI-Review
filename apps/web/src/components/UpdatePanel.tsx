@@ -155,7 +155,7 @@ export function UpdatePanel() {
 
       {logs.length > 0 ? (
         <pre className="jsonbox" style={{ maxHeight: 220 }}>
-          {logs.map((line, i) => `[${line.level}] ${line.message}`).join("\n")}
+          {logs.map((line) => `[${line.level}] ${line.message}`).join("\n")}
         </pre>
       ) : null}
 

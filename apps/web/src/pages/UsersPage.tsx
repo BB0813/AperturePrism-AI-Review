@@ -81,19 +81,33 @@ export function UsersPage() {
                 暂无用户。首次通过 GitHub OAuth 登录的用户会自动成为管理员。
               </p>
             ) : (
-              <div className="dist" style={{ marginTop: 6 }}>
+              <div className="stack">
                 {users.map((user) => (
-                  <div key={user.login} className="dist-row" style={{ flexWrap: "wrap", gap: 10 }}>
-                    <span className="mono" style={{ fontWeight: 600 }}>{user.login}</span>
-                    {user.displayName ? (
-                      <span className="faint" style={{ fontSize: 12 }}>{user.displayName}</span>
-                    ) : null}
+                  <div
+                    key={user.login}
+                    className="result-card"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <div style={{ minWidth: 0, flex: "1 1 180px" }}>
+                      <div className="result-title" style={{ fontSize: 14 }}>
+                        {user.login}
+                      </div>
+                      {user.displayName ? (
+                        <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>
+                          {user.displayName}
+                        </div>
+                      ) : null}
+                    </div>
                     <span className={`pill ${user.isAdmin ? "pill-ok" : "pill-dim"}`}>
                       {user.isAdmin ? "管理员" : "普通用户"}
                     </span>
                     <button
                       className="btn"
-                      style={{ marginLeft: "auto" }}
                       disabled={busy === user.login}
                       onClick={() => toggle(user.login, !user.isAdmin)}
                     >
