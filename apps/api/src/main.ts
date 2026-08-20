@@ -1983,9 +1983,16 @@ async function handleAuth(
     const state = randomUUID();
     oauthStates.set(state, Date.now() + 10 * 60 * 1000);
     const { clientId } = currentOAuth();
+    // Dynamic callback: derive the redirect URI from the incoming request so OAuth
+    // works from any host (localhost, LAN IP, public domain). The GitHub App must
+    // have each of these URLs registered as a Callback URL.
+    const proto = request.headers["x-forwarded-proto"] === "https" ? "https" : "http";
+    const host = request.headers.host ?? "localhost";
+    const redirectUri = `${proto}://${host}/auth/callback`;
     const authorizeUrl =
       `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(clientId)}` +
-      `&scope=read:user&state=${state}`;
+      `&scope=read:user&state=${state}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}`;
     response.writeHead(302, { Location: authorizeUrl });
     response.end();
     return;
