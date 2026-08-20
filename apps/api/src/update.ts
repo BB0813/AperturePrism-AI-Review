@@ -43,10 +43,27 @@ export function currentVersion(): string {
   return value.trim().length > 0 ? value : "unknown";
 }
 
+async function registryToken(service: string): Promise<string> {
+  const url =
+    `https://${REGISTRY_HOST}/token?service=${REGISTRY_HOST}` +
+    `&scope=repository:${REGISTRY_BASE}/${service}:pull`;
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) throw new Error(`registry token ${response.status}`);
+  const data = (await response.json()) as { token?: string; access_token?: string };
+  return data.token ?? data.access_token ?? "";
+}
+
 async function registryTags(service: string): Promise<string[]> {
+  const token = await registryToken(service);
   const url = `https://${REGISTRY_HOST}/v2/${REGISTRY_BASE}/${service}/tags/list`;
   const response = await fetch(url, {
-    headers: { accept: "application/json", "user-agent": "apertureprism-updater" },
+    headers: {
+      accept: "application/json",
+      authorization: `Bearer ${token}`,
+      "user-agent": "apertureprism-updater",
+    },
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) throw new Error(`registry ${response.status}`);
@@ -55,11 +72,13 @@ async function registryTags(service: string): Promise<string[]> {
 }
 
 async function registryDigest(service: string, tag: string): Promise<string | null> {
+  const token = await registryToken(service);
   const url = `https://${REGISTRY_HOST}/v2/${REGISTRY_BASE}/${service}/manifests/${encodeURIComponent(tag)}`;
   const response = await fetch(url, {
     headers: {
       accept:
         "application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json",
+      authorization: `Bearer ${token}`,
       "user-agent": "apertureprism-updater",
     },
     signal: AbortSignal.timeout(10_000),
