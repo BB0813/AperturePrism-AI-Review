@@ -1,3 +1,5 @@
+# 本地开发数据库（postgres+redis）。项目名与生产一致，容器名统一 aprism-*。
+name: aprism
 services:
   postgres:
     image: pgvector/pgvector:pg16

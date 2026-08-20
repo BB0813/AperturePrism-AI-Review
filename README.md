@@ -9,6 +9,7 @@
 ## 目录
 
 - [项目简介](#项目简介)
+- [界面预览](#界面预览)
 - [核心特性](#核心特性)
 - [系统架构](#系统架构)
 - [文档索引](#文档索引)
@@ -35,6 +36,22 @@ AperturePrism 把「AI 代码审查」做成了一条可落地的产品链路，
 6. **运营**：深色 Web 控制台（SSE 实时事件 + 断线回放）、GitHub OAuth 登录与管理员角色、操作审计、配置备份、速率限制、向量索引管理、Docker 全栈打包。
 
 参考项目 Sakura-AI 仅作为本地只读参考资料（`archive/` 目录不随仓库提交），本项目为独立实现。
+
+## 界面预览
+
+真实运行截图（浅色 / 深色双主题，Web 控制台通过 nginx 与 API 同源）：
+
+| 登录页（深色） | 概览仪表盘（深色） |
+| --- | --- |
+| ![登录页](docs/screenshots/login-dark.png) | ![概览深色](docs/screenshots/overview-dark.png) |
+
+| 概览仪表盘（浅色） | 任务队列 | 日志总览 |
+| --- | --- | --- |
+| ![概览浅色](docs/screenshots/overview-light.png) | ![任务队列](docs/screenshots/tasks.png) | ![日志总览](docs/screenshots/logs.png) |
+
+- 登录页右上角 / 控制台顶栏提供 **浅色 ↔ 深色** 一键切换（跟随系统偏好，记忆用户选择）。
+- 概览页含 KPI 卡片、任务状态分布、依赖健康与 SSE 实时事件流（JSON 语法高亮）。
+- 任务队列支持类型 / 状态分段筛选与关键词搜索；日志总览支持失败重试视图、断点续传与诊断包导出。
 
 ## 核心特性
 
@@ -155,6 +172,13 @@ curl http://<host>/health/ready    # 200 才代表 DB+Redis 均就绪
 ```
 
 > 说明：`docker/Dockerfile` 为多阶段构建（deps → build → base → 各服务），`web` 目标独立构建 `apps/web` 静态产物后由 nginx 提供。详细运维见[运维手册](docs/RUNBOOK.md)。
+
+**容器命名**：compose 顶层 `name: aprism` 固定项目名，容器 / 网络统一为 `aprism-*`（如 `aprism-api-1`、`aprism-web-1`），不随目录名变化。已有旧部署（默认目录名命名的 `docker-*`）需先 `down` 再 `up` 才能切换容器名：
+
+```bash
+docker compose -f docker/docker-compose.prod.yml --env-file .env.production down
+docker compose -f docker/docker-compose.prod.yml --env-file .env.production up -d
+```
 
 ## 配置参考
 
