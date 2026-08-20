@@ -148,6 +148,25 @@ export type Repository = {
 
 export type RepositoryList = { items: Repository[] };
 
+export type RepoSyncResult = {
+  status: string;
+  installations: number;
+  synced: number;
+  errors: number;
+};
+
+/** Pulls installed repositories from the GitHub App and upserts them (admin). */
+export async function syncRepositories(): Promise<RepoSyncResult> {
+  const response = await fetch("/repositories/sync", {
+    method: "POST",
+    headers: { accept: "application/json", ...authHeaders() },
+  });
+  if (response.status === 401) throw new Error("unauthorized");
+  if (response.status === 403) throw new Error("需要管理员权限（403）");
+  if (!response.ok) throw new Error(`sync repositories ${response.status}`);
+  return (await response.json()) as RepoSyncResult;
+}
+
 /** Lists installed GitHub repos + per-repo task/result counts. */
 export async function fetchRepositories(): Promise<RepositoryList> {
   return (await getJson("/repositories")) as RepositoryList;

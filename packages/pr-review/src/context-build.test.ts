@@ -28,6 +28,7 @@ function makeGithub(): GitHubClient {
     addIssueLabels: async () => undefined,
     updateIssueComment: async () => ({ id: 1, htmlUrl: "" }),
     createPullRequestReview: async () => ({ id: 1 }),
+    listInstallationRepositories: async () => [],
     getPullRequest: async () => ({
       number: 9,
       title: "modernize imports",

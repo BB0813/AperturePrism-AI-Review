@@ -65,6 +65,7 @@ AperturePrism 把「AI 代码审查」做成了一条可落地的产品链路，
 | 仓库记忆 | 每次分析/审查自动沉淀「反思」；Scheduler 定期用模型合并成规则/知识；再次分析时回灌上下文 |
 | Agent Skills / 专家团队 | 6 个内置技能（triage/security/dependency/performance/docs/test）+ 多专家并行审查 + 主编合并（可选开关） |
 | Web 控制台 | 深色玻璃 UI：概览 / 日志 / Issue / PR / 队列 / 仓库 / 向量存储 / 记忆 / Agent / 配置 / 安全 / 用户 |
+| 安装仓库同步 | WebUI「已安装仓库」一键同步 GitHub App 安装仓库（`POST /repositories/sync`），并每 12 小时后台自动拉取，无需等待 Webhook |
 | 认证与安全 | GitHub OAuth 登录 + Bearer 令牌；首个登录用户自动为管理员；敏感操作审计日志；速率限制 |
 | 索引与 RAG | index-worker 定时索引仓库 Issue（内容哈希去重 + 批量 embedding + 重建）；只读召回接口 |
 | QQ 机器人 | NTQQ 第三方协议（OneBot 11 / Satori / Milky）+ 官方开放平台 api-v2；AstrBot 插件（`plugins/astrbot_plugin_apertureprism/`，支持 napcat + QQ 官方） |

@@ -5,7 +5,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { and, asc, desc, eq, gt, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNotNull, or } from "drizzle-orm";
 import {
   createCredentialCipher,
   loadConfig,
@@ -40,6 +40,7 @@ import {
   taskAttempts,
   taskEvents,
   updateDisplayName,
+  upsertInstalledRepositories,
   upsertLabelRule,
   webhookDeliveries,
   writeAuditLog,
@@ -1290,6 +1291,83 @@ async function handleRepositories(
     },
     requestId,
   );
+}
+
+/* ---------- GitHub App installation repository sync ---------- */
+
+const REPOSITORY_SYNC_INTERVAL_MS = 12 * 60 * 60 * 1_000; // 每 12 小时自动同步
+let repositorySyncRunning = false;
+let repositorySyncTimer: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Pulls every installed repository from the GitHub App for each known
+ * installation and upserts them into the `repositories` table, so repos added
+ * to the app installation appear in the WebUI without waiting for a webhook.
+ */
+async function syncInstallations(): Promise<{
+  installations: number;
+  synced: number;
+  errors: number;
+}> {
+  if (repositorySyncRunning) return { installations: 0, synced: 0, errors: 0 };
+  repositorySyncRunning = true;
+  try {
+    const github = await githubClientPromise;
+    if (!github)
+      return { installations: 0, synced: 0, errors: 1 };
+    const rows = await database.db
+      .select({ installationId: repositories.installationId })
+      .from(repositories)
+      .where(isNotNull(repositories.installationId));
+    const ids = [
+      ...new Set(
+        rows
+          .map((row) => row.installationId)
+          .filter((value): value is string => Boolean(value)),
+      ),
+    ];
+    let synced = 0;
+    let errors = 0;
+    for (const installationId of ids) {
+      try {
+        const repos = await github.listInstallationRepositories(installationId);
+        synced += await upsertInstalledRepositories(
+          database.db,
+          installationId,
+          repos,
+        );
+      } catch (error) {
+        errors += 1;
+        logger.warn(
+          { err: error, installationId },
+          "installation repository sync failed",
+        );
+      }
+    }
+    return { installations: ids.length, synced, errors };
+  } finally {
+    repositorySyncRunning = false;
+  }
+}
+
+/** POST /repositories/sync — admin-triggered installation repository sync. */
+async function handleRepositorySync(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  if (!(await isAdminRequest(request))) {
+    json(
+      response,
+      403,
+      { status: "error", reason: "admin required" },
+      requestId,
+    );
+    return;
+  }
+  const result = await syncInstallations();
+  audit(request, "repositories.sync", undefined, result);
+  json(response, 200, { status: "ok", ...result }, requestId);
 }
 
 /**
@@ -3097,6 +3175,20 @@ async function handleRequest(
     return;
   }
 
+  if (path === "/repositories/sync") {
+    if (request.method !== "POST") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    await handleRepositorySync(request, response, requestId);
+    return;
+  }
+
   if (request.method !== "GET") {
     json(
       response,
@@ -3196,6 +3288,7 @@ const server = createServer((request, response) => {
 async function shutdown(signal: string): Promise<void> {
   logger.info({ signal }, "shutting down");
   await stopEventStream();
+  if (repositorySyncTimer) clearInterval(repositorySyncTimer);
   await new Promise<void>((resolve) => server.close(() => resolve()));
   await closeRedisClient(redis);
   await database.close();
@@ -3209,6 +3302,15 @@ void startEventStream()
     server.listen(config.port, config.host, () =>
       logger.info({ host: config.host, port: config.port }, "API listening"),
     );
+    repositorySyncTimer = setInterval(() => {
+      void syncInstallations()
+        .then((result) =>
+          logger.info(result, "installation repository sync completed"),
+        )
+        .catch((error: unknown) =>
+          logger.warn({ err: error }, "installation repository sync failed"),
+        );
+    }, REPOSITORY_SYNC_INTERVAL_MS);
   })
   .catch((error: unknown) => {
     logger.error({ err: error }, "failed to start event stream");

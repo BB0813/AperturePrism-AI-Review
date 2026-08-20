@@ -2,10 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import {
   bumpCache,
   fetchRepositories,
+  syncRepositories,
   triggerManualTask,
   type Repository,
 } from "../lib/api";
-import { FolderIcon, RefreshIcon } from "../components/icons";
+import { ArrowPathIcon, FolderIcon, RefreshIcon } from "../components/icons";
 import { Empty, ErrorPanel, LoadingRows } from "../components/ui";
 
 export function ReposPage() {
@@ -18,6 +19,29 @@ export function ReposPage() {
   const [triggerNumber, setTriggerNumber] = useState<string>("");
   const [triggerBusy, setTriggerBusy] = useState(false);
   const [triggerMsg, setTriggerMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  const sync = async () => {
+    setSyncBusy(true);
+    setSyncMsg(null);
+    try {
+      const result = await syncRepositories();
+      setSyncMsg({
+        text: `已同步 ${result.synced} 个仓库（${result.installations} 个安装，${result.errors} 个失败）`,
+        ok: result.errors === 0,
+      });
+      bumpCache();
+      load();
+    } catch (err) {
+      setSyncMsg({
+        text: `同步失败：${err instanceof Error ? err.message : err}`,
+        ok: false,
+      });
+    } finally {
+      setSyncBusy(false);
+    }
+  };
 
   const load = useCallback(() => {
     setLoading(true);
@@ -72,12 +96,22 @@ export function ReposPage() {
           <p className="page-desc">GitHub App 授权仓库及其分析任务 / 结果统计</p>
         </div>
         <div className="actions">
+          <button className="btn" onClick={() => { void sync(); }} disabled={syncBusy}>
+            <ArrowPathIcon size={16} />
+            {syncBusy ? "同步中…" : "同步仓库"}
+          </button>
           <button className="btn" onClick={() => { bumpCache(); load(); }} disabled={loading}>
             <RefreshIcon size={16} />
             刷新
           </button>
         </div>
       </div>
+
+      {syncMsg ? (
+        <p className={`state ${syncMsg.ok ? "state-ok" : "state-error"}`} style={{ margin: "0 0 12px" }}>
+          {syncMsg.text}
+        </p>
+      ) : null}
 
       <section className="panel">
         <div className="panel-title">

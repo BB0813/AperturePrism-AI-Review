@@ -268,6 +268,22 @@ services:
 - GHCR 抖动：Registry API 查询失败降级为"暂无法检查"，不阻塞主功能
 - 回滚覆盖度：仅镜像回滚；DB 迁移后若需降级需人工介入（文档提示）
 
+## 11.5 关联功能：安装仓库同步（已实现）
+
+在线更新的前置能力是「WebUI 能反映 GitHub App 的安装仓库」。此功能已实现：
+
+- **接口**：`POST /repositories/sync`（管理员）——按 `repositories.installation_id` 去重遍历已知安装，调 GitHub API
+  `GET /installation/repositories` 拉取仓库并按 `github_id` upsert 入库；审计 `repositories.sync`。
+- **自动同步**：API 启动后 `setInterval` 每 **12 小时**执行一次（`REPOSITORY_SYNC_INTERVAL_MS`），并发互斥（`repositorySyncRunning`），
+  单个安装失败不影响其他安装。
+- **前端**：WebUI「已安装仓库」页新增「同步仓库」按钮，展示同步结果（安装数 / 同步数 / 失败数），成功后刷新列表。
+- **实现文件**：`packages/github-adapter/src/client.ts`（`listInstallationRepositories`）、
+  `packages/database/src/webhooks.ts`（`upsertInstalledRepositories`）、
+  `apps/api/src/main.ts`（`syncInstallations` / `handleRepositorySync` / 定时任务）、
+  `apps/web/src/pages/ReposPage.tsx` + `apps/web/src/lib/api.ts`。
+- **说明**：仓库来源仍以 Webhook 事件为准（实时），同步用于兜底「授权后未产生事件」的仓库；GitHub App 无 `installation_repositories`
+  webhook 事件订阅时，此同步是让新授权仓库出现在 WebUI 的唯一途径。
+
 ## 12. 参考资料
 
 - GHCR Registry HTTP API（匿名 tags/manifests）：`https://ghcr.io/v2/bb0813/apertureprism-ai-review/<svc>/tags/list`

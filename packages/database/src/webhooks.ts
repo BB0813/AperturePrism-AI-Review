@@ -47,6 +47,47 @@ function repositoryName(
   };
 }
 
+/** A repository returned by the GitHub App installation sync, before upsert. */
+export type InstalledRepositoryRow = {
+  id: number;
+  owner: string;
+  name: string;
+};
+
+/**
+ * Upserts repositories discovered from `GET /installation/repositories` into
+ * the `repositories` table, keyed on the unique `github_id`. Returns the number
+ * of repositories written.
+ */
+export async function upsertInstalledRepositories(
+  db: PostgresJsDatabase<typeof schema>,
+  installationId: string,
+  repos: readonly InstalledRepositoryRow[],
+): Promise<number> {
+  let count = 0;
+  for (const repo of repos) {
+    await db
+      .insert(schema.repositories)
+      .values({
+        githubId: String(repo.id),
+        owner: repo.owner,
+        name: repo.name,
+        installationId,
+      })
+      .onConflictDoUpdate({
+        target: schema.repositories.githubId,
+        set: {
+          owner: repo.owner,
+          name: repo.name,
+          installationId,
+          updatedAt: new Date(),
+        },
+      });
+    count += 1;
+  }
+  return count;
+}
+
 export async function ingestGitHubWebhook(
   db: PostgresJsDatabase<typeof schema>,
   event: NormalizedGitHubEvent,

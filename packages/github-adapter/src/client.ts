@@ -38,6 +38,14 @@ export type GitHubPullRequest = {
   deletions: number;
 };
 
+/** A repository installed to the GitHub App, from `GET /installation/repositories`. */
+export type InstalledRepository = {
+  id: number;
+  owner: string;
+  name: string;
+  fullName: string;
+};
+
 export type GitHubErrorCategory =
   | "rate_limited"
   | "authentication_failed"
@@ -214,6 +222,11 @@ export type GitHubClient = {
     },
     signal?: AbortSignal,
   ) => Promise<{ id: number }>;
+  /** Lists every repository installed to the app for a given installation. */
+  listInstallationRepositories: (
+    installationId: string,
+    signal?: AbortSignal,
+  ) => Promise<InstalledRepository[]>;
 };
 
 function signAppJwt(
@@ -600,6 +613,26 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
         signal,
       );
       return { id: numberValue(review.id) };
+    },
+
+    listInstallationRepositories: async (installationId, signal) => {
+      const data = await authorized<Record<string, unknown>>(
+        installationId,
+        { method: "GET", path: "/installation/repositories" },
+        signal,
+      );
+      const list = Array.isArray(data.repositories)
+        ? (data.repositories as Record<string, unknown>[])
+        : [];
+      return list.map((repo) => {
+        const owner = objectOr(repo.owner);
+        return {
+          id: numberValue(repo.id),
+          owner: stringValue(owner.login),
+          name: stringValue(repo.name),
+          fullName: stringValue(repo.full_name),
+        };
+      });
     },
   };
 }
