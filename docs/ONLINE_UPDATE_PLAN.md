@@ -1,6 +1,13 @@
 # AperturePrism 在线更新（Online Update）落地计划
 
-> 版本：draft · 状态：待评审 · 关联：[总体设计](APERTUREPRISM_AI_REVIEW_PROJECT_DESIGN.md) · [运维手册](RUNBOOK.md)
+> 版本：v1.0.1 · 状态：**P1–P3 已实现（v1.0.1）** · 关联：[总体设计](APERTUREPRISM_AI_REVIEW_PROJECT_DESIGN.md) · [运维手册](RUNBOOK.md)
+>
+> 实现记录（v1.0.1）：
+> - `GET /update/status`：GHCR Registry 匿名查询 tags/digest，对比当前版本（`UPDATE_VERSION` 注入）
+> - `POST /update/apply`：管理员，SSE 流式日志，容器内执行 `scripts/update.sh`（pull→migrate→up→health→回滚）
+> - `GET /update/history`：`system_settings.update_history` 持久化
+> - 执行通道：api 镜像内置 docker CLI + compose 插件，compose 挂载 `docker.sock:ro`；`AP_VERIFY=1` 时叠加 `compose.verify.yml`（NAS 地址池耗尽场景）
+> - 前端：系统配置页「版本与更新」区块（UpdatePanel.tsx：检查/更新/日志/历史）
 
 ## 1. 背景与目标
 

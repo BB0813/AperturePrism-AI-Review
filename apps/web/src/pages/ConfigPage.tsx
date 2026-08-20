@@ -15,6 +15,7 @@ import {
 } from "../lib/api";
 import { DownloadIcon, GearIcon, RefreshIcon, UploadIcon, XCircleIcon } from "../components/icons";
 import { ErrorPanel, LoadingRows } from "../components/ui";
+import { UpdatePanel } from "../components/UpdatePanel";
 
 function BoolBadge({ ok, yes = "已启用", no = "未配置" }: { ok: boolean; yes?: string; no?: string }) {
   return <span className={ok ? "pill pill-ok" : "pill pill-dim"}>{ok ? yes : no}</span>;
@@ -312,6 +313,8 @@ export function ConfigPage() {
         <div className="panel"><LoadingRows /></div>
       ) : (
         <div className="stack">
+          <UpdatePanel />
+
           <section className="panel">
             <div className="panel-title"><h2><GearIcon size={14} /> 热更新设置</h2></div>
             {message ? (

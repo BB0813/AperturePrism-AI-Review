@@ -28,6 +28,14 @@ COPY --from=deps /app/package.json ./package.json
 
 FROM base AS api
 COPY --from=build /app/apps/api/dist ./apps/api/dist
+# docker CLI + compose plugin so the api can drive online updates (docker.sock is mounted by compose).
+COPY --from=docker:cli /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker:cli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
+COPY --from=docker:cli /usr/local/lib/docker/cli-plugins/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose
+COPY scripts ./scripts
+COPY docker/docker-compose.prod.yml ./docker/docker-compose.prod.yml
+COPY docker/compose.verify.yml ./docker/compose.verify.yml
+COPY docker/docker-compose.dev.yml ./docker/docker-compose.dev.yml
 EXPOSE 30001
 CMD ["node", "apps/api/dist/apps/api/src/main.js"]
 

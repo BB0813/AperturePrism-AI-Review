@@ -51,7 +51,13 @@ services:
       PORT: 30001
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
+      # 在线更新：当前运行版本 / 项目名 / 是否叠加 verify 网络 override（NAS 地址池耗尽场景）
+      UPDATE_VERSION: ${IMAGE_TAG:-latest}
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-apertureprism-ai-review}
+      AP_VERIFY: ${AP_VERIFY:-0}
     volumes:
+      # 供在线更新（POST /update/apply）驱动 docker compose；只读、脚本白名单限定本项目
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       - ${GITHUB_APP_KEY_MOUNT:-/opt/apertureprism/github-app.pem}:/opt/apertureprism/github-app.pem:ro
     ports:
       - "${API_PORT:-30001}:30001"

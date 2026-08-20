@@ -238,6 +238,9 @@ docker compose -f docker/docker-compose.prod.yml --env-file .env.production up -
 | GET | `/events` | SSE 任务事件流（`?since=` 断线回放） |
 | GET / POST | `/index/status` `/index/related` `/index/run` `/index/rebuild` | 索引状态 / 只读召回 / 触发 / 重建 |
 | GET·PUT | `/settings` | 运行时配置读取（密钥脱敏）/ 热更新 |
+| GET | `/update/status` | 在线更新：当前/最新版本对比（Registry 查询） |
+| POST | `/update/apply` | 一键在线更新（管理员；SSE 日志，失败自动回滚到上一版本） |
+| GET | `/update/history` | 在线更新历史（管理员） |
 | GET·POST | `/backup` `/backup/import` | 配置导出 / 导入（导入需管理员） |
 | GET·PUT·DELETE | `/label-rules` | 标签规则管理 |
 | GET·PUT | `/auth/me` | 当前账号（登录名 / 显示名 / 是否管理员） |

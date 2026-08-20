@@ -47,6 +47,11 @@ import {
 } from "../../../packages/database/src/index.js";
 import { memoryConsolidationSweep } from "../../../apps/scheduler/src/consolidation.js";
 import {
+  handleUpdateApply,
+  handleUpdateHistory,
+  handleUpdateStatus,
+} from "./update.js";
+import {
   createGitHubClient,
   GitHubApiError,
   normalizeGitHubEvent,
@@ -362,6 +367,7 @@ const protectedPaths = [
   "/capabilities",
   "/events",
   "/memory",
+  "/update",
 ];
 const EVENT_CHANNEL = "apertureprism:task:events";
 
@@ -3023,6 +3029,58 @@ async function handleRequest(
 
   if (path === "/settings") {
     await handleSettings(request, response, requestId);
+    return;
+  }
+
+  if (path === "/update/status") {
+    if (request.method !== "GET") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    await handleUpdateStatus(response, requestId);
+    return;
+  }
+
+  if (path === "/update/history") {
+    if (request.method !== "GET") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    if (!(await isAdminRequest(request))) {
+      json(
+        response,
+        403,
+        { status: "error", reason: "admin required" },
+        requestId,
+      );
+      return;
+    }
+    await handleUpdateHistory(response, requestId, database.db);
+    return;
+  }
+
+  if (path === "/update/apply") {
+    if (request.method !== "POST") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    const isAdmin = await isAdminRequest(request);
+    await handleUpdateApply(request, response, requestId, isAdmin, database.db);
     return;
   }
 
