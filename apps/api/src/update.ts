@@ -218,7 +218,7 @@ async function runUpdate(
     ...(backupBefore ? ["--backup"] : []),
   ];
 
-  const child = spawn(UPDATE_SCRIPT_PATH, args, {
+  const child = spawn("/bin/sh", [UPDATE_SCRIPT_PATH, ...args], {
     env: { ...process.env, FORCE_COLOR: "0" },
     stdio: ["ignore", "pipe", "pipe"],
   });
