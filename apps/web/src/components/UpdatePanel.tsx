@@ -8,26 +8,25 @@ import {
 } from "../lib/api";
 import { ArrowPathIcon, RefreshIcon } from "./icons";
 import { fmtTime } from "./ui";
+import { useToast } from "./Toast";
 
 type LogLine = { level: string; message: string };
 
 /** 在线更新：检查 / 一键更新（SSE 日志）/ 历史。管理员可触发更新。 */
 export function UpdatePanel() {
+  const toast = useToast();
   const [status, setStatus] = useState<UpdateStatus | null>(null);
   const [history, setHistory] = useState<UpdateHistoryEntry[]>([]);
   const [checking, setChecking] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [logs, setLogs] = useState<LogLine[]>([]);
-  const [done, setDone] = useState<{ ok: boolean; message: string } | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const check = useCallback(async () => {
     setChecking(true);
-    setError(null);
     try {
       setStatus(await fetchUpdateStatus());
     } catch (err) {
-      setError(err instanceof Error ? err.message : "检查更新失败");
+      toast.error(err instanceof Error ? err.message : "检查更新失败");
     } finally {
       setChecking(false);
     }
@@ -41,14 +40,12 @@ export function UpdatePanel() {
   }, [check]);
 
   const update = async () => {
-    setError(null);
-    setDone(null);
     setLogs([]);
     setUpdating(true);
     try {
       const body = await applyUpdate("latest", true);
       if (!body) {
-        setDone({ ok: true, message: "已触发更新" });
+        toast.success("已触发更新");
         return;
       }
       const reader = body.getReader();
@@ -94,9 +91,11 @@ export function UpdatePanel() {
           }
         }
       }
-      setDone(result ?? { ok: true, message: "更新流结束" });
+      const finalResult = result ?? { ok: true, message: "更新流结束" };
+      if (finalResult.ok) toast.success(finalResult.message);
+      else toast.error(finalResult.message);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "更新失败");
+      toast.error(err instanceof Error ? err.message : "更新失败");
     } finally {
       setUpdating(false);
       void fetchUpdateHistory()
@@ -147,11 +146,6 @@ export function UpdatePanel() {
           {updating ? "更新中…" : "更新到最新"}
         </button>
       </div>
-
-      {error ? <p className="state state-error">{error}</p> : null}
-      {done ? (
-        <p className={`state ${done.ok ? "state-ok" : "state-error"}`}>{done.message}</p>
-      ) : null}
 
       {logs.length > 0 ? (
         <pre className="jsonbox" style={{ maxHeight: 220 }}>

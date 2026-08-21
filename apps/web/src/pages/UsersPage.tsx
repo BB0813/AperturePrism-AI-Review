@@ -2,11 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import { bumpCache, fetchMe, fetchUsers, setUserAdmin, type UserRow } from "../lib/api";
 import { RefreshIcon, ShieldIcon } from "../components/icons";
 import { ErrorPanel, LoadingRows } from "../components/ui";
+import { useToast } from "../components/Toast";
 
 export function UsersPage() {
+  const toast = useToast();
   const [users, setUsers] = useState<UserRow[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -34,14 +35,14 @@ export function UsersPage() {
   useEffect(() => load(), [load]);
 
   const toggle = async (login: string, next: boolean) => {
+    if (!next && !window.confirm(`确定要移除 ${login} 的管理员权限吗？`)) return;
     setBusy(login);
-    setMessage(null);
     try {
       await setUserAdmin(login, next);
-      setMessage({ text: `已${next ? "授予" : "移除"} ${login} 的管理员权限。`, ok: true });
+      toast.success(`已${next ? "授予" : "移除"} ${login} 的管理员权限。`);
       load();
     } catch (err) {
-      setMessage({ text: `操作失败：${err instanceof Error ? err.message : err}`, ok: false });
+      toast.error(`操作失败：${err instanceof Error ? err.message : err}`);
     } finally {
       setBusy(null);
     }
@@ -68,12 +69,6 @@ export function UsersPage() {
         <div className="panel"><LoadingRows /></div>
       ) : (
         <div className="stack">
-          {message ? (
-            <p className={`state ${message.ok ? "state-ok" : "state-error"}`} style={{ margin: 0 }}>
-              {message.text}
-            </p>
-          ) : null}
-
           <section className="panel">
             <div className="panel-title"><h2><ShieldIcon size={14} /> 用户列表</h2><span className="count">{users.length}</span></div>
             {users.length === 0 ? (

@@ -8,16 +8,15 @@ import {
 } from "../lib/api";
 import { RefreshIcon, SparkleIcon } from "../components/icons";
 import { ErrorPanel, LoadingRows } from "../components/ui";
+import { useToast } from "../components/Toast";
 
 export function AgentPage() {
+  const toast = useToast();
   const [data, setData] = useState<Capabilities | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(
-    null,
-  );
 
   const load = useCallback(() => {
     setLoading(true);
@@ -40,18 +39,16 @@ export function AgentPage() {
     if (!data) return;
     const next = !data.enabled;
     setBusy(true);
-    setMessage(null);
     try {
       await setExpertTeamEnabled(next);
-      setMessage({
-        text: next ? "专家团队已启用：PR 审查将走多专家管线。" : "专家团队已停用：PR 审查恢复单模型管线。",
-        ok: true,
-      });
+      toast.success(
+        next ? "专家团队已启用：PR 审查将走多专家管线。" : "专家团队已停用：PR 审查恢复单模型管线。",
+      );
       setData((prev) => (prev ? { ...prev, enabled: next } : prev));
     } catch (err) {
       const text = err instanceof Error ? err.message : "切换失败";
-      setMessage({ text, ok: false });
-      if (text.includes("403")) setMessage({ text: "需要管理员权限（403）。", ok: false });
+      if (text.includes("403")) toast.error("需要管理员权限（403）。");
+      else toast.error(text);
     } finally {
       setBusy(false);
     }
@@ -84,15 +81,6 @@ export function AgentPage() {
           </button>
         </div>
       </div>
-
-      {message ? (
-        <p
-          className={`state ${message.ok ? "state-ok" : "state-error"}`}
-          style={{ margin: 0 }}
-        >
-          {message.text}
-        </p>
-      ) : null}
 
       <section className="panel">
         <div className="panel-title">

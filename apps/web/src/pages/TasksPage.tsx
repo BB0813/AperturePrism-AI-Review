@@ -7,6 +7,37 @@ import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 
 const TYPE_FILTERS = ["all", "issue_analysis", "pr_review", "repository_index"] as const;
 const STATUS_FILTERS = ["all", "queued", "running", "publishing", "completed", "failed", "retry_wait", "canceled"] as const;
+export type SortKey = "subjectNumber" | "status" | "attempt" | "updatedAt" | "policy";
+export type SortState = { key: SortKey; dir: "asc" | "desc" };
+
+/** 按指定列对任务排序（纯函数，供组件与单元测试复用）。 */
+export function sortTasks<T extends { subjectNumber?: number | null; status: string; attemptCount: number; policyVersion: string; updatedAt: string }>(
+  items: T[],
+  sort: SortState,
+): T[] {
+  const dir = sort.dir === "asc" ? 1 : -1;
+  return [...items].sort((a, b) => {
+    switch (sort.key) {
+      case "subjectNumber": {
+        const aN = a.subjectNumber ?? null;
+        const bN = b.subjectNumber ?? null;
+        if (aN === null && bN === null) return 0;
+        if (aN === null) return 1; // 无编号的任务始终排最后
+        if (bN === null) return -1;
+        return (aN - bN) * dir;
+      }
+      case "status":
+        return a.status.localeCompare(b.status) * dir;
+      case "attempt":
+        return (a.attemptCount - b.attemptCount) * dir;
+      case "policy":
+        return a.policyVersion.localeCompare(b.policyVersion) * dir;
+      case "updatedAt":
+      default:
+        return a.updatedAt.localeCompare(b.updatedAt) * dir;
+    }
+  });
+}
 
 export function TasksPage() {
   const [list, setList] = useState<TaskList | null>(null);
@@ -16,6 +47,18 @@ export function TasksPage() {
   const [type, setType] = useState<string>("all");
   const [status, setStatus] = useState<string>("all");
   const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
+    key: "updatedAt",
+    dir: "desc",
+  });
+
+  const toggleSort = (key: SortKey) => {
+    setSort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: key === "updatedAt" ? "desc" : "asc" },
+    );
+  };
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -54,13 +97,16 @@ export function TasksPage() {
   const items = useMemo(() => {
     if (!list) return [];
     const q = search.toLowerCase();
-    return list.items.filter(
-      (t) =>
-        (type === "all" || t.taskType === type) &&
-        (status === "all" || t.status === status) &&
-        (!q || t.id.includes(q) || String(t.subjectNumber ?? "").includes(q) || t.policyVersion.toLowerCase().includes(q) || t.status.includes(q)),
+    return sortTasks(
+      list.items.filter(
+        (t) =>
+          (type === "all" || t.taskType === type) &&
+          (status === "all" || t.status === status) &&
+          (!q || t.id.includes(q) || String(t.subjectNumber ?? "").includes(q) || t.policyVersion.toLowerCase().includes(q) || t.status.includes(q)),
+      ),
+      sort,
     );
-  }, [list, type, status, search]);
+  }, [list, type, status, search, sort]);
 
   return (
     <div className="stack">
@@ -128,12 +174,12 @@ export function TasksPage() {
               <thead>
                 <tr>
                   <th>类型</th>
-                  <th>对象</th>
-                  <th>状态</th>
-                  <th>策略</th>
-                  <th>尝试</th>
+                  <SortableTh label="对象" active={sort.key === "subjectNumber"} dir={sort.dir} onClick={() => toggleSort("subjectNumber")} />
+                  <SortableTh label="状态" active={sort.key === "status"} dir={sort.dir} onClick={() => toggleSort("status")} />
+                  <SortableTh label="策略" active={sort.key === "policy"} dir={sort.dir} onClick={() => toggleSort("policy")} />
+                  <SortableTh label="尝试" active={sort.key === "attempt"} dir={sort.dir} onClick={() => toggleSort("attempt")} />
                   <th>上次错误</th>
-                  <th>更新时间</th>
+                  <SortableTh label="更新时间" active={sort.key === "updatedAt"} dir={sort.dir} onClick={() => toggleSort("updatedAt")} />
                   <th />
                 </tr>
               </thead>
@@ -175,4 +221,26 @@ function TaskRow({ task }: { task: TaskSummary }) {
 
 function TypeChipLabel(type: string): string {
   return { issue_analysis: "Issue", pr_review: "PR", repository_index: "索引" }[type] ?? type;
+}
+
+function SortableTh(props: {
+  label: string;
+  active: boolean;
+  dir: "asc" | "desc";
+  onClick: () => void;
+}) {
+  return (
+    <th aria-sort={props.active ? (props.dir === "asc" ? "ascending" : "descending") : "none"}>
+      <button
+        type="button"
+        className={`th-sort ${props.active ? "th-sort-active" : ""}`}
+        onClick={props.onClick}
+      >
+        {props.label}
+        <span className="th-sort-arrow" aria-hidden="true">
+          {props.active ? (props.dir === "asc" ? "↑" : "↓") : "↕"}
+        </span>
+      </button>
+    </th>
+  );
 }

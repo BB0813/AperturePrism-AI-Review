@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { useSse } from "./hooks/useSse";
 import { navigate, tabOf, useHashRoute } from "./hooks/useHash";
 import { useTheme } from "./hooks/useTheme";
+import { useToast } from "./components/Toast";
 import { eventsUrl, getToken, setToken } from "./lib/auth";
 import { fetchSetupStatus } from "./lib/api";
 import { Login } from "./pages/Login";
@@ -30,6 +31,7 @@ import {
   GearIcon,
   GridIcon,
   InfoIcon,
+  LayersIcon,
   ListIcon,
   LogoutIcon,
   MoonIcon,
@@ -37,6 +39,8 @@ import {
   ShieldIcon,
   SparkleIcon,
   SunIcon,
+  UserCircleIcon,
+  UserIcon,
 } from "./components/icons";
 
 const STATUS_TEXT: Record<string, string> = {
@@ -46,9 +50,9 @@ const STATUS_TEXT: Record<string, string> = {
 };
 
 type NavItem = { path: string; label: string; icon: (p: { size?: number }) => ReactElement };
-type NavGroup = { title?: string; items: NavItem[] };
+export type NavGroup = { title?: string; items: NavItem[] };
 
-const NAV: NavGroup[] = [
+export const NAV: NavGroup[] = [
   {
     items: [
       { path: "/", label: "仪表盘", icon: GridIcon },
@@ -70,12 +74,7 @@ const NAV: NavGroup[] = [
       { path: "/vector", label: "向量存储", icon: DatabaseIcon },
       { path: "/memory", label: "记忆管理", icon: SparkleIcon },
       { path: "/provider", label: "模型路由", icon: CpuIcon },
-    ],
-  },
-  {
-    title: "Agent 与互助",
-    items: [
-      { path: "/agent", label: "Agent 能力", icon: SparkleIcon },
+      { path: "/agent", label: "Agent 能力", icon: LayersIcon },
     ],
   },
   {
@@ -83,8 +82,7 @@ const NAV: NavGroup[] = [
     items: [
       { path: "/config", label: "系统配置", icon: GearIcon },
       { path: "/security", label: "安全管理", icon: ShieldIcon },
-      { path: "/users", label: "用户管理", icon: ShieldIcon },
-      { path: "/account", label: "个人设置", icon: SparkleIcon },
+      { path: "/users", label: "用户管理", icon: UserIcon },
       { path: "/about", label: "关于", icon: InfoIcon },
     ],
   },
@@ -93,6 +91,7 @@ const NAV: NavGroup[] = [
 export function App() {
   const [token, setTokenState] = useState<string>(() => getToken());
   const route = useHashRoute();
+  const toast = useToast();
   const showSetup = route === "/setup";
   // Install state: `null` = still probing; `false` = not initialized (wizard
   // is public); `true` = already installed (wizard requires auth / is hidden).
@@ -121,10 +120,10 @@ export function App() {
       setTokenState(oauthToken);
       window.history.replaceState(null, "", "#/");
     } else if (params.get("oauth_error")) {
-      window.alert("GitHub 登录失败：" + params.get("oauth_error"));
+      toast.error(`GitHub 登录失败：${params.get("oauth_error")}`);
       window.history.replaceState(null, "", "#/");
     }
-  }, []);
+  }, [toast]);
 
   const loginGate = (
     <Login
@@ -229,10 +228,18 @@ function AuthedConsole(props: { onLogout: () => void }) {
         </nav>
 
         <div className="side-foot">
-          <span className={`status-badge status-${sse.status}`}>
-            <span className="dot-pulse" />
-            {STATUS_TEXT[sse.status]}
-          </span>
+          <a
+            className="account-entry"
+            href="#/account"
+            aria-current={active === "/account" ? "page" : undefined}
+            onClick={(event) => {
+              event.preventDefault();
+              navigate("/account");
+            }}
+          >
+            <UserCircleIcon size={18} />
+            <span>个人设置</span>
+          </a>
           <button className="btn btn-ghost" onClick={props.onLogout}>
             <LogoutIcon size={16} />
             退出登录
@@ -269,7 +276,7 @@ function AuthedConsole(props: { onLogout: () => void }) {
   );
 }
 
-function routeGroupTitle(active: string): string | undefined {
+export function routeGroupTitle(active: string): string | undefined {
   for (const group of NAV) {
     if (group.items.some((it) => it.path === active)) return group.title;
   }

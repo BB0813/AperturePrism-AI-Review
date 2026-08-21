@@ -164,7 +164,7 @@ function ResultCard({ item }: { item: SubjectResult }) {
         </a>
       </div>
 
-      {norm.isIssue ? <IssueBody norm={norm} /> : <GenericBody norm={norm} />}
+      {norm.isIssue ? <IssueBody norm={norm} /> : <PrBody norm={norm} />}
 
       <button className="detail-btn" onClick={() => setOpen((v) => !v)}>
         {open ? <ChevronDownIcon size={14} /> : <ChevronRightIcon size={14} />}
@@ -256,10 +256,118 @@ function IssueBody({ norm }: { norm: NormResult }) {
   );
 }
 
-function GenericBody({ norm }: { norm: NormResult }) {
-  // PR review results have a different contract; surface whatever summary-like
-  // field exists and let users drill into the raw JSON.
-  return <p className="result-summary">{norm.summary || "查看原始数据以展开分析内容"}</p>;
+export type PrFinding = {
+  rule: string;
+  severity: string;
+  file: string;
+  message: string;
+  evidence: string;
+  suggestion: string;
+  afterLine: number;
+};
+
+export type PrParsed = {
+  summary: string;
+  overallTone: string | null;
+  stats: { files: number; additions: number; deletions: number } | null;
+  findings: PrFinding[];
+};
+
+/** 规范化 PR 审查结果（pr-review/v1 契约），供展示与单元测试复用。 */
+export function parsePrResult(root: Record<string, unknown>): PrParsed | null {
+  if (typeof root.summary !== "string" && !Array.isArray(root.findings)) return null;
+  const findings = Array.isArray(root.findings)
+    ? (root.findings as Record<string, unknown>[]).map((f) => ({
+        rule: typeof f.rule === "string" ? f.rule : "rule",
+        severity: typeof f.severity === "string" ? f.severity : "info",
+        file: typeof f.file === "string" ? f.file : "",
+        message: typeof f.message === "string" ? f.message : "",
+        evidence: typeof f.evidence === "string" ? f.evidence : "",
+        suggestion: typeof f.suggestion === "string" ? f.suggestion : "",
+        afterLine: typeof f.afterLine === "number" ? f.afterLine : 0,
+      }))
+    : [];
+  const hasStats =
+    typeof root.changedFileCount === "number" ||
+    typeof root.additions === "number" ||
+    typeof root.deletions === "number";
+  return {
+    summary: typeof root.summary === "string" ? root.summary : "",
+    overallTone: typeof root.overallTone === "string" ? root.overallTone : null,
+    stats: hasStats
+      ? {
+          files: typeof root.changedFileCount === "number" ? root.changedFileCount : 0,
+          additions: typeof root.additions === "number" ? root.additions : 0,
+          deletions: typeof root.deletions === "number" ? root.deletions : 0,
+        }
+      : null,
+    findings,
+  };
+}
+
+function PrBody({ norm }: { norm: NormResult }) {
+  const pr = parsePrResult(norm.root);
+  if (!pr) return <p className="result-summary">{norm.summary || "查看原始数据以展开分析内容"}</p>;
+
+  return (
+    <>
+      <div className="result-meta">
+        {pr.overallTone ? <ToneBadge tone={pr.overallTone} /> : null}
+        {pr.stats ? (
+          <span className="chip mono">
+            {pr.stats.files} 文件 · +{pr.stats.additions}/-{pr.stats.deletions}
+          </span>
+        ) : null}
+        <span className="pill pill-dim">{pr.findings.length} findings</span>
+      </div>
+
+      {pr.summary ? <p className="result-summary">{pr.summary}</p> : null}
+
+      {pr.findings.length > 0 ? (
+        <div className="section">
+          <h4>审查发现（Findings）</h4>
+          <ul className="finding-list">
+            {pr.findings.map((f, i) => (
+              <li key={i} className="finding">
+                <div className="finding-head">
+                  <span className={`pill ${prSeverityCls(f.severity)}`}>{f.severity}</span>
+                  <span className="finding-rule mono">{f.rule}</span>
+                  <span className="finding-file mono">
+                    {f.file}
+                    {f.afterLine ? `:${f.afterLine}` : ""}
+                  </span>
+                </div>
+                {f.message ? <p className="finding-msg">{f.message}</p> : null}
+                {f.evidence ? <pre className="finding-evidence">{f.evidence}</pre> : null}
+                {f.suggestion ? <p className="finding-suggestion">建议：{f.suggestion}</p> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function ToneBadge({ tone }: { tone: string }) {
+  const cls =
+    tone === "approve" ? "pill-ok" : tone === "changes_requested" ? "pill-err" : "pill-dim";
+  return <span className={`pill ${cls}`}>{tone}</span>;
+}
+
+function prSeverityCls(value: string): string {
+  switch (value.toLowerCase()) {
+    case "critical":
+      return "s0";
+    case "high":
+      return "s1";
+    case "medium":
+      return "s2";
+    case "low":
+      return "s3";
+    default:
+      return "sunknown";
+  }
 }
 
 function ConfItem({ label, value }: { label: string; value?: number }) {

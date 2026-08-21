@@ -13,6 +13,7 @@ import {
 import { RefreshIcon, SparkleIcon } from "../components/icons";
 import { ErrorPanel, LoadingRows, fmtTime } from "../components/ui";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
+import { useToast } from "../components/Toast";
 
 const KIND_LABEL: Record<string, string> = {
   reflection: "反思",
@@ -33,6 +34,7 @@ const SOURCE_LABEL: Record<string, string> = {
 };
 
 export function MemoryPage() {
+  const toast = useToast();
   const [items, setItems] = useState<RepoMemoryItem[]>([]);
   const [counts, setCounts] = useState({ reflection: 0, rule: 0, knowledge: 0 });
   const [nextOffset, setNextOffset] = useState<number | undefined>(undefined);
@@ -43,7 +45,6 @@ export function MemoryPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
-  const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -83,7 +84,7 @@ export function MemoryPage() {
       setItems((prev) => [...prev, ...list.items]);
       setNextOffset(list.nextOffset);
     } catch (err) {
-      setMessage({ text: `加载失败：${err instanceof Error ? err.message : err}`, ok: false });
+      toast.error(`加载失败：${err instanceof Error ? err.message : err}`);
     }
   };
 
@@ -98,30 +99,26 @@ export function MemoryPage() {
 
   const consolidate = async () => {
     setBusy("consolidate");
-    setMessage(null);
     try {
       const result = await triggerMemoryConsolidation();
-      setMessage({
-        text: `合并完成：处理 ${result.repositories} 个仓库，沉淀 ${result.rules} 条规则/知识。`,
-        ok: true,
-      });
+      toast.success(`合并完成：处理 ${result.repositories} 个仓库，沉淀 ${result.rules} 条规则/知识。`);
       load();
     } catch (err) {
-      setMessage({ text: `合并失败：${err instanceof Error ? err.message : err}`, ok: false });
+      toast.error(`合并失败：${err instanceof Error ? err.message : err}`);
     } finally {
       setBusy(null);
     }
   };
 
   const remove = async (item: RepoMemoryItem) => {
+    if (!window.confirm(`确定要删除记忆「${item.title.slice(0, 40)}」吗？`)) return;
     setBusy(item.id);
-    setMessage(null);
     try {
       await deleteRepoMemory(item.id);
-      setMessage({ text: `已删除「${item.title.slice(0, 40)}」。`, ok: true });
+      toast.success(`已删除「${item.title.slice(0, 40)}」。`);
       load();
     } catch (err) {
-      setMessage({ text: `删除失败：${err instanceof Error ? err.message : err}`, ok: false });
+      toast.error(`删除失败：${err instanceof Error ? err.message : err}`);
     } finally {
       setBusy(null);
     }
@@ -153,12 +150,6 @@ export function MemoryPage() {
           </button>
         </div>
       </div>
-
-      {message ? (
-        <p className={`state ${message.ok ? "state-ok" : "state-error"}`} style={{ margin: 0 }}>
-          {message.text}
-        </p>
-      ) : null}
 
       {error ? (
         <ErrorPanel error={error} onRetry={load} />

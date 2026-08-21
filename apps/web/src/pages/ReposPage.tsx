@@ -8,6 +8,7 @@ import {
 } from "../lib/api";
 import { ArrowPathIcon, FolderIcon, RefreshIcon } from "../components/icons";
 import { Empty, ErrorPanel, LoadingRows } from "../components/ui";
+import { useToast } from "../components/Toast";
 
 export function ReposPage() {
   const [repos, setRepos] = useState<Repository[] | null>(null);
@@ -18,26 +19,20 @@ export function ReposPage() {
   const [triggerRepo, setTriggerRepo] = useState<string>("");
   const [triggerNumber, setTriggerNumber] = useState<string>("");
   const [triggerBusy, setTriggerBusy] = useState(false);
-  const [triggerMsg, setTriggerMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const [syncBusy, setSyncBusy] = useState(false);
-  const [syncMsg, setSyncMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const toast = useToast();
 
   const sync = async () => {
     setSyncBusy(true);
-    setSyncMsg(null);
     try {
       const result = await syncRepositories();
-      setSyncMsg({
-        text: `已同步 ${result.synced} 个仓库（${result.installations} 个安装，${result.errors} 个失败）`,
-        ok: result.errors === 0,
-      });
+      toast.success(
+        `已同步 ${result.synced} 个仓库（${result.installations} 个安装，${result.errors} 个失败）`,
+      );
       bumpCache();
       load();
     } catch (err) {
-      setSyncMsg({
-        text: `同步失败：${err instanceof Error ? err.message : err}`,
-        ok: false,
-      });
+      toast.error(`同步失败：${err instanceof Error ? err.message : err}`);
     } finally {
       setSyncBusy(false);
     }
@@ -60,29 +55,23 @@ export function ReposPage() {
   const trigger = async () => {
     const number = Number(triggerNumber);
     if (!triggerRepo || !Number.isInteger(number) || number <= 0) {
-      setTriggerMsg({ text: "请选择仓库并填写正整数编号", ok: false });
+      toast.error("请选择仓库并填写正整数编号");
       return;
     }
     setTriggerBusy(true);
-    setTriggerMsg(null);
     try {
       const result = await triggerManualTask({
         type: triggerType,
         repositoryFullName: triggerRepo,
         subjectNumber: number,
       });
-      setTriggerMsg({
-        text:
-          result.outcome === "duplicate"
-            ? `任务已存在（去重），taskId：${result.taskId}`
-            : `已创建任务，taskId：${result.taskId}`,
-        ok: true,
-      });
+      toast.success(
+        result.outcome === "duplicate"
+          ? `任务已存在（去重），taskId：${result.taskId}`
+          : `已创建任务，taskId：${result.taskId}`,
+      );
     } catch (err) {
-      setTriggerMsg({
-        text: `触发失败：${err instanceof Error ? err.message : err}`,
-        ok: false,
-      });
+      toast.error(`触发失败：${err instanceof Error ? err.message : err}`);
     } finally {
       setTriggerBusy(false);
     }
@@ -107,22 +96,11 @@ export function ReposPage() {
         </div>
       </div>
 
-      {syncMsg ? (
-        <p className={`state ${syncMsg.ok ? "state-ok" : "state-error"}`} style={{ margin: "0 0 12px" }}>
-          {syncMsg.text}
-        </p>
-      ) : null}
-
       <section className="panel">
         <div className="panel-title">
           <h2>手动触发分析</h2>
           <span className="count">对已安装仓库的 Issue / PR 手动创建任务</span>
         </div>
-        {triggerMsg ? (
-          <p className={`state ${triggerMsg.ok ? "state-ok" : "state-error"}`} style={{ margin: "0 0 12px" }}>
-            {triggerMsg.text}
-          </p>
-        ) : null}
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <select
             className="input"

@@ -16,6 +16,7 @@ import {
 import { DownloadIcon, GearIcon, RefreshIcon, UploadIcon, XCircleIcon } from "../components/icons";
 import { ErrorPanel, LoadingRows } from "../components/ui";
 import { UpdatePanel } from "../components/UpdatePanel";
+import { useToast } from "../components/Toast";
 
 function BoolBadge({ ok, yes = "已启用", no = "未配置" }: { ok: boolean; yes?: string; no?: string }) {
   return <span className={ok ? "pill pill-ok" : "pill pill-dim"}>{ok ? yes : no}</span>;
@@ -143,11 +144,11 @@ function StatusItem({ label, children }: { label: string; children: React.ReactN
 }
 
 export function ConfigPage() {
+  const toast = useToast();
   const [cfg, setCfg] = useState<RuntimeConfig | null>(null);
   const [items, setItems] = useState<SettingItem[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busyKey, setBusyKey] = useState<string | null>(null);
-  const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -170,29 +171,26 @@ export function ConfigPage() {
 
   const save = async (key: string) => {
     setBusyKey(key);
-    setMessage(null);
     try {
       await saveSetting(key, (drafts[key] ?? "").trim());
-      setMessage({ text: `已保存并热生效：${FIELD_META[key]?.label ?? key}`, ok: true });
+      toast.success(`已保存并热生效：${FIELD_META[key]?.label ?? key}`);
       const fresh = await fetchSettings();
       setItems(fresh.items);
       setDrafts((prev) => ({ ...prev, [key]: "" }));
     } catch (err) {
-      setMessage({ text: `保存失败：${err instanceof Error ? err.message : err}`, ok: false });
+      toast.error(`保存失败：${err instanceof Error ? err.message : err}`);
     } finally {
       setBusyKey(null);
     }
   };
 
   const [backupBusy, setBackupBusy] = useState(false);
-  const [backupMsg, setBackupMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const [labelItems, setLabelItems] = useState<LabelRuleItem[]>([]);
   const [labelPrefixes, setLabelPrefixes] = useState<string[]>([]);
   const [labelDraft, setLabelDraft] = useState({ key: "", label: "", enabled: true });
   const [labelBusy, setLabelBusy] = useState(false);
-  const [labelMsg, setLabelMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
   const loadLabelRules = useCallback(() => {
     fetchLabelRules()
@@ -209,37 +207,35 @@ export function ConfigPage() {
     const key = labelDraft.key.trim();
     const label = labelDraft.label.trim();
     if (!key) {
-      setLabelMsg({ text: "规则键不能为空", ok: false });
+      toast.error("规则键不能为空");
       return;
     }
     setLabelBusy(true);
-    setLabelMsg(null);
     try {
       await saveLabelRuleApi({ key, label, enabled: labelDraft.enabled });
-      setLabelMsg({
-        text: label
+      toast.success(
+        label
           ? `已保存规则：${key} → ${label}（${labelDraft.enabled ? "启用" : "停用"}）`
           : `已删除规则：${key}`,
-        ok: true,
-      });
+      );
       setLabelDraft({ key: "", label: "", enabled: true });
       loadLabelRules();
     } catch (err) {
-      setLabelMsg({ text: `保存失败：${err instanceof Error ? err.message : err}`, ok: false });
+      toast.error(`保存失败：${err instanceof Error ? err.message : err}`);
     } finally {
       setLabelBusy(false);
     }
   };
 
   const removeLabel = async (key: string) => {
+    if (!window.confirm(`确定要删除标签规则「${key}」吗？`)) return;
     setLabelBusy(true);
-    setLabelMsg(null);
     try {
       await deleteLabelRuleApi(key);
-      setLabelMsg({ text: `已删除规则：${key}`, ok: true });
+      toast.success(`已删除规则：${key}`);
       loadLabelRules();
     } catch (err) {
-      setLabelMsg({ text: `删除失败：${err instanceof Error ? err.message : err}`, ok: false });
+      toast.error(`删除失败：${err instanceof Error ? err.message : err}`);
     } finally {
       setLabelBusy(false);
     }
@@ -247,7 +243,6 @@ export function ConfigPage() {
 
   const doExport = async () => {
     setBackupBusy(true);
-    setBackupMsg(null);
     try {
       const snapshot = await fetchBackup();
       const blob = new Blob([JSON.stringify(snapshot, null, 2)], {
@@ -261,12 +256,11 @@ export function ConfigPage() {
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
-      setBackupMsg({
-        text: `已导出：设置 ${snapshot.settings.length} 项（密钥值已脱敏）、策略 ${snapshot.policies.length} 条、Provider ${snapshot.providers.length} 个。`,
-        ok: true,
-      });
+      toast.success(
+        `已导出：设置 ${snapshot.settings.length} 项（密钥值已脱敏）、策略 ${snapshot.policies.length} 条、Provider ${snapshot.providers.length} 个。`,
+      );
     } catch (err) {
-      setBackupMsg({ text: `导出失败：${err instanceof Error ? err.message : err}`, ok: false });
+      toast.error(`导出失败：${err instanceof Error ? err.message : err}`);
     } finally {
       setBackupBusy(false);
     }
@@ -275,17 +269,15 @@ export function ConfigPage() {
   const onFilePicked = async (file: File | undefined) => {
     if (!file) return;
     setBackupBusy(true);
-    setBackupMsg(null);
     try {
       const text = await file.text();
       const snapshot = JSON.parse(text);
       const result = await importBackup(snapshot);
-      setBackupMsg({
-        text: `导入完成：设置 ${result.settings} 项、策略 ${result.policies} 条；跳过密钥 ${result.skippedSecrets.join("/") || "无"}，Provider 账户需手工确认 ${result.skippedProviders.join("/") || "无"}。`,
-        ok: true,
-      });
+      toast.success(
+        `导入完成：设置 ${result.settings} 项、策略 ${result.policies} 条；跳过密钥 ${result.skippedSecrets.join("/") || "无"}，Provider 账户需手工确认 ${result.skippedProviders.join("/") || "无"}。`,
+      );
     } catch (err) {
-      setBackupMsg({ text: `导入失败：${err instanceof Error ? err.message : err}`, ok: false });
+      toast.error(`导入失败：${err instanceof Error ? err.message : err}`);
     } finally {
       setBackupBusy(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -317,11 +309,6 @@ export function ConfigPage() {
 
           <section className="panel">
             <div className="panel-title"><h2><GearIcon size={14} /> 热更新设置</h2></div>
-            {message ? (
-              <p className={`state ${message.ok ? "state-ok" : "state-error"}`} style={{ margin: "0 0 12px" }}>
-                {message.text}
-              </p>
-            ) : null}
             <div className="stack">
               {items.map((it) => (
                 <Row key={it.key} it={it} drafts={drafts} setDrafts={setDrafts} save={save} busyKey={busyKey} />
@@ -395,11 +382,6 @@ export function ConfigPage() {
 
           <section className="panel">
             <div className="panel-title"><h2><DownloadIcon size={14} /> 配置备份</h2><span className="count">导出 / 导入设置与策略</span></div>
-            {backupMsg ? (
-              <p className={`state ${backupMsg.ok ? "state-ok" : "state-error"}`} style={{ margin: "0 0 12px" }}>
-                {backupMsg.text}
-              </p>
-            ) : null}
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <button className="btn btn-primary" onClick={doExport} disabled={backupBusy}>
                 <DownloadIcon size={14} />
@@ -425,11 +407,6 @@ export function ConfigPage() {
 
           <section className="panel">
             <div className="panel-title"><h2><GearIcon size={14} /> 标签配置</h2><span className="count">分析结果字段 → GitHub 标签</span></div>
-            {labelMsg ? (
-              <p className={`state ${labelMsg.ok ? "state-ok" : "state-error"}`} style={{ margin: "0 0 12px" }}>
-                {labelMsg.text}
-              </p>
-            ) : null}
 
             <div className="stack" style={{ gap: 8 }}>
               {labelItems.length === 0 ? (

@@ -2,11 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import { bumpCache, fetchMe, saveMe, type AccountInfo } from "../lib/api";
 import { GearIcon, RefreshIcon } from "../components/icons";
 import { ErrorPanel, LoadingRows } from "../components/ui";
+import { useToast } from "../components/Toast";
 
 export function AccountPage() {
+  const toast = useToast();
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [draft, setDraft] = useState("");
-  const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -29,14 +30,13 @@ export function AccountPage() {
 
   const save = async () => {
     setBusy(true);
-    setMessage(null);
     try {
       const updated = await saveMe(draft);
       setAccount(updated);
       setDraft(updated.displayName ?? "");
-      setMessage({ text: "显示名已保存。", ok: true });
+      toast.success("显示名已保存。");
     } catch (err) {
-      setMessage({ text: `保存失败：${err instanceof Error ? err.message : err}`, ok: false });
+      toast.error(`保存失败：${err instanceof Error ? err.message : err}`);
     } finally {
       setBusy(false);
     }
@@ -87,11 +87,6 @@ export function AccountPage() {
           {account.authMethod === "oauth" ? (
             <section className="panel">
               <div className="panel-title"><h2>显示名</h2></div>
-              {message ? (
-                <p className={`state ${message.ok ? "state-ok" : "state-error"}`} style={{ margin: "0 0 12px" }}>
-                  {message.text}
-                </p>
-              ) : null}
               <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                 <input
                   className="input"

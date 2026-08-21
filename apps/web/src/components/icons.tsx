@@ -250,3 +250,18 @@ export const LayersIcon = (p: IconProps) => (
     <path d="M3 13l9 5 9-5" />
   </Base>
 );
+
+export const UserIcon = (p: IconProps) => (
+  <Base {...p}>
+    <circle cx="12" cy="8" r="4" />
+    <path d="M4 21c0-4 3.6-6 8-6s8 2 8 6" />
+  </Base>
+);
+
+export const UserCircleIcon = (p: IconProps) => (
+  <Base {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <circle cx="12" cy="10" r="3" />
+    <path d="M5.5 19a7 7 0 0113 0" />
+  </Base>
+);

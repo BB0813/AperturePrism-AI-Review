@@ -314,6 +314,19 @@ a:hover { text-decoration: underline; }
 
 .side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
 
+/* Account entry: personal settings + logout sit at the sidebar bottom. */
+.account-entry {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: 10px;
+  color: var(--muted); font-size: 13.5px; font-weight: 500;
+  text-decoration: none;
+  border: 1px solid transparent;
+  transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease);
+}
+.account-entry:hover { background: var(--panel-2); color: var(--text); border-color: var(--border); text-decoration: none; }
+.account-entry svg { color: var(--faint); }
+.account-entry:hover svg { color: var(--accent-2); }
+
 .status-badge {
   display: inline-flex;
   align-items: center;
@@ -598,6 +611,20 @@ select.input {
 .table tbody tr.clickable:hover { background: color-mix(in oklab, var(--accent-2) 10%, transparent); }
 .table .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .table td { vertical-align: middle; }
+
+/* Sortable column headers */
+.th-sort {
+  display: inline-flex; align-items: center; gap: 5px;
+  border: 0; background: transparent; padding: 0;
+  font: inherit; font-weight: 600; font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.6px;
+  font-family: var(--font-sans);
+  color: var(--faint); cursor: pointer;
+  transition: color var(--dur-1) var(--ease);
+}
+.th-sort:hover { color: var(--text); }
+.th-sort-active { color: var(--accent-2); }
+.th-sort-arrow { font-size: 9px; opacity: 0.7; }
 
 /* ============================================================
    Chips + status pill
@@ -945,3 +972,90 @@ select.input {
   .events li { font-size: 11.5px; }
   .events pre { font-size: 10.5px; }
 }
+
+/* ============================================================
+   Toast 通知（统一操作反馈）
+   ============================================================ */
+.toast-viewport {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(420px, calc(100vw - 32px));
+  pointer-events: none;
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: auto;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  padding: 11px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-2);
+  background: color-mix(in oklab, var(--raised) 96%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  animation: toast-in var(--dur-3) var(--ease);
+}
+.toast-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--accent-2);
+}
+.toast-success .toast-dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); }
+.toast-error .toast-dot { background: var(--err); box-shadow: 0 0 0 3px var(--err-bg); }
+.toast-info .toast-dot { background: var(--accent-2); box-shadow: 0 0 0 3px var(--info-bg); }
+.toast-success { border-color: var(--ok-bd); }
+.toast-error { border-color: var(--err-bd); }
+.toast-info { border-color: var(--info-bd); }
+.toast-text { flex: 1 1 auto; min-width: 0; line-height: 1.45; }
+.toast-close {
+  flex-shrink: 0;
+  color: var(--faint);
+  font-size: 15px;
+  line-height: 1;
+  opacity: 0.75;
+}
+.toast:hover .toast-close { opacity: 1; }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-10px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ============================================================
+   PR 审查发现（Findings）结构化展示
+   ============================================================ */
+.finding-list {
+  display: flex; flex-direction: column; gap: 10px;
+  margin: 8px 0 0; padding: 0; list-style: none;
+}
+.finding {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  background: color-mix(in oklab, var(--panel-2) 60%, transparent);
+}
+.finding-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.finding-rule { color: var(--accent-2); font-size: 12px; font-weight: 600; }
+.finding-file { color: var(--faint); font-size: 11.5px; }
+.finding-msg { margin: 7px 0 0; font-size: 13px; line-height: 1.5; color: var(--text); }
+.finding-evidence {
+  margin: 7px 0 0; padding: 8px 10px;
+  background: var(--bg-elev); border: 1px solid var(--border);
+  border-radius: 6px; font-family: var(--font-mono); font-size: 12px;
+  white-space: pre-wrap; word-break: break-word; color: var(--code);
+  max-height: 160px; overflow: auto;
+}
+.finding-suggestion { margin: 7px 0 0; font-size: 12.5px; color: var(--muted); }

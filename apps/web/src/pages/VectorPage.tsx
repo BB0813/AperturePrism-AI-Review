@@ -10,6 +10,7 @@ import {
 } from "../lib/api";
 import { RefreshIcon } from "../components/icons";
 import { ErrorPanel, LoadingRows, fmtTime } from "../components/ui";
+import { useToast } from "../components/Toast";
 
 export function VectorPage() {
   const [stats, setStats] = useState<VectorStats | null>(null);
@@ -18,7 +19,7 @@ export function VectorPage() {
   const [loading, setLoading] = useState(true);
   const [triggering, setTriggering] = useState(false);
   const [rebuilding, setRebuilding] = useState(false);
-  const [triggerMsg, setTriggerMsg] = useState<string | null>(null);
+  const toast = useToast();
 
   const load = useCallback(() => {
     setLoading(true);
@@ -39,27 +40,26 @@ export function VectorPage() {
 
   const runIndex = async () => {
     setTriggering(true);
-    setTriggerMsg(null);
     try {
       await triggerIndexRun();
-      setTriggerMsg("已触发索引，index-worker 将尽快开始一轮扫描。");
+      toast.success("已触发索引，index-worker 将尽快开始一轮扫描。");
       setTimeout(load, 4000);
     } catch (err) {
-      setTriggerMsg(`触发失败：${err instanceof Error ? err.message : err}`);
+      toast.error(`触发失败：${err instanceof Error ? err.message : err}`);
     } finally {
       setTriggering(false);
     }
   };
 
   const runRebuild = async () => {
+    if (!window.confirm("确定要清空并重建全部向量索引吗？此操作将重新扫描所有仓库。")) return;
     setRebuilding(true);
-    setTriggerMsg(null);
     try {
       await rebuildIndex();
-      setTriggerMsg("已清空索引并触发重建，index-worker 将重新扫描全部仓库。");
+      toast.success("已清空索引并触发重建，index-worker 将重新扫描全部仓库。");
       setTimeout(load, 4000);
     } catch (err) {
-      setTriggerMsg(`重建失败：${err instanceof Error ? err.message : err}`);
+      toast.error(`重建失败：${err instanceof Error ? err.message : err}`);
     } finally {
       setRebuilding(false);
     }
@@ -85,12 +85,6 @@ export function VectorPage() {
           </button>
         </div>
       </div>
-
-      {triggerMsg ? (
-        <p className={`state ${triggerMsg.startsWith("已") ? "state-ok" : "state-error"}`} style={{ margin: 0 }}>
-          {triggerMsg}
-        </p>
-      ) : null}
 
       {error ? (
         <ErrorPanel error={error} onRetry={load} />
