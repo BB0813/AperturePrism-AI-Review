@@ -167,6 +167,52 @@ export function TaskDetailPage({ id }: { id: string }) {
       </section>
 
       <section className="panel">
+        <div className="panel-title">
+          <h2>发布与外部对象</h2>
+          <span className="count">{detail.publications?.length ?? 0} 条</span>
+        </div>
+        {detail.publications && detail.publications.length > 0 ? (
+          <div className="tablewrap">
+            <table className="table">
+              <thead>
+                <tr><th>渠道</th><th>外部 ID</th><th>时间</th></tr>
+              </thead>
+              <tbody>
+                {detail.publications.map((pub, index) => {
+                  const channelLabel = publicationChannelLabel(pub.channel);
+                  const link = publicationLink(pub, payload);
+                  return (
+                    <tr key={index}>
+                      <td>
+                        <span className={`pill ${pub.channel === "check_run" ? "pill-ok" : "pill-dim"}`}>
+                          {channelLabel}
+                        </span>
+                      </td>
+                      <td className="mono">
+                        {link ? (
+                          <a href={link} target="_blank" rel="noreferrer">
+                            {pub.externalObjectId ?? "—"} ↗
+                          </a>
+                        ) : (
+                          pub.externalObjectId ?? "—"
+                        )}
+                      </td>
+                      <td className="mono muted">{fmtTime(pub.createdAt)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="state state-empty">暂无发布记录（任务尚未发布评论/Review/Check Run）</p>
+        )}
+        <p className="faint" style={{ marginTop: 10, fontSize: 12 }}>
+          Check Run 会出现在 GitHub PR 页面的 Checks 区域，展示 AI 审查从「进行中」到「完成」的状态。
+        </p>
+      </section>
+
+      <section className="panel">
         <div className="panel-title"><h2>Attempts</h2></div>
         {detail.attempts.length === 0 ? (
           <p className="state state-empty">暂无 attempt</p>
@@ -196,6 +242,44 @@ export function TaskDetailPage({ id }: { id: string }) {
       </section>
     </div>
   );
+}
+
+function publicationChannelLabel(channel: string): string {
+  switch (channel) {
+    case "check_run":
+      return "Check Run";
+    case "github_issue_comment":
+      return "评论";
+    case "github_pull_request_review":
+      return "PR Review";
+    default:
+      return channel;
+  }
+}
+
+function publicationLink(
+  pub: { channel: string; externalObjectId: string | null },
+  payload: Record<string, unknown>,
+): string | null {
+  const repo =
+    typeof payload.repositoryFullName === "string"
+      ? payload.repositoryFullName
+      : null;
+  if (!repo) return null;
+  if (pub.channel === "check_run") {
+    // Check Run 由 GitHub 生成，指向 PR 的 Checks 区域。
+    const number = typeof payload.subjectNumber === "number" ? payload.subjectNumber : null;
+    return number
+      ? `https://github.com/${repo}/pull/${number}/checks`
+      : `https://github.com/${repo}`;
+  }
+  if (pub.channel === "github_issue_comment" && pub.externalObjectId) {
+    return `https://github.com/${repo}/issues/${String(payload.subjectNumber ?? 0)}#issuecomment-${pub.externalObjectId}`;
+  }
+  if (pub.channel === "github_pull_request_review" && pub.externalObjectId) {
+    return `https://github.com/${repo}/pull/${String(payload.subjectNumber ?? 0)}#pullrequestreview-${pub.externalObjectId}`;
+  }
+  return null;
 }
 
 function MiniStat(props: { value: string; label: string; accent?: boolean }) {

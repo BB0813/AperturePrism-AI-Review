@@ -267,8 +267,9 @@ docker compose -f docker/docker-compose.prod.yml --env-file .env.production up -
 | --- | --- | --- |
 | GET | `/health/live` `/health/ready` | 存活 / 就绪（DB+Redis） |
 | POST | `/github/webhook` | GitHub 事件入口（验签 + 幂等入库） |
-| GET | `/tasks` `/tasks/:id` | 任务列表（分页）/ 详情（时间线 + attempts） |
+| GET | `/tasks` `/tasks/:id` | 任务列表（分页）/ 详情（时间线 + attempts + 发布记录） |
 | POST | `/tasks/manual` | 手动触发 Issue/PR 分析（按仓库 fullName + 编号） |
+| POST | `/tasks/rerun` | 批量重跑失败/已取消任务（管理员；回队重新执行） |
 | GET | `/summary` `/results?type=issue\|pr` `/results/:type/:number` | 概览 KPI / 结果列表 / 单主体各版本结果 |
 | GET | `/providers` `/repositories` `/logs` `/vector` | 模型策略 / 仓库 / 日志总览 / 向量索引统计 |
 | GET | `/events` | SSE 任务事件流（`?since=` 断线回放） |
@@ -356,21 +357,22 @@ docker/
 
 ## 模型不可用排查
 
-当 Issue 分析 / PR 审查任务反复失败（「日志总览」显示 `handler_error` 且重试耗尽、审查队列堆积），**优先检查模型层**：
+当 Issue 分析 / PR 审查任务反复失败（「日志总览」显示 `handler_error` 且重试耗尽、审查队列堆积），**优先检查模型层**。模型由你自配的 OpenAI 兼容 API（自己的中转站 / 厂商官方接口）驱动，本项目不绑定任何特定模型或服务商：
 
-1. **默认模型**：主模型 `mimo-v2.5-pro`（newapi），备用 `deepseek-v3.2`（cdn）。若 Provider 上这些模型余额不足或通道异常，模型请求会返回 `402 余额不足` / `405 bad_response_status_code`，导致所有任务 `handler_error`。
+1. **模型来源**：在「数据与运维 → 模型路由」配置 Provider（baseUrl + API Key + 模型名）后，`model_role_policies` 表会自动写入对应角色的 `candidates`。若你配置的模型余额不足或通道异常，模型请求会返回 `402 余额不足` / `405 bad_response_status_code`，导致所有任务 `handler_error`。
 2. **换模型**：在「数据与运维 → 模型路由」配置好 Provider 账号后，修改 `model_role_policies` 表中对应角色的 `candidates` 模型名（`issue_analysis` / `pr_review` / `duplicate_judgment` / `expert_review` / `memory_consolidation` / `spam_detection`）。worker 每次任务都从数据库读取策略，**改动即时生效，无需重启**。
 3. **验证**：在「已安装仓库」页手动触发一次分析，任务状态变为 `completed` 即正常；若仍失败，查看 worker 日志里的 `error` 字段（v1.0.12 起失败事件会记录具体错误信息）。
-4. **连通性**：确认 Provider baseUrl（如 `https://newapi.binbim.top/v1`）可达、API Key 有效，可用 `GET /v1/models` 快速验证。
+4. **连通性**：确认你配置的 Provider baseUrl 可达、API Key 有效，可用 `GET {baseUrl}/models`（需带鉴权头）快速验证该接口能正常返回模型列表。
 
 ## Todo
 
 ### 已完成
 - [x] **WebUI 功能管理与交互优化（第一批）**：标签配置免前缀表单、结果页一键撤回、PR Check Runs 可视化、自动审查开关、在线更新阶段进度条 + 日志折叠 + 完成后自动刷新。导航层级、表格交互与状态反馈已在各页逐步落地。
+- [x] **功能管理与交互优化（第二批）**：结果页批量撤回、任务队列批量重跑（`POST /tasks/rerun`，失败/取消任务回队重试）、任务详情页「发布与外部对象」面板（Check Run / 评论 / Review 状态 + GitHub 直达链接）、表格选中态与空态/加载态统一。
+- [x] **跨仓库召回边界**：召回已限制在同一仓库内（worker 分析 + `/index/related` 均可传 `repositoryFullName` 过滤），不再把其他项目的 Issue 当作「相关」。
 
 ### 计划中
-- [ ] **功能管理与交互优化（第二批）**：继续收敛导航层级与表格密度、空态/加载态统一、批量操作（如批量撤回、批量重跑）、任务详情页 Check Run 状态展示。
-- [ ] **跨仓库召回边界**：召回已限制在同一仓库内；后续可为 `/index/related` 调试接口补充可选的 repositoryFullName 过滤参数。
+- [ ] **功能管理与交互优化（第三批）**：任务详情页 Check Run 实时状态轮询、更多批量操作（批量删除、批量导出）、结果与任务列表列自定义。
 
 ## 社区支持
 

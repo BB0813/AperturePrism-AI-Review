@@ -540,6 +540,50 @@ export async function cancelTask(
 }
 
 /**
+ * Resets a finished task (failed / canceled) back to `queued` so a worker can
+ * pick it up again. Used by the "re-run" action in the WebUI. Attempts are
+ * zeroed so the re-run gets a fresh budget; a `task.retry_ready` event records
+ * the re-queue. Returns false when the task is not in a finished state.
+ */
+export async function resetTaskToQueued(
+  db: Database,
+  input: { taskId: string; now?: Date },
+): Promise<boolean> {
+  const now = input.now ?? new Date();
+  return db.transaction(async (tx) => {
+    const updated = await tx
+      .update(analysisTasks)
+      .set({
+        status: "queued",
+        attemptCount: 0,
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        heartbeatAt: null,
+        // next_attempt_at 是 NOT NULL，重跑任务立即可被领取。
+        nextAttemptAt: now,
+        lastErrorCategory: null,
+        updatedAt: now,
+      })
+      .where(
+        sql`${analysisTasks.id} = ${input.taskId}
+          and ${analysisTasks.status} in ('failed', 'canceled')`,
+      )
+      .returning({ id: analysisTasks.id });
+    if (updated.length === 0) return false;
+    await tx.insert(taskEvents).values({
+      taskId: input.taskId,
+      eventType: taskRetryReadyEventType,
+      data: {
+        taskId: input.taskId,
+        reason: "manual rerun",
+        rerunAt: now.toISOString(),
+      },
+    });
+    return true;
+  });
+}
+
+/**
  * Records model usage for the current attempt as an event. The worker is the
  * only caller; it never mutates task state itself, and the event keeps token
  * and duration data out of the attempt row until a schema change is wanted.

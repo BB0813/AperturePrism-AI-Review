@@ -74,7 +74,10 @@ import {
   serializeSseEvent,
   SSE_HEADERS,
 } from "../../../packages/event-stream/src/index.js";
-import { createAnalysisTask } from "../../../packages/task-engine/src/index.js";
+import {
+  createAnalysisTask,
+  resetTaskToQueued,
+} from "../../../packages/task-engine/src/index.js";
 import { PR_REVIEW_POLICY_VERSION } from "../../../packages/pr-review/src/index.js";
 import {
   BUILTIN_SKILLS,
@@ -997,7 +1000,7 @@ async function handleTasks(
     );
     return;
   }
-  const [timeline, attempts] = await Promise.all([
+  const [timeline, attempts, publications] = await Promise.all([
     database.db
       .select({
         eventType: taskEvents.eventType,
@@ -1019,8 +1022,17 @@ async function handleTasks(
       .from(taskAttempts)
       .where(eq(taskAttempts.taskId, id))
       .orderBy(asc(taskAttempts.attemptNumber)),
+    database.db
+      .select({
+        channel: externalPublications.channel,
+        externalObjectId: externalPublications.externalObjectId,
+        createdAt: externalPublications.createdAt,
+      })
+      .from(externalPublications)
+      .where(eq(externalPublications.taskId, id))
+      .orderBy(asc(externalPublications.createdAt)),
   ]);
-  json(response, 200, { ...row, timeline, attempts }, requestId);
+  json(response, 200, { ...row, timeline, attempts, publications }, requestId);
 }
 
 /**
@@ -1170,6 +1182,56 @@ async function handleManualTask(
     { status: "ok", taskId: result.task.id, outcome: result.outcome },
     requestId,
   );
+}
+
+/**
+ * Re-queues finished tasks (failed / canceled) for another run. Accepts a list
+ * of task ids; each is reset to `queued` with a fresh attempt budget. Tasks in
+ * non-finished states are skipped, not errored. Admin only.
+ */
+async function handleTaskRerun(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  if (!(await isAdminRequest(request))) {
+    json(
+      response,
+      403,
+      { status: "error", reason: "admin required" },
+      requestId,
+    );
+    return;
+  }
+  const body = await readBody(request);
+  let parsed: { taskIds?: unknown };
+  try {
+    parsed = JSON.parse(body.toString("utf8"));
+  } catch {
+    json(response, 400, { status: "error", reason: "invalid JSON" }, requestId);
+    return;
+  }
+  const ids = Array.isArray(parsed.taskIds)
+    ? parsed.taskIds.filter((v): v is string => typeof v === "string" && v.length > 0)
+    : [];
+  if (ids.length === 0) {
+    json(
+      response,
+      400,
+      { status: "error", reason: "taskIds must be a non-empty array" },
+      requestId,
+    );
+    return;
+  }
+  let rerun = 0;
+  let skipped = 0;
+  for (const taskId of ids) {
+    const ok = await resetTaskToQueued(database.db, { taskId });
+    if (ok) rerun += 1;
+    else skipped += 1;
+  }
+  audit(request, "task.rerun", undefined, { taskIds: ids.length, rerun, skipped });
+  json(response, 200, { status: "ok", rerun, skipped }, requestId);
 }
 
 /** Model role policies + configured provider account names (never the keys). */
@@ -2103,6 +2165,14 @@ async function handleIndexRelated(
     Math.max(Number(url.searchParams.get("topK")) || 5, 1),
     20,
   );
+  const repositoryFullName = url.searchParams.get("repositoryFullName") ?? "";
+  const repository =
+    repositoryFullName && repositoryFullName.includes("/")
+      ? (() => {
+          const [owner, name] = repositoryFullName.split("/");
+          return owner && name ? { owner, name } : null;
+        })()
+      : null;
   if (title.length === 0 && body.length === 0) {
     json(
       response,
@@ -2121,6 +2191,8 @@ async function handleIndexRelated(
         body: normalizedIndexText({ title, body }),
         signals,
         topK,
+        // 可选：限制在同一仓库内召回，避免跨项目“相关”Issue。
+        repository,
       },
     );
     json(response, 200, { candidates }, requestId);
@@ -3726,6 +3798,20 @@ async function handleRequest(
       return;
     }
     await handleManualTask(request, response, requestId);
+    return;
+  }
+
+  if (path === "/tasks/rerun") {
+    if (request.method !== "POST") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    await handleTaskRerun(request, response, requestId);
     return;
   }
 

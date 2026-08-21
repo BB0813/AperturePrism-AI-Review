@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { bumpCache, fetchTasks, type TaskList, type TaskSummary } from "../lib/api";
+import {
+  bumpCache,
+  fetchTasks,
+  rerunTasks,
+  type TaskList,
+  type TaskSummary,
+} from "../lib/api";
 import { navigate } from "../hooks/useHash";
 import { ChevronRightIcon, RefreshIcon, SearchIcon } from "../components/icons";
 import { Empty, ErrorPanel, LoadingRows, StatusPill, TypeChip, timeAgo } from "../components/ui";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
+import { useToast } from "../components/Toast";
 
 const TYPE_FILTERS = ["all", "issue_analysis", "pr_review", "repository_index"] as const;
 const STATUS_FILTERS = ["all", "queued", "running", "publishing", "completed", "failed", "retry_wait", "canceled"] as const;
@@ -51,6 +58,9 @@ export function TasksPage() {
     key: "updatedAt",
     dir: "desc",
   });
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [rerunning, setRerunning] = useState(false);
+  const toast = useToast();
 
   const toggleSort = (key: SortKey) => {
     setSort((prev) =>
@@ -108,6 +118,56 @@ export function TasksPage() {
     );
   }, [list, type, status, search, sort]);
 
+  const rerunnable = useMemo(
+    () => new Set(items.filter((t) => t.status === "failed" || t.status === "canceled").map((t) => t.id)),
+    [items],
+  );
+
+  const toggleSelected = (id: string) => {
+    if (!rerunnable.has(id)) return;
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllRerunnable = () => {
+    if (rerunnable.size === 0) return;
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const allSelected = [...rerunnable].every((id) => next.has(id));
+      for (const id of rerunnable) {
+        if (allSelected) next.delete(id);
+        else next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const clearSelected = () => setSelected(new Set());
+
+  const doRerun = async () => {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    if (!window.confirm(`确定要重新执行选中的 ${ids.length} 个任务吗？失败/已取消任务将回到队列重新运行。`)) return;
+    setRerunning(true);
+    try {
+      const result = await rerunTasks(ids);
+      toast.success(
+        `已重新入队 ${result.rerun} 个任务${result.skipped > 0 ? `，跳过 ${result.skipped} 个（非失败/取消状态）` : ""}`,
+      );
+      setSelected(new Set());
+      bumpCache();
+      refresh();
+    } catch (err) {
+      toast.error(`重跑失败：${err instanceof Error ? err.message : err}`);
+    } finally {
+      setRerunning(false);
+    }
+  };
+
   return (
     <div className="stack">
       <div className="page-head">
@@ -160,7 +220,35 @@ export function TasksPage() {
         <div className="panel-title">
           <h2>任务</h2>
           <span className="count">{items.length} 条</span>
+          {selected.size > 0 ? (
+            <span className="count" style={{ marginLeft: 8 }}>
+              已选 {selected.size} 项
+            </span>
+          ) : null}
         </div>
+
+        {rerunnable.size > 0 ? (
+          <div className="filters" style={{ marginBottom: 14, gap: 10 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+              <input
+                type="checkbox"
+                checked={[...rerunnable].every((id) => selected.has(id)) && selected.size > 0}
+                onChange={toggleAllRerunnable}
+              />
+              全选失败/取消（{rerunnable.size}）
+            </label>
+            {selected.size > 0 ? (
+              <>
+                <button className="btn btn-primary" onClick={() => void doRerun()} disabled={rerunning}>
+                  {rerunning ? "重跑中…" : `重新执行（${selected.size}）`}
+                </button>
+                <button className="btn" onClick={clearSelected} disabled={rerunning}>
+                  取消选择
+                </button>
+              </>
+            ) : null}
+          </div>
+        ) : null}
 
         {error ? (
           <ErrorPanel error={error} onRetry={refresh} />
@@ -173,6 +261,7 @@ export function TasksPage() {
             <table className="table">
               <thead>
                 <tr>
+                  <th style={{ width: 32 }}></th>
                   <th>类型</th>
                   <SortableTh label="对象" active={sort.key === "subjectNumber"} dir={sort.dir} onClick={() => toggleSort("subjectNumber")} />
                   <SortableTh label="状态" active={sort.key === "status"} dir={sort.dir} onClick={() => toggleSort("status")} />
@@ -185,7 +274,13 @@ export function TasksPage() {
               </thead>
               <tbody>
                 {items.map((task) => (
-                  <TaskRow key={task.id} task={task} />
+                  <TaskRow
+                    key={task.id}
+                    task={task}
+                    rerunnable={rerunnable.has(task.id)}
+                    selected={selected.has(task.id)}
+                    onToggle={() => toggleSelected(task.id)}
+                  />
                 ))}
               </tbody>
             </table>
@@ -202,9 +297,29 @@ export function TasksPage() {
   );
 }
 
-function TaskRow({ task }: { task: TaskSummary }) {
+function TaskRow({
+  task,
+  rerunnable,
+  selected,
+  onToggle,
+}: {
+  task: TaskSummary;
+  rerunnable: boolean;
+  selected: boolean;
+  onToggle: () => void;
+}) {
   return (
-    <tr className="clickable" onClick={() => navigate(`/tasks/${task.id}`)}>
+    <tr className={`clickable${selected ? " row-selected" : ""}`} onClick={() => navigate(`/tasks/${task.id}`)}>
+      <td onClick={(e) => e.stopPropagation()}>
+        <input
+          type="checkbox"
+          checked={selected}
+          disabled={!rerunnable}
+          onChange={onToggle}
+          aria-label={`选择任务 ${task.id.slice(0, 8)} 重新执行`}
+          title={rerunnable ? "选择以重新执行" : "仅失败/已取消任务可重新执行"}
+        />
+      </td>
       <td><TypeChip type={task.taskType} /></td>
       <td className="num">#{task.subjectNumber ?? "—"}</td>
       <td><StatusPill status={task.status} /></td>

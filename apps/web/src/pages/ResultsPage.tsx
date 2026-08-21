@@ -48,12 +48,19 @@ function normalizeResult(result: unknown): NormResult {
 
 type Conf = { severity?: number; rootCause?: number; suggestion?: number };
 
+function resultKey(item: SubjectResult): string {
+  return `${item.subjectType}:${item.subjectNumber}:${item.revision}`;
+}
+
 export function ResultsPage(props: { type: "issue" | "pr"; label: string }) {
   const [list, setList] = useState<ResultList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkRevoking, setBulkRevoking] = useState(false);
+  const toast = useToast();
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -104,6 +111,62 @@ export function ResultsPage(props: { type: "issue" | "pr"; label: string }) {
     onLoadMore: loadMore,
   });
 
+  const toggleSelected = (key: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleAllVisible = () => {
+    if (filtered.length === 0) return;
+    const keys = filtered.map(resultKey);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const allSelected = keys.every((k) => next.has(k));
+      for (const k of keys) {
+        if (allSelected) next.delete(k);
+        else next.add(k);
+      }
+      return next;
+    });
+  };
+
+  const clearSelected = () => setSelected(new Set());
+
+  const bulkRevoke = async () => {
+    const targets = filtered.filter((item) => selected.has(resultKey(item)));
+    if (targets.length === 0) return;
+    if (
+      !window.confirm(
+        `确定要批量撤回选中的 ${targets.length} 个结果吗？将删除对应评论、撤销 Review 并移除建议标签，且不可恢复。`,
+      )
+    )
+      return;
+    setBulkRevoking(true);
+    let ok = 0;
+    let failed = 0;
+    for (const item of targets) {
+      try {
+        await revokeSubject({
+          repositoryFullName: item.repositoryFullName,
+          number: item.subjectNumber,
+          type: item.subjectType,
+        });
+        ok += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    toast.success(`批量撤回完成：成功 ${ok} 个${failed > 0 ? `，失败 ${failed} 个` : ""}`);
+    setSelected(new Set());
+    bumpCache();
+    refresh();
+    setBulkRevoking(false);
+  };
+
   return (
     <div className="stack">
       <div className="page-head">
@@ -123,8 +186,13 @@ export function ResultsPage(props: { type: "issue" | "pr"; label: string }) {
         <div className="panel-title">
           <h2>结果</h2>
           <span className="count">{list?.items.length ?? "–"} 条</span>
+          {selected.size > 0 ? (
+            <span className="count" style={{ marginLeft: 8 }}>
+              已选 {selected.size} 项
+            </span>
+          ) : null}
         </div>
-        <div className="filters" style={{ marginBottom: 14 }}>
+        <div className="filters" style={{ marginBottom: 14, gap: 10 }}>
           <label className="searchbox">
             <SearchIcon size={15} />
             <input
@@ -136,6 +204,22 @@ export function ResultsPage(props: { type: "issue" | "pr"; label: string }) {
               aria-label="搜索结果"
             />
           </label>
+          {filtered.length > 0 ? (
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+              <input type="checkbox" checked={filtered.every((i) => selected.has(resultKey(i))) && selected.size > 0} onChange={toggleAllVisible} />
+              全选本页（{filtered.length}）
+            </label>
+          ) : null}
+          {selected.size > 0 ? (
+            <>
+              <button className="btn btn-primary" onClick={() => void bulkRevoke()} disabled={bulkRevoking}>
+                {bulkRevoking ? "撤回中…" : `批量撤回（${selected.size}）`}
+              </button>
+              <button className="btn" onClick={clearSelected} disabled={bulkRevoking}>
+                取消选择
+              </button>
+            </>
+          ) : null}
         </div>
 
         {error ? (
@@ -147,7 +231,12 @@ export function ResultsPage(props: { type: "issue" | "pr"; label: string }) {
         ) : (
           <div className="stack">
             {filtered.map((item) => (
-              <ResultCard key={item.createdAt + item.subjectNumber} item={item} />
+              <ResultCard
+                key={item.createdAt + item.subjectNumber}
+                item={item}
+                selected={selected.has(resultKey(item))}
+                onToggleSelect={() => toggleSelected(resultKey(item))}
+              />
             ))}
           </div>
         )}
@@ -162,7 +251,15 @@ export function ResultsPage(props: { type: "issue" | "pr"; label: string }) {
   );
 }
 
-function ResultCard({ item }: { item: SubjectResult }) {
+function ResultCard({
+  item,
+  selected,
+  onToggleSelect,
+}: {
+  item: SubjectResult;
+  selected: boolean;
+  onToggleSelect: () => void;
+}) {
   const norm = normalizeResult(item.result);
   const [open, setOpen] = useState(false);
   const [revoking, setRevoking] = useState(false);
@@ -192,8 +289,16 @@ function ResultCard({ item }: { item: SubjectResult }) {
   };
 
   return (
-    <article className="result-card">
+    <article className={`result-card${selected ? " result-card-selected" : ""}`}>
       <div className="result-top">
+        <label style={{ display: "flex", alignItems: "center" }} title="选择以批量撤回">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggleSelect}
+            aria-label={`选择 #${item.subjectNumber}`}
+          />
+        </label>
         <span className="result-title">
           #{item.subjectNumber} <span className="result-repo">{item.repositoryFullName}</span>
         </span>

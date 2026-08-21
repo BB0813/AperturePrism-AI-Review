@@ -94,10 +94,17 @@ export type TaskAttempt = {
   errorCategory: string | null;
 };
 
+export type Publication = {
+  channel: string;
+  externalObjectId: string | null;
+  createdAt: string;
+};
+
 export type TaskDetail = TaskSummary & {
   payload: unknown;
   timeline: TaskEvent[];
   attempts: TaskAttempt[];
+  publications?: Publication[];
 };
 
 export type ModelPolicy = {
@@ -307,12 +314,17 @@ export async function fetchRelatedIssues(input: {
   title: string;
   body: string;
   topK?: number;
+  /** Optional: restrict recall to one repository (owner/name) to avoid cross-project hits. */
+  repositoryFullName?: string;
 }): Promise<{ candidates: RelatedIssue[]; degraded?: boolean }> {
   const params = new URLSearchParams({
     title: input.title,
     body: input.body,
     topK: String(input.topK ?? 5),
   });
+  if (input.repositoryFullName) {
+    params.set("repositoryFullName", input.repositoryFullName);
+  }
   return (await getJson(`/index/related?${params.toString()}`)) as {
     candidates: RelatedIssue[];
     degraded?: boolean;
@@ -862,6 +874,38 @@ export async function fetchTasks(options?: {
 /** Fetches a single task with its timeline and attempts. */
 export async function fetchTaskDetail(id: string): Promise<TaskDetail> {
   return (await getJson(`/tasks/${encodeURIComponent(id)}`)) as TaskDetail;
+}
+
+export type RerunResult = {
+  status: string;
+  rerun: number;
+  skipped: number;
+};
+
+/** Re-queues finished tasks (failed / canceled) for another run (admin only). */
+export async function rerunTasks(taskIds: string[]): Promise<RerunResult> {
+  const response = await fetch("/tasks/rerun", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ taskIds }),
+  });
+  const text = await response.text();
+  let parsed: { status?: string; reason?: string; rerun?: number; skipped?: number } = {};
+  try {
+    parsed = text ? JSON.parse(text) : {};
+  } catch {
+    // keep default
+  }
+  if (response.status === 401) throw new Error("unauthorized");
+  if (response.status === 403) throw new Error("需要管理员权限（403）");
+  if (!response.ok) {
+    throw new Error(parsed.reason ?? `rerun tasks ${response.status}`);
+  }
+  return {
+    status: parsed.status ?? "ok",
+    rerun: parsed.rerun ?? 0,
+    skipped: parsed.skipped ?? 0,
+  };
 }
 
 export type ManualTriggerInput = {

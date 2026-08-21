@@ -609,6 +609,7 @@ select.input {
 .table tbody tr:hover { background: color-mix(in oklab, var(--accent-2) 5%, transparent); }
 .table tbody tr.clickable { cursor: pointer; }
 .table tbody tr.clickable:hover { background: color-mix(in oklab, var(--accent-2) 10%, transparent); }
+.table tbody tr.row-selected { background: color-mix(in oklab, var(--prism-1) 12%, transparent); }
 .table .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .table td { vertical-align: middle; }
 
@@ -682,6 +683,7 @@ select.input {
   transition: border-color var(--dur-2) var(--ease), transform var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease);
 }
 .result-card:hover { border-color: var(--border-2); transform: translateY(-1px); box-shadow: 0 12px 28px -18px color-mix(in oklab, var(--text) 30%, transparent); }
+.result-card-selected { border-color: var(--prism-1); box-shadow: 0 0 0 1px color-mix(in oklab, var(--prism-1) 45%, transparent); }
 .result-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .result-title { font-family: var(--font-display); font-weight: 700; font-size: 14.5px; display: flex; align-items: center; gap: 8px; letter-spacing: -0.1px; }
 .result-repo { color: var(--muted); font-size: 12px; font-weight: 400; }
