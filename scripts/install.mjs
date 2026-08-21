@@ -40,7 +40,7 @@ import { createInterface } from "node:readline/promises";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ENV_FILE = join(ROOT, ".env");
 const ENV_EXAMPLE = join(ROOT, ".env.example");
-const ENV_PROD_FILE = join(ROOT, ".env.production");
+const ENV_PROD_FILE = join(ROOT, "docker", ".env.production"); // 与 compose 同目录，service env_file 相对解析才能命中
 const COMPOSE_DEV = "docker/docker-compose.dev.yml";
 const COMPOSE_PROD = "docker/docker-compose.prod.yml";
 const COMPOSE_VERIFY = "docker/compose.verify.yml";
@@ -486,8 +486,8 @@ function summaryCompose() {
   console.log(`${BOLD}──────────────────────────────${RESET}`);
   console.log(`  Web UI：  ${DIM}http://localhost${RESET}（默认 80，可在 .env.production 用 WEB_PORT 修改）`);
   console.log(`  API：     ${DIM}http://localhost:30001/health/live${RESET}（可用 API_PORT 修改）`);
-  console.log(`  查看状态：${DIM}cd ${ROOT} && set -a && . ./.env.production && set +a && docker compose -f ${COMPOSE_PROD} ps${RESET}`);
-  console.log(`  查看日志：${DIM}cd ${ROOT} && set -a && . ./.env.production && set +a && docker compose -f ${COMPOSE_PROD} logs -f api${RESET}`);
+  console.log(`  查看状态：${DIM}cd ${ROOT} && set -a && . ./docker/.env.production && set +a && docker compose -f ${COMPOSE_PROD} ps${RESET}`);
+  console.log(`  查看日志：${DIM}cd ${ROOT} && set -a && . ./docker/.env.production && set +a && docker compose -f ${COMPOSE_PROD} logs -f api${RESET}`);
   console.log(`${BOLD}──────────────────────────────${RESET}`);
   console.log(`升级：修改 ${ENV_PROD_FILE} 中 IMAGE_TAG=vX.Y.Z 后重跑本脚本，或 docker compose pull && up -d。`);
 }
