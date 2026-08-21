@@ -55,6 +55,8 @@ export const issueAnalysisResultSchema = z
     severity: z.enum(severityLevels),
     priority: z.enum(priorityLevels),
     quality: z.enum(qualityLevels),
+    /** 当原标题含糊/冗长时给出更清晰的标题；标题已清晰时省略。 */
+    suggestedTitle: z.string().min(1).max(120).optional(),
     evidence: z.array(evidenceSchema).max(10).default([]),
     /** Facts the issue does not provide. Never invented by the analyzer. */
     missingInformation: z.array(z.string().min(1).max(500)).max(10).default([]),

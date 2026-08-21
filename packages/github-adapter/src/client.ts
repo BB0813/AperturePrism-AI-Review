@@ -156,6 +156,21 @@ export type GitHubClient = {
     },
     signal?: AbortSignal,
   ) => Promise<GitHubCreatedIssue>;
+  /**
+   * Patches an existing issue (rewrite title and/or assign users). Idempotent:
+   * GitHub ignores unchanged fields and re-assigning the same assignee is a no-op.
+   */
+  updateIssue: (
+    input: {
+      installationId: string;
+      owner: string;
+      name: string;
+      number: number;
+      title?: string;
+      assignees?: readonly string[];
+    },
+    signal?: AbortSignal,
+  ) => Promise<{ number: number; htmlUrl: string }>;
   /** Returns the raw unified diff text of a pull request. */
   getPullRequestDiff: (
     input: {
@@ -666,6 +681,28 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
             body,
             ...(labels && labels.length > 0 ? { labels: [...labels] } : {}),
           },
+        },
+        signal,
+      );
+      return { number: numberValue(issue.number), htmlUrl: stringValue(issue.html_url) };
+    },
+
+    updateIssue: async (
+      { installationId, owner, name, number, title, assignees },
+      signal,
+    ) => {
+      const body: Record<string, unknown> = {};
+      if (title !== undefined && title.trim().length > 0) body.title = title.trim();
+      if (assignees !== undefined && assignees.length > 0)
+        body.assignees = [...assignees];
+      if (Object.keys(body).length === 0)
+        return { number, htmlUrl: `https://github.com/${owner}/${name}/issues/${number}` };
+      const issue = await authorized<Record<string, unknown>>(
+        installationId,
+        {
+          method: "PATCH",
+          path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues/${number}`,
+          body,
         },
         signal,
       );

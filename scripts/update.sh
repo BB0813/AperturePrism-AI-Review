@@ -47,6 +47,19 @@ COMPOSE_FILES="-f $BASE_DIR/docker-compose.prod.yml"
 if [ "${AP_VERIFY:-0}" = "1" ] && [ -f "$BASE_DIR/compose.verify.yml" ]; then
   COMPOSE_FILES="-f $BASE_DIR/docker-compose.prod.yml -f $BASE_DIR/compose.verify.yml"
 fi
+
+# Preflight: fail loudly with an actionable hint instead of a cryptic
+# "open ...: no such file or directory" from docker compose. Images before
+# v1.0.7 baked the update.sh with relative paths and cannot self-update; they
+# must be upgraded once manually (see README「升级」).
+if [ ! -f "$BASE_DIR/docker-compose.prod.yml" ]; then
+  log error "缺少 compose 文件 $BASE_DIR/docker-compose.prod.yml"
+  log error "当前镜像版本过旧（< v1.0.7）无法在线自更新，请手动升级一次："
+  log error "  编辑部署目录 docker/.env.production 中 IMAGE_TAG=vX.Y.Z 后执行："
+  log error "  docker compose -f docker/docker-compose.prod.yml --env-file docker/.env.production pull"
+  log error "  docker compose -f docker/docker-compose.prod.yml --env-file docker/.env.production up -d"
+  exit 1
+fi
 compose() { docker compose --project-name "$PROJECT" $COMPOSE_FILES --env-file "$ENV_FILE" "$@"; }
 
 if [ "$DRY_RUN" = "1" ]; then

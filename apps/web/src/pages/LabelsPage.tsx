@@ -107,6 +107,14 @@ export function LabelsPage() {
             </span>
           </div>
 
+          <p className="faint" style={{ margin: "0 0 12px", fontSize: 12, lineHeight: 1.6 }}>
+            每条规则把<strong>分析结果字段</strong>映射为一个 <strong>GitHub 标签</strong>，例如
+            <code className="mono"> severity:S1 </code>→ 标签 <span className="chip">critical</span>、
+            <code className="mono"> category:bug </code>→ 标签 <span className="chip">bug</span>。
+            左边是匹配键（含前缀），右边箭头后才是实际打到 GitHub Issue 上的标签名，可改成任意 GitHub 标签
+            （如 <code className="mono">enhancement</code>）。
+          </p>
+
           <div className="stack" style={{ gap: 8 }}>
             {items.length === 0 ? (
               <p className="faint" style={{ margin: 0, fontSize: 12 }}>

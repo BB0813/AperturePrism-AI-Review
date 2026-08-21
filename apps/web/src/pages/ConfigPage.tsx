@@ -44,6 +44,21 @@ const FIELD_META: Record<string, { label: string; hint: string; secret: boolean 
     hint: "none 不处理 / close 关闭 / delete 删除；分析前自识别广告类 Issue",
     secret: false,
   },
+  issue_auto_assign: {
+    label: "Issue 自动指派",
+    hint: "true 启用 / false 关闭；分析完成后自动把 Issue 指派给 issue_assignee（默认仓库所有者，跳过作者本人）",
+    secret: false,
+  },
+  issue_assignee: {
+    label: "Issue 指派对象",
+    hint: "GitHub 用户名；留空则默认指派给仓库所有者",
+    secret: false,
+  },
+  issue_rewrite_title: {
+    label: "Issue 标题改写",
+    hint: "true 启用 / false 关闭；分析给出更清晰的标题时自动改写 Issue 标题",
+    secret: false,
+  },
   oauth_client_id: {
     label: "GitHub OAuth Client ID",
     hint: "GitHub OAuth App 的 Client ID；留空则用环境变量",

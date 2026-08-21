@@ -172,6 +172,28 @@ export async function fetchRepositories(): Promise<RepositoryList> {
   return (await getJson("/repositories")) as RepositoryList;
 }
 
+export type RepoSubjectItem = { number: number; title: string };
+
+/**
+ * Recent open issues / pull requests of an installed repository. Used by the
+ * manual-trigger form to offer a pickable dropdown instead of a bare number.
+ */
+export async function fetchRepoSubjects(
+  fullName: string,
+  type: "issue" | "pr",
+  limit = 20,
+): Promise<RepoSubjectItem[]> {
+  const params = new URLSearchParams({
+    fullName,
+    type,
+    limit: String(limit),
+  });
+  const result = (await getJson(
+    `/repositories/issues?${params.toString()}`,
+  )) as { items: RepoSubjectItem[] };
+  return result.items;
+}
+
 export type LogEvent = {
   taskId: string;
   eventType: string;

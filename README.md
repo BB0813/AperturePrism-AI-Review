@@ -58,14 +58,15 @@ AperturePrism 把「AI 代码审查」做成了一条可落地的产品链路，
 
 | 能力 | 说明 |
 | --- | --- |
-| 手动触发 | WebUI「已安装仓库」页按仓库 + 编号手动触发 Issue 分析 / PR 审查（`POST /tasks/manual`） |
+| 手动触发 | WebUI「已安装仓库」页按仓库 + 编号手动触发 Issue 分析 / PR 审查（`POST /tasks/manual`），支持下拉选择最近 open Issue / PR |
 | 广告识别 | 分析前自识别广告/垃圾 Issue，按 `spam_handling` 策略自动关闭或删除（默认 `close`，可 `none`/`delete`，全部记录审计） |
 | Issue 分析 | Webhook 幂等 → 上下文预算化 → 结构化分级（S0-S3 / P0-P3 / 完整度）→ 幂等评论 + 自动打标 |
+| Issue 增强 | 可选自动指派（`issue_auto_assign` / `issue_assignee`，默认仓库所有者、跳过作者）+ 标题改写（`issue_rewrite_title`）+ 语义关联 Issue 展示（分析结果 / WebUI） |
 | PR 审查 | diff 解析与行映射、大小/预算降级、结构化 finding + 服务端严重度策略、幂等 Review 发布 |
 | 重复检测 | 模板清洗标准化 + 信号抽取（错误码/路径/堆栈/语言）+ 全文 GIN + pgvector 召回 → 模型裁决 |
 | 仓库记忆 | 每次分析/审查自动沉淀「反思」；Scheduler 定期用模型合并成规则/知识；再次分析时回灌上下文 |
 | Agent Skills / 专家团队 | 6 个内置技能（triage/security/dependency/performance/docs/test）+ 多专家并行审查 + 主编合并（可选开关） |
-| Web 控制台 | 深色玻璃 UI：概览 / 日志 / Issue / PR / 队列 / 仓库 / 向量存储 / 记忆 / Agent / 配置 / 安全 / 用户 |
+| Web 控制台 | 深色玻璃 UI：概览 / 日志 / Issue / PR / 队列 / 仓库 / 扫描 / 向量存储 / 记忆 / Agent / 配置 / 安全 / 用户 |
 | 安装仓库同步 | WebUI「已安装仓库」一键同步 GitHub App 安装仓库（`POST /repositories/sync`），并每 12 小时后台自动拉取，无需等待 Webhook |
 | 认证与安全 | GitHub OAuth 登录 + Bearer 令牌；首个登录用户自动为管理员；敏感操作审计日志；速率限制 |
 | 索引与 RAG | index-worker 定时索引仓库 Issue（内容哈希去重 + 批量 embedding + 重建）；只读召回接口 |
@@ -173,7 +174,7 @@ curl -fsSL .../scripts/bootstrap.sh | bash -s -- --skip-docker
 
 ## Docker 部署
 
-一键打包了全部组件：`api`、`analysis-worker`、`index-worker`、`scheduler`、`qq-bot`、`migrate`（一次性迁移）与 `web`（nginx 托管 SPA 并反代 API/SSE，同源无需 CORS）。
+一键打包了全部组件：`api`、`analysis-worker`、`index-worker`、`scheduler`、`scan-worker`（仓库扫描）、`qq-bot`、`migrate`（一次性迁移）与 `web`（nginx 托管 SPA 并反代 API/SSE，同源无需 CORS）。
 
 ```bash
 # 1. 准备环境文件（密钥不入库）
@@ -202,6 +203,23 @@ curl http://<host>/health/ready    # 200 才代表 DB+Redis 均就绪
 docker compose -f docker/docker-compose.prod.yml --env-file .env.production down
 docker compose -f docker/docker-compose.prod.yml --env-file .env.production up -d
 ```
+
+### 升级
+
+- **在线一键更新（推荐，v1.0.7+）**：WebUI「系统配置 → 版本与更新」点击「更新到最新」，脚本自动 pull → migrate → 重建容器 → 健康检查（失败自动回滚）。也可命令行手动升级：
+
+  ```bash
+  # 修改 docker/.env.production 中的 IMAGE_TAG=v1.0.8（打 tag 发布后可固定版本）
+  docker compose -f docker/docker-compose.prod.yml --env-file docker/.env.production pull
+  docker compose -f docker/docker-compose.prod.yml --env-file docker/.env.production run --rm migrate
+  docker compose -f docker/docker-compose.prod.yml --env-file docker/.env.production up -d
+  ```
+
+- **v1.0.7 之前的旧版本无法在线自更新**：v1.0.1~v1.0.6 镜像内置的 update.sh 使用相对路径引用 compose 文件，容器内无法找到 `/app/docker-compose.prod.yml`（报 `open /app/docker-compose.prod.yml: no such file or directory` / `script_exit_1`）。此类安装需**手动升级一次**到 v1.0.7+，之后即可用 WebUI 一键更新。手动升级步骤同上（把 `IMAGE_TAG` 改为 v1.0.7 或更高）。
+
+## 社区支持
+
+`https://linux.do`
 
 ## 配置参考
 

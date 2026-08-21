@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { useSse } from "./hooks/useSse";
 import { navigate, tabOf, useHashRoute } from "./hooks/useHash";
 import { useTheme } from "./hooks/useTheme";
@@ -168,9 +168,22 @@ function AuthedConsole(props: { onLogout: () => void }) {
   const sse = useSse(eventsUrl());
   const { theme, toggle } = useTheme();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const navRef = useRef<HTMLElement>(null);
 
   // Route change always collapses the mobile drawer.
   useEffect(() => setDrawerOpen(false), [route]);
+
+  // 打开抽屉时锁定背景滚动，关闭时恢复；同时把抽屉内容滚回顶部，
+  // 避免抽屉停留在上次滚动位置造成“上滑/错位”的观感。
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    navRef.current?.scrollTo({ top: 0 });
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [drawerOpen]);
 
   const closeDrawer = () => setDrawerOpen(false);
 
@@ -215,7 +228,7 @@ function AuthedConsole(props: { onLogout: () => void }) {
           <div className="brand-sub">AI Code Review</div>
         </div>
 
-        <nav className="nav">
+        <nav className="nav" ref={navRef}>
           {NAV.map((group, gi) => (
             <div key={gi} className="nav-group">
               {group.title ? <div className="nav-title">{group.title}</div> : null}

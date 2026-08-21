@@ -2,9 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import {
   bumpCache,
   fetchRepositories,
+  fetchRepoSubjects,
   syncRepositories,
   triggerManualTask,
   type Repository,
+  type RepoSubjectItem,
 } from "../lib/api";
 import { ArrowPathIcon, FolderIcon, RefreshIcon } from "../components/icons";
 import { Empty, ErrorPanel, LoadingRows } from "../components/ui";
@@ -19,6 +21,8 @@ export function ReposPage() {
   const [triggerRepo, setTriggerRepo] = useState<string>("");
   const [triggerNumber, setTriggerNumber] = useState<string>("");
   const [triggerBusy, setTriggerBusy] = useState(false);
+  const [subjects, setSubjects] = useState<RepoSubjectItem[]>([]);
+  const [subjectsBusy, setSubjectsBusy] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
   const toast = useToast();
 
@@ -52,10 +56,37 @@ export function ReposPage() {
 
   useEffect(() => load(), [load]);
 
+  // 选择仓库/类型后，拉取最近的 open Issue / PR 供下拉选择（也可手动输入编号）。
+  useEffect(() => {
+    if (!triggerRepo) {
+      setSubjects([]);
+      return;
+    }
+    let cancelled = false;
+    setSubjectsBusy(true);
+    fetchRepoSubjects(triggerRepo, triggerType)
+      .then((items) => {
+        if (!cancelled) {
+          setSubjects(items);
+          // 自动填入最近一条，省去手输编号。
+          setTriggerNumber(items[0] ? String(items[0].number) : "");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSubjects([]);
+      })
+      .finally(() => {
+        if (!cancelled) setSubjectsBusy(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [triggerRepo, triggerType]);
+
   const trigger = async () => {
     const number = Number(triggerNumber);
     if (!triggerRepo || !Number.isInteger(number) || number <= 0) {
-      toast.error("请选择仓库并填写正整数编号");
+      toast.error("请先选择仓库，再选择或填写一个正整数 Issue / PR 编号");
       return;
     }
     setTriggerBusy(true);
@@ -99,8 +130,12 @@ export function ReposPage() {
       <section className="panel">
         <div className="panel-title">
           <h2>手动触发分析</h2>
-          <span className="count">对已安装仓库的 Issue / PR 手动创建任务</span>
+          <span className="count">对已安装仓库的某个 Issue / PR 立即创建一个分析 / 审查任务</span>
         </div>
+        <p className="faint" style={{ margin: "0 0 12px", fontSize: 12 }}>
+          选择一个仓库后，下拉会列出它最近的 open Issue / PR（也可手动输入编号）；点击「触发分析」会绕过 Webhook，
+          直接把该条目加入审查队列，分析完成后再发布评论 / Review。
+        </p>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <select
             className="input"
@@ -125,9 +160,31 @@ export function ReposPage() {
             <option value="issue">Issue</option>
             <option value="pr">PR</option>
           </select>
+          <select
+            className="input"
+            style={{ flex: "1 1 260px", maxWidth: 360 }}
+            value={subjects.some((s) => String(s.number) === triggerNumber) ? triggerNumber : ""}
+            onChange={(event) => setTriggerNumber(event.target.value)}
+            disabled={!triggerRepo || subjects.length === 0}
+          >
+            <option value="">
+              {!triggerRepo
+                ? "先选择仓库…"
+                : subjectsBusy
+                  ? "加载中…"
+                  : subjects.length === 0
+                    ? "该仓库暂无 open 条目（可手动输入编号）"
+                    : "选择最近的 Issue / PR…"}
+            </option>
+            {subjects.map((subject) => (
+              <option key={subject.number} value={String(subject.number)}>
+                #{subject.number} · {subject.title.slice(0, 40)}
+              </option>
+            ))}
+          </select>
           <input
             className="input"
-            style={{ flex: "0 1 140px" }}
+            style={{ flex: "0 1 110px" }}
             type="number"
             min={1}
             step={1}

@@ -206,6 +206,9 @@ const ALLOWED_SETTING_KEYS = new Set([
   "qq_official_intents",
   "log_level",
   "spam_handling",
+  "issue_auto_assign",
+  "issue_assignee",
+  "issue_rewrite_title",
 ]);
 
 const runtimeSettings = new Map<string, string>();
@@ -1318,6 +1321,106 @@ async function handleRepositories(
   );
 }
 
+/**
+ * GET /repositories/issues?fullName=owner/name&type=issue|pr&limit=N — lists
+ * recent open issues / pull requests for an installed repository. Lets the
+ * WebUI manual-trigger form offer a pickable dropdown instead of guessing a
+ * numeric subject id. Read-only; any authenticated user may use it.
+ */
+async function handleRepositoryIssues(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const url = new URL(
+    request.url ?? "/",
+    `http://${request.headers.host ?? "localhost"}`,
+  );
+  const fullName = url.searchParams.get("fullName")?.trim() ?? "";
+  const type = url.searchParams.get("type") === "pr" ? "pr" : "issue";
+  const limitRaw = Number(url.searchParams.get("limit"));
+  const limit = Number.isFinite(limitRaw)
+    ? Math.min(Math.max(Math.trunc(limitRaw), 1), 50)
+    : 20;
+  const identity = repositoryOwnerName(fullName);
+  if (!identity) {
+    json(
+      response,
+      400,
+      { status: "error", reason: "fullName must be owner/repo" },
+      requestId,
+    );
+    return;
+  }
+  const rows = await database.db
+    .select({ id: repositories.id, installationId: repositories.installationId })
+    .from(repositories)
+    .where(
+      and(
+        eq(repositories.owner, identity.owner),
+        eq(repositories.name, identity.name),
+      ),
+    )
+    .limit(1);
+  const repo = rows[0];
+  if (!repo || !repo.installationId) {
+    json(
+      response,
+      404,
+      { status: "error", reason: "repository_not_installed" },
+      requestId,
+    );
+    return;
+  }
+  const github = await githubClientPromise;
+  if (!github) {
+    json(
+      response,
+      503,
+      { status: "error", reason: "github_not_configured" },
+      requestId,
+    );
+    return;
+  }
+  try {
+    const base = {
+      installationId: repo.installationId,
+      owner: identity.owner,
+      name: identity.name,
+      state: "open" as const,
+      perPage: limit,
+      page: 1,
+    };
+    const items =
+      type === "pr"
+        ? await github.listPullRequests(base)
+        : await github.listIssues(base);
+    json(
+      response,
+      200,
+      {
+        type,
+        items: items.map((item) => ({
+          number: item.number,
+          title: item.title,
+        })),
+      },
+      requestId,
+    );
+  } catch (error) {
+    if (error instanceof GitHubApiError) {
+      json(
+        response,
+        400,
+        { status: "error", reason: error.category },
+        requestId,
+      );
+      return;
+    }
+    throw error;
+  }
+}
+
 /* ---------- GitHub App installation repository sync ---------- */
 
 const REPOSITORY_SYNC_INTERVAL_MS = 12 * 60 * 60 * 1_000; // 每 12 小时自动同步
@@ -2069,6 +2172,9 @@ async function handleSettings(
     "qq_official_intents",
     "log_level",
     "spam_handling",
+    "issue_auto_assign",
+    "issue_assignee",
+    "issue_rewrite_title",
   ];
   const items = known.map((key) => {
     const row = byKey.get(key);
@@ -3528,6 +3634,20 @@ async function handleRequest(
 
   if (path === "/repositories") {
     await handleRepositories(response, requestId);
+    return;
+  }
+
+  if (path === "/repositories/issues") {
+    if (request.method !== "GET") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    await handleRepositoryIssues(request, response, requestId);
     return;
   }
 

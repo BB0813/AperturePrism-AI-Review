@@ -21,6 +21,7 @@ const UPDATE_SERVICES = [
   "analysis-worker",
   "index-worker",
   "scheduler",
+  "scan-worker",
   "migrate",
   "qq-bot",
 ] as const;

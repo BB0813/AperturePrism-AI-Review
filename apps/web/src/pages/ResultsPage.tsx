@@ -8,6 +8,7 @@ type NormResult = {
   root: Record<string, unknown>;
   isIssue: boolean;
   summary: string;
+  related: { issueNumber: number; repositoryFullName: string | null; score: number; reasons: string[] }[];
 };
 
 function normalizeResult(result: unknown): NormResult {
@@ -21,7 +22,21 @@ function normalizeResult(result: unknown): NormResult {
     (typeof root.summary === "string" && root.summary) ||
     (typeof root.verdict === "string" && root.verdict) ||
     "";
-  return { root, isIssue, summary };
+  const related = Array.isArray(raw.related)
+    ? (raw.related as Record<string, unknown>[])
+        .map((r) => ({
+          issueNumber:
+            typeof r.issueNumber === "number" ? r.issueNumber : Number(r.issue_number ?? 0),
+          repositoryFullName:
+            typeof r.repositoryFullName === "string" ? r.repositoryFullName : null,
+          score: typeof r.score === "number" ? r.score : 0,
+          reasons: Array.isArray(r.reasons)
+            ? r.reasons.filter((x): x is string => typeof x === "string")
+            : [],
+        }))
+        .filter((r) => r.issueNumber > 0)
+    : [];
+  return { root, isIssue, summary, related };
 }
 
 type Conf = { severity?: number; rootCause?: number; suggestion?: number };
@@ -184,6 +199,7 @@ function IssueBody({ norm }: { norm: NormResult }) {
   const missing = stringArr(r.missingInformation);
   const actions = stringArr(r.suggestedActions);
   const evidence = arrOf(r.evidence);
+  const suggestedTitle = str(r.suggestedTitle);
 
   return (
     <>
@@ -195,6 +211,13 @@ function IssueBody({ norm }: { norm: NormResult }) {
         <QualityBadge value={str(r.quality)} />
         {typeof r.category === "string" ? <CategoryPill value={r.category} /> : null}
       </div>
+
+      {suggestedTitle ? (
+        <div className="section">
+          <h4>建议标题</h4>
+          <p className="action-item">{suggestedTitle}</p>
+        </div>
+      ) : null}
 
       {conf ? (
         <div className="section">
@@ -248,6 +271,29 @@ function IssueBody({ norm }: { norm: NormResult }) {
           <ul>
             {actions.map((a, i) => (
               <li key={i} className="action-item">{a}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {norm.related.length > 0 ? (
+        <div className="section">
+          <h4>语义关联 Issue</h4>
+          <ul className="missing-list">
+            {norm.related.slice(0, 5).map((rel, i) => (
+              <li key={i}>
+                <a
+                  href={`https://github.com/${rel.repositoryFullName ?? "unknown/repo"}/issues/${rel.issueNumber}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  #{rel.issueNumber}
+                </a>
+                <span className="faint">
+                  {" "}· {rel.repositoryFullName ?? "unknown/repo"}（{Math.round(rel.score * 100)}%
+                  {rel.reasons.includes("signal") ? " 信号" : " 文本"}相似）
+                </span>
+              </li>
             ))}
           </ul>
         </div>

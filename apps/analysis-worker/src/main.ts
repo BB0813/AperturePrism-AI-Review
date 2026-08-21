@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { hostname } from "node:os";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import {
   createCredentialCipher,
   loadConfig,
@@ -426,7 +426,10 @@ async function main(): Promise<void> {
         subjectNumber: payload.subjectNumber,
         repositoryFullName: payload.repositoryFullName,
         revision: payload.subjectRevision,
-        result: analysis,
+        result:
+          related.length > 0
+            ? { ...analysis, related }
+            : analysis,
       });
       // Apply configured label rules to the issue (best-effort, idempotent).
       await applyConfiguredLabels({
@@ -438,6 +441,17 @@ async function main(): Promise<void> {
         analysis: analysis.result,
       }).catch((error: unknown) =>
         logger.warn({ err: error, taskId: task.id }, "label application skipped"),
+      );
+      // Issue 增强：自动指派 + 标题改写（best-effort，受运行时设置控制）。
+      await applyIssueEnhancements({
+        github: assertGithub(github),
+        installationId: payload.installationId,
+        owner: identity.owner,
+        name: identity.name,
+        issueNumber: payload.subjectNumber,
+        analysis: analysis.result,
+      }).catch((error: unknown) =>
+        logger.warn({ err: error, taskId: task.id }, "issue enhancement skipped"),
       );
     },
 
@@ -934,6 +948,86 @@ async function applyConfiguredLabels(input: {
     number: input.issueNumber,
     labels,
   });
+}
+
+/** Issue 增强开关（运行时设置，可在 WebUI「系统配置」热更新）。 */
+async function issueEnhancementConfig(): Promise<{
+  autoAssign: boolean;
+  assignee: string;
+  rewriteTitle: boolean;
+}> {
+  try {
+    const rows = await database.db
+      .select({ key: systemSettings.key, value: systemSettings.value })
+      .from(systemSettings)
+      .where(
+        inArray(systemSettings.key, [
+          "issue_auto_assign",
+          "issue_assignee",
+          "issue_rewrite_title",
+        ]),
+      );
+    const map = new Map(rows.map((row) => [row.key, row.value]));
+    return {
+      autoAssign: map.get("issue_auto_assign") === "true",
+      assignee: (map.get("issue_assignee") ?? "").trim(),
+      rewriteTitle: map.get("issue_rewrite_title") === "true",
+    };
+  } catch {
+    return { autoAssign: false, assignee: "", rewriteTitle: false };
+  }
+}
+
+/**
+ * Issue 增强：自动指派（默认派给仓库所有者，可配置 issue_assignee；跳过
+ * 作者本人）与标题改写（issue_rewrite_title 开启时应用 suggestedTitle）。
+ * 全部 best-effort：失败只告警，不影响分析任务状态。
+ */
+async function applyIssueEnhancements(input: {
+  github: ReturnType<typeof createGitHubClient>;
+  installationId: string;
+  owner: string;
+  name: string;
+  issueNumber: number;
+  analysis: { suggestedTitle?: string };
+}): Promise<void> {
+  const cfg = await issueEnhancementConfig();
+  const suggested = (input.analysis.suggestedTitle ?? "").trim();
+  if (!cfg.autoAssign && !(cfg.rewriteTitle && suggested)) return;
+
+  // 需要作者（跳过自己）与当前标题（避免无效改写）时再拉取一次 Issue。
+  const issue = await input.github.getIssue({
+    installationId: input.installationId,
+    owner: input.owner,
+    name: input.name,
+    number: input.issueNumber,
+  });
+
+  const assignee = cfg.assignee || input.owner;
+  const patches: { title?: string; assignees?: string[] } = {};
+  if (cfg.autoAssign && issue.author !== assignee) {
+    patches.assignees = [assignee];
+  }
+  if (cfg.rewriteTitle && suggested && suggested !== issue.title) {
+    patches.title = suggested;
+  }
+  if (Object.keys(patches).length === 0) return;
+
+  await input.github.updateIssue({
+    installationId: input.installationId,
+    owner: input.owner,
+    name: input.name,
+    number: input.issueNumber,
+    ...patches,
+  });
+  logger.info(
+    {
+      repo: `${input.owner}/${input.name}`,
+      issueNumber: input.issueNumber,
+      patches,
+    },
+    "issue enhancement applied",
+  );
 }
 
 /** Reads the ad/spam handling policy from `system_settings`; defaults to close. */

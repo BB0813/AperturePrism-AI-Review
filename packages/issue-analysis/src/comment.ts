@@ -54,6 +54,10 @@ export function buildIssueAnalysisComment(
     result.summary,
   ];
 
+  if (result.suggestedTitle && result.suggestedTitle.trim().length > 0) {
+    lines.push("", `### 建议标题`, result.suggestedTitle.trim());
+  }
+
   if (result.evidence.length > 0) {
     lines.push("", "### 证据", "");
     for (const item of result.evidence) {

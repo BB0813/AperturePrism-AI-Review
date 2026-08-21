@@ -940,6 +940,7 @@ select.input {
     width: 264px;
     transform: translateX(-100%);
     transition: transform var(--dur-3) var(--ease);
+    will-change: transform;
     border-right: 1px solid var(--border);
     box-shadow: var(--shadow);
   }
@@ -948,7 +949,7 @@ select.input {
   .sidebar > .side-foot { padding-top: 22px; flex-direction: column; align-items: stretch; }
   .brand-sub { display: block; }
   .side-foot { margin-top: auto; }
-  .nav { flex-direction: column; gap: 16px; overflow-y: auto; }
+  .nav { flex-direction: column; gap: 16px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
   .nav-group { flex-direction: column; align-items: stretch; }
   .nav-title { display: block; }
   .nav-item { white-space: normal; }
@@ -967,6 +968,11 @@ select.input {
     position: fixed; inset: 0; z-index: 1050;
     background: rgba(2, 6, 23, 0.5);
     backdrop-filter: blur(2px);
+    animation: backdropIn var(--dur-2) var(--ease) both;
+  }
+  @keyframes backdropIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
   }
   .topbar-meta { min-width: 0; }
 }
