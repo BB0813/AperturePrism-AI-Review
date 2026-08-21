@@ -382,8 +382,10 @@ function checkNpm() {
 
 /** Compose 子命令公共参数（-f prod [-f verify] --env-file）。 */
 function composeArgs() {
-  const files = ["-f", COMPOSE_PROD];
-  if (opts.verify) files.push("-f", COMPOSE_VERIFY);
+  // 一律用绝对路径：compose 对相对 -f 会 chdir 到该文件目录，导致 --env-file
+  // 的相对解析错位到 docker/ 下。绝对化后 env-file 才能正确指向 ROOT/.env.production。
+  const files = ["-f", join(ROOT, COMPOSE_PROD)];
+  if (opts.verify) files.push("-f", join(ROOT, COMPOSE_VERIFY));
   return [...files, "--env-file", ENV_PROD_FILE];
 }
 
