@@ -870,6 +870,15 @@ async function main(): Promise<void> {
         "taskId" in event
           ? withCorrelation(logger, { taskId: event.taskId })
           : logger;
+      if (event.type === "failed") {
+        // A failed attempt must leave a diagnosable trace: log the surfaced
+        // error (already sanitized/truncated by the loop) at error level.
+        taskLogger.error(
+          { event: event.type, errorCategory: event.errorCategory, error: event.error },
+          "worker event failed",
+        );
+        return;
+      }
       taskLogger.info({ event: event.type }, "worker event");
     },
   });

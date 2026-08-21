@@ -37,9 +37,23 @@ export type WorkerEvent =
   | { type: "claimed"; taskId: string; attemptNumber: number }
   | { type: "idle" }
   | { type: "completed"; taskId: string }
-  | { type: "failed"; taskId: string; errorCategory: string }
+  | { type: "failed"; taskId: string; errorCategory: string; error?: string }
   | { type: "lease_lost"; taskId: string }
   | { type: "shutdown" };
+
+/**
+ * Renders an error into a short, safe-to-log string. Provider bodies can be
+ * huge and occasionally embed credentials, so only the message is kept and it
+ * is truncated.
+ */
+function describeError(error: unknown): string | undefined {
+  if (error instanceof Error) {
+    const message = error.message || error.name;
+    return message.length > 500 ? `${message.slice(0, 500)}…` : message;
+  }
+  const text = String(error);
+  return text.length > 500 ? `${text.slice(0, 500)}…` : text;
+}
 
 function delay(ms: number, signal: AbortSignal): Promise<void> {
   if (ms <= 0 || signal.aborted) return Promise.resolve();
@@ -148,7 +162,12 @@ export async function runOnce(options: WorkerLoopOptions): Promise<boolean> {
           ? "canceled"
           : "handler_error";
     if (!leaseLost) await engine.fail(task, errorCategory);
-    onEvent?.({ type: "failed", taskId: task.id, errorCategory });
+    onEvent?.({
+      type: "failed",
+      taskId: task.id,
+      errorCategory,
+      error: describeError(error),
+    });
     return true;
   } finally {
     stopHeartbeat();

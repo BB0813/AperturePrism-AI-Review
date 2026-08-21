@@ -312,7 +312,7 @@ export function SetupPage() {
                   {llmModels.map((m) => <option key={m} value={m}>{m}</option>)}
                 </select>
               ) : (
-                <input className="input" style={{ flex: 1 }} value={llmModel} onChange={(e) => setLlmModel(e.target.value)} placeholder="deepseek-v4-flash" />
+                <input className="input" style={{ flex: 1 }} value={llmModel} onChange={(e) => setLlmModel(e.target.value)} placeholder="deepseek-v3.2" />
               )}
               <button className="btn" onClick={fetchLlmModels} disabled={llmBusy}>
                 {llmBusy ? "拉取中…" : "拉取模型列表"}

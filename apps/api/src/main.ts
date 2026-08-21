@@ -2617,7 +2617,7 @@ async function handleSetupStatus(
       provider: {
         count: providerCount,
         providerKey,
-        model: "deepseek-v4-flash",
+        model: "deepseek-v3.2",
       },
       policies: { count: policyCount, required: DEFAULT_POLICIES.length },
       githubWebhookConfigured: Boolean(config.githubWebhookSecret),
@@ -2671,7 +2671,7 @@ async function handleSetupInit(
           role: policy.role,
           version: policy.version,
           candidates: [
-            { provider: providerKey, model: "deepseek-v4-flash", accountName },
+            { provider: providerKey, model: "deepseek-v3.2", accountName },
           ],
         });
         created.push(policy.role);
