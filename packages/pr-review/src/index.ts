@@ -6,5 +6,6 @@ export * from "./payload.js";
 export * from "./prompt.js";
 export * from "./publish.js";
 export * from "./review.js";
+export * from "./tools.js";
 export * from "./types.js";
 export * from "./validate.js";

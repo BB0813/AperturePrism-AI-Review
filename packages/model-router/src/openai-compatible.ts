@@ -16,7 +16,16 @@ export type OpenAICompatibleOptions = {
 };
 
 type ChatCompletionResponse = {
-  choices?: { message?: { content?: unknown } }[];
+  choices?: {
+    message?: {
+      content?: unknown;
+      tool_calls?: {
+        id?: unknown;
+        type?: unknown;
+        function?: { name?: unknown; arguments?: unknown };
+      }[];
+    };
+  }[];
   usage?: {
     prompt_tokens?: unknown;
     completion_tokens?: unknown;
@@ -96,6 +105,9 @@ export function createOpenAICompatibleAdapter(
           body: JSON.stringify({
             model: candidate.model,
             messages: request.messages,
+            ...(request.tools === undefined || request.tools.length === 0
+              ? {}
+              : { tools: request.tools }),
             ...(request.maxOutputTokens === undefined
               ? {}
               : { max_tokens: request.maxOutputTokens }),
@@ -144,19 +156,48 @@ export function createOpenAICompatibleAdapter(
         );
       }
 
-      const content = parsed.choices?.[0]?.message?.content;
-      if (typeof content !== "string" || content.length === 0)
+      const message = parsed.choices?.[0]?.message;
+
+      const toolCalls = Array.isArray(message?.tool_calls)
+        ? message.tool_calls
+            .map((call) => ({
+              id: typeof call.id === "string" ? call.id : "",
+              name: typeof call.function?.name === "string" ? call.function.name : "",
+              arguments: typeof call.function?.arguments === "string" ? call.function.arguments : "{}",
+            }))
+            .filter((call) => call.name !== "")
+        : undefined;
+
+      // content 可能是字符串、null（纯工具调用）或数组（OpenAI 多模态分段）。
+      let contentText = "";
+      const rawContent = message?.content;
+      if (typeof rawContent === "string") contentText = rawContent;
+      else if (Array.isArray(rawContent)) {
+        contentText = rawContent
+          .map((part) =>
+            typeof part === "object" &&
+            part !== null &&
+            typeof (part as { text?: unknown }).text === "string"
+              ? ((part as { text: string }).text as string)
+              : "",
+          )
+          .join("");
+      }
+
+      const hasToolCalls = toolCalls !== undefined && toolCalls.length > 0;
+      if (contentText.length === 0 && !hasToolCalls)
         throw new ModelInvocationError(
           "invalid_output",
           "provider response did not contain message content",
         );
 
       return {
-        content,
+        content: contentText,
         usage: {
           inputTokens: integerOrZero(parsed.usage?.prompt_tokens),
           outputTokens: integerOrZero(parsed.usage?.completion_tokens),
         },
+        ...(hasToolCalls ? { toolCalls } : {}),
       };
     },
   };

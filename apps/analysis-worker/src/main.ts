@@ -605,13 +605,17 @@ async function main(): Promise<void> {
         ),
         repoMemoryText(payload.repositoryFullName),
       ]);
-      return repoMemory
-        ? {
-            ...context,
-            repoMemory,
-            rendered: { ...context.rendered, repoMemory },
-          }
-        : context;
+      return {
+        ...context,
+        ...(repoMemory ? { repoMemory, rendered: { ...context.rendered, repoMemory } } : {}),
+        toolsContext: {
+          client: github,
+          installationId: payload.installationId,
+          owner: identity.owner,
+          name: identity.name,
+          ref: payload.headSha ?? "HEAD",
+        },
+      };
     },
 
     review: (context: PrReviewContext, signal) => {
@@ -643,6 +647,9 @@ async function main(): Promise<void> {
           deadlineMs: reviewDeadlineMs,
           retryPolicy: reviewRetryPolicy,
           signal,
+          ...(context.toolsContext
+            ? { tools: { context: context.toolsContext } }
+            : {}),
         },
         context.rendered,
       );

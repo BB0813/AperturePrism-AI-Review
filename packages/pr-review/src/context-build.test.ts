@@ -17,6 +17,8 @@ function makeGithub(): GitHubClient {
       token: "t",
       expiresAt: new Date().toISOString(),
     }),
+    getFileContents: async () => null,
+    listDirectory: async () => [],
     getIssue: async () => {
       throw new Error("unused");
     },

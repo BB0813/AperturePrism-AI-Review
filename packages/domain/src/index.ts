@@ -101,11 +101,37 @@ export type ModelRole =
   | "duplicate_judgment"
   | "memory_consolidation";
 
-export type ModelMessageRole = "system" | "user" | "assistant";
+export type ModelMessageRole = "system" | "user" | "assistant" | "tool";
+
+/** 工具参数 JSON Schema（简化子集：type + properties + required）。 */
+export type ToolParameterSchema = {
+  type: string;
+  properties?: Record<string, unknown>;
+  required?: string[];
+};
+
+/** 暴露给模型的工具定义（OpenAI tools 语义）。 */
+export type ModelToolSpec = {
+  name: string;
+  description: string;
+  parameters?: ToolParameterSchema;
+};
+
+/** 模型发起的工具调用（assistant 消息携带）。 */
+export type ModelToolCall = {
+  id: string;
+  name: string;
+  /** 参数，JSON 字符串。 */
+  arguments: string;
+};
 
 export type ModelMessage = {
   role: ModelMessageRole;
   content: string;
+  /** role === "tool" 时回填对应的工具调用 id。 */
+  toolCallId?: string;
+  /** role === "assistant" 时模型请求的工具调用列表。 */
+  toolCalls?: readonly ModelToolCall[];
 };
 
 export type ModelInvocationRequest = {
@@ -113,6 +139,8 @@ export type ModelInvocationRequest = {
   maxOutputTokens?: number;
   temperature?: number;
   responseFormat?: "text" | "json";
+  /** 可选：为模型暴露可调用的工具。 */
+  tools?: readonly ModelToolSpec[];
 };
 
 export type ModelUsage = {
@@ -123,6 +151,8 @@ export type ModelUsage = {
 export type ModelInvocationResponse = {
   content: string;
   usage: ModelUsage;
+  /** 模型请求调用工具（content 可能为空字符串）。 */
+  toolCalls?: readonly ModelToolCall[];
 };
 
 export const modelErrorCategories = [

@@ -228,3 +228,99 @@ describe("OpenAI-compatible adapter error mapping", () => {
     expect(result.usage).toEqual({ inputTokens: 0, outputTokens: 0 });
   });
 });
+
+describe("OpenAI-compatible adapter tool calling", () => {
+  it("forwards tools in the request body", async () => {
+    const { adapter, calls } = adapterWith(() =>
+      jsonResponse(completion("done")),
+    );
+    const toolRequest: ModelInvocationRequest = {
+      messages: [{ role: "user", content: "use a tool" }],
+      tools: [
+        {
+          name: "read_file",
+          description: "read a file",
+          parameters: {
+            type: "object",
+            properties: { path: { type: "string" } },
+            required: ["path"],
+          },
+        },
+      ],
+    };
+    await adapter.invoke(candidate, toolRequest, new AbortController().signal);
+    const body = JSON.parse(String(calls[0]?.init.body)) as Record<
+      string,
+      unknown
+    >;
+    expect(Array.isArray(body.tools)).toBe(true);
+    expect((body.tools as { name: string }[])[0]?.name).toBe("read_file");
+  });
+
+  it("omits tools when the request has none", async () => {
+    const { adapter, calls } = adapterWith(() =>
+      jsonResponse(completion("done")),
+    );
+    await adapter.invoke(candidate, request, new AbortController().signal);
+    const body = JSON.parse(String(calls[0]?.init.body)) as Record<
+      string,
+      unknown
+    >;
+    expect(body).not.toHaveProperty("tools");
+  });
+
+  it("parses tool_calls when content is null", async () => {
+    const { adapter } = adapterWith(() =>
+      jsonResponse({
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_1",
+                  type: "function",
+                  function: { name: "read_file", arguments: '{"path":"a.ts"}' },
+                },
+              ],
+            },
+          },
+        ],
+        usage: { prompt_tokens: 5, completion_tokens: 3 },
+      }),
+    );
+    const result = await adapter.invoke(
+      candidate,
+      request,
+      new AbortController().signal,
+    );
+    expect(result.content).toBe("");
+    expect(result.toolCalls).toEqual([
+      { id: "call_1", name: "read_file", arguments: '{"path":"a.ts"}' },
+    ]);
+  });
+
+  it("joins array content into text", async () => {
+    const { adapter } = adapterWith(() =>
+      jsonResponse({
+        choices: [
+          {
+            message: {
+              content: [
+                { type: "text", text: "part-a" },
+                { type: "text", text: "part-b" },
+              ],
+            },
+          },
+        ],
+        usage: {},
+      }),
+    );
+    const result = await adapter.invoke(
+      candidate,
+      request,
+      new AbortController().signal,
+    );
+    expect(result.content).toBe("part-apart-b");
+  });
+});

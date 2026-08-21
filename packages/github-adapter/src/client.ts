@@ -137,6 +137,28 @@ export type GitHubClient = {
     },
     signal?: AbortSignal,
   ) => Promise<string>;
+  /** Reads a single file's UTF-8 content at a ref via the contents API. */
+  getFileContents: (
+    input: {
+      installationId: string;
+      owner: string;
+      name: string;
+      path: string;
+      ref: string;
+    },
+    signal?: AbortSignal,
+  ) => Promise<{ content: string; truncated?: boolean } | null>;
+  /** Lists directory entries at a ref via the contents API. */
+  listDirectory: (
+    input: {
+      installationId: string;
+      owner: string;
+      name: string;
+      path: string;
+      ref: string;
+    },
+    signal?: AbortSignal,
+  ) => Promise<{ name: string; path: string; type: string }[]>;
   listIssueComments: (
     input: {
       installationId: string;
@@ -492,6 +514,63 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
         },
         signal,
       ),
+
+    getFileContents: async (
+      { installationId, owner, name, path, ref },
+      signal,
+    ) => {
+      const safePath = String(path || "").replace(/^\/+/, "");
+      if (!safePath) return null;
+      const encoded = safePath.split("/").map(encodeURIComponent).join("/");
+      let data: Record<string, unknown>;
+      try {
+        data = await authorized<Record<string, unknown>>(
+          installationId,
+          {
+            method: "GET",
+            path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents/${encoded}?ref=${encodeURIComponent(ref)}`,
+          },
+          signal,
+        );
+      } catch (error) {
+        if (error instanceof GitHubApiError && error.status === 404) return null;
+        throw error;
+      }
+      // A directory path returns an array instead of a file object.
+      if (Array.isArray(data)) return null;
+      if (typeof data.type === "string" && data.type !== "file") return null;
+      const base64 = typeof data.content === "string" ? data.content : "";
+      if (!base64) return null;
+      return {
+        content: Buffer.from(base64, "base64").toString("utf8"),
+        truncated: data.truncated === true,
+      };
+    },
+
+    listDirectory: async ({ installationId, owner, name, path, ref }, signal) => {
+      const safePath = String(path || "").replace(/^\/+/, "").replace(/\/+$/, "");
+      const encoded = safePath.split("/").map(encodeURIComponent).join("/");
+      let data: unknown;
+      try {
+        data = await authorized<unknown>(
+          installationId,
+          {
+            method: "GET",
+            path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents/${encoded}?ref=${encodeURIComponent(ref)}`,
+          },
+          signal,
+        );
+      } catch (error) {
+        if (error instanceof GitHubApiError && error.status === 404) return [];
+        throw error;
+      }
+      if (!Array.isArray(data)) return [];
+      return (data as Record<string, unknown>[]).map((entry) => ({
+        name: typeof entry.name === "string" ? entry.name : "",
+        path: typeof entry.path === "string" ? entry.path : "",
+        type: typeof entry.type === "string" ? entry.type : "file",
+      }));
+    },
 
     listIssueComments: async (
       { installationId, owner, name, number },
