@@ -1577,20 +1577,22 @@ let repositorySyncTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
  * Pulls every installed repository from the GitHub App for each known
- * installation and upserts them into the `repositories` table, so repos added
- * to the app installation appear in the WebUI without waiting for a webhook.
+ * installation and upserts them into the `repositories` table. Each
+ * installation is retried once on a transient failure; `details` carries the
+ * per-installation failure reason so the WebUI can show why a sync failed.
  */
 async function syncInstallations(): Promise<{
   installations: number;
   synced: number;
   errors: number;
+  details?: { installationId: string; reason: string }[];
 }> {
   if (repositorySyncRunning) return { installations: 0, synced: 0, errors: 0 };
   repositorySyncRunning = true;
   try {
     const github = await githubClientPromise;
     if (!github)
-      return { installations: 0, synced: 0, errors: 1 };
+      return { installations: 0, synced: 0, errors: 1, details: [{ installationId: "-", reason: "github_not_configured" }] };
     const rows = await database.db
       .select({ installationId: repositories.installationId })
       .from(repositories)
@@ -1604,23 +1606,43 @@ async function syncInstallations(): Promise<{
     ];
     let synced = 0;
     let errors = 0;
+    const details: { installationId: string; reason: string }[] = [];
     for (const installationId of ids) {
-      try {
-        const repos = await github.listInstallationRepositories(installationId);
-        synced += await upsertInstalledRepositories(
-          database.db,
-          installationId,
-          repos,
-        );
-      } catch (error) {
-        errors += 1;
-        logger.warn(
-          { err: error, installationId },
-          "installation repository sync failed",
-        );
+      // Retry once: GitHub App token minting is occasionally flaky and a
+      // single retry recovers the vast majority of transient failures.
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          const repos = await github.listInstallationRepositories(installationId);
+          synced += await upsertInstalledRepositories(
+            database.db,
+            installationId,
+            repos,
+          );
+          break;
+        } catch (error) {
+          if (attempt === 0) {
+            logger.warn(
+              { err: error, installationId },
+              "installation repository sync failed, retrying once",
+            );
+            continue;
+          }
+          errors += 1;
+          const reason =
+            error instanceof GitHubApiError
+              ? error.category
+              : error instanceof Error
+                ? error.message
+                : "unknown";
+          details.push({ installationId, reason });
+          logger.warn(
+            { err: error, installationId },
+            "installation repository sync failed",
+          );
+        }
       }
     }
-    return { installations: ids.length, synced, errors };
+    return { installations: ids.length, synced, errors, details };
   } finally {
     repositorySyncRunning = false;
   }

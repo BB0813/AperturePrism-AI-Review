@@ -205,6 +205,9 @@ export type RelatedIssueRow = {
  * full-text + strong-signal candidates joined to repository full names. Only
  * proposes candidates; it never decides a duplicate. Returns an empty array
  * when the index is unavailable (callers degrade gracefully).
+ *
+ * `repository` optionally restricts recall to a single repository (by
+ * owner/name) so analysis never surfaces "related" issues from other projects.
  */
 export async function recallCandidatesWithRepos(
   sql: SqlTag,
@@ -213,6 +216,7 @@ export async function recallCandidatesWithRepos(
     body: string;
     signals: IssueSignals;
     topK?: number;
+    repository?: { owner: string; name: string } | null;
   },
 ): Promise<RelatedIssueRow[]> {
   const topK = input.topK ?? 5;
@@ -228,13 +232,14 @@ export async function recallCandidatesWithRepos(
       ), 1) as "signalRank"
     from issue_documents d
     left join repositories r on r.id = d.repository_id
-    where to_tsvector('simple', d.body || ' ' || d.title) @@ websearch_to_tsquery('simple', ${leadText})
+    where (to_tsvector('simple', d.body || ' ' || d.title) @@ websearch_to_tsquery('simple', ${leadText})
        or d.error_codes && ${input.signals.errorCodes}
        or d.paths && ${input.signals.paths}
        -- The 'simple' FTS config treats CJK text as a single token, so Chinese
        -- titles never match. A title-substring hit is a valid recall signal.
        or (${input.title} <> '' and (d.title ilike '%' || ${input.title} || '%'
-            or d.body ilike '%' || ${input.title} || '%'))
+            or d.body ilike '%' || ${input.title} || '%')))
+       ${input.repository ? sql`and r.owner = ${input.repository.owner} and r.name = ${input.repository.name}` : sql``}
     order by "ftsRank" desc, "signalRank" desc
     limit ${topK}`;
   return rows.map((row) => {

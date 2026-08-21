@@ -15,6 +15,7 @@ COMPOSE_FILE="$BASE_DIR/docker-compose.prod.yml"
 ENV_FILE="$BASE_DIR/.env.production"
 
 log() { echo "{\"level\":\"$1\",\"message\":\"$2\"}"; }
+stage() { echo "{\"level\":\"stage\",\"stage\":\"$1\",\"message\":\"$2\"}"; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -68,6 +69,7 @@ if [ "$DRY_RUN" = "1" ]; then
 fi
 
 if [ "$BACKUP" = "1" ] && [ -f /app/scripts/backup.mjs ]; then
+  stage backup "备份配置"
   log info "backing up configuration…"
   if node /app/scripts/backup.mjs >/dev/null 2>&1; then
     log info "backup ok"
@@ -76,6 +78,7 @@ if [ "$BACKUP" = "1" ] && [ -f /app/scripts/backup.mjs ]; then
   fi
 fi
 
+stage pull "拉取镜像"
 log info "pulling $TARGET…"
 if ! compose pull 2>&1; then
   log error "pull failed"
@@ -83,6 +86,7 @@ if ! compose pull 2>&1; then
 fi
 log info "pull ok"
 
+stage migrate "执行数据库迁移"
 log info "applying migrations…"
 if ! compose run --rm migrate 2>&1; then
   log error "migrate failed"
@@ -90,6 +94,7 @@ if ! compose run --rm migrate 2>&1; then
 fi
 log info "migrate ok"
 
+stage up "重建并启动容器"
 log info "recreating containers…"
 if ! compose up -d --force-recreate 2>&1; then
   log error "up failed"
@@ -97,6 +102,7 @@ if ! compose up -d --force-recreate 2>&1; then
 fi
 log info "up ok"
 
+stage health "等待服务健康检查"
 attempt=0
 while [ "$attempt" -lt 12 ]; do
   attempt=$((attempt + 1))
@@ -135,5 +141,6 @@ while [ "$web_attempt" -lt 8 ]; do
   sleep 2
 done
 sleep 3
+stage done "更新完成"
 log info "更新完成；请稍等几秒再刷新页面"
 exit 0

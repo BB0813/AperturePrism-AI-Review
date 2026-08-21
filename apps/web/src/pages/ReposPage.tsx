@@ -30,9 +30,18 @@ export function ReposPage() {
     setSyncBusy(true);
     try {
       const result = await syncRepositories();
-      toast.success(
-        `已同步 ${result.synced} 个仓库（${result.installations} 个安装，${result.errors} 个失败）`,
-      );
+      const base = `已同步 ${result.synced} 个仓库（${result.installations} 个安装，${result.errors} 个失败）`;
+      const detail =
+        result.details && result.details.length > 0
+          ? `：${result.details
+              .map(
+                (d) =>
+                  `安装 ${d.installationId.slice(0, 8)} → ${d.reason}`,
+              )
+              .join("；")}`
+          : "";
+      if (result.errors > 0) toast.error(base + detail);
+      else toast.success(base);
       bumpCache();
       load();
     } catch (err) {

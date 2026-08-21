@@ -705,6 +705,12 @@ select.input {
 .conf-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--prism-2), var(--prism-1)); border-radius: 999px; transition: width var(--dur-3) var(--ease); }
 .conf-item .pct { font-family: var(--font-mono); font-size: 11px; color: var(--text); font-variant-numeric: tabular-nums; }
 
+/* online update progress */
+.update-progress { height: 8px; background: var(--panel-2); border-radius: 999px; overflow: hidden; border: 1px solid var(--border); }
+.update-progress-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--prism-2), var(--prism-1)); border-radius: 999px; transition: width .4s var(--ease); }
+.update-logs summary { user-select: none; }
+.update-logs[open] summary { margin-bottom: 4px; }
+
 .section { margin-top: 14px; }
 .section > h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--faint); margin: 0 0 8px; }
 .section > ul { margin: 0; padding: 0; display: grid; gap: 6px; }

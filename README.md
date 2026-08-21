@@ -250,6 +250,7 @@ docker compose -f docker/docker-compose.prod.yml --env-file .env.production up -
 | 审查策略 / AI 配置 | ✅ 已整合 | 「模型路由」页 + 系统设置热更新 |
 | 全局配置 / 系统配置 | ✅ 已整合 | 「系统配置」页（含 Bot 设置 / 接入状态） |
 | 标签配置 | ✅ 已上线 | `/label-rules` 分析字段→GitHub 标签；worker 分析完成后自动打标（幂等） |
+| 审查交互（D 阶段） | ✅ 已上线 | PR Check Runs 可视化（`pr_check_run` 开关）、行内评论（锚点失效自动降级）、`pr_auto_review` 开关、结果页一键撤回 `/repos/revoke`（删评论/撤 Review/移除标签） |
 | 安全管理 | ✅ 已上线 | 独立安全页（访问控制 + 速率限制 + 操作审计 `/audit`）+ 管理员门禁 |
 | 安装向导 | ✅ 已上线 | `/setup` 环境检测 + 一键初始化 |
 | Agent Skills / 专家团队 | ✅ 已上线 | 技能注册表（6 内置）+ 多专家并行审查（MVP）；`/capabilities` 开关，配置 `expert_review` 策略后启用 |
@@ -285,6 +286,8 @@ docker compose -f docker/docker-compose.prod.yml --env-file .env.production up -
 | GET·PUT | `/scans/config` | 仓库扫描：全局开关 + 逐仓库配置（PUT 需管理员） |
 | POST | `/scans/run` | 手动触发一次仓库扫描（管理员；scan-worker 下一轮执行） |
 | GET | `/scans/runs` | 扫描历史（逐仓库：扫描数 / 新建任务 / 跟踪 Issue / 跳过） |
+| POST | `/repositories/sync` | 同步 GitHub App 安装仓库（管理员；单安装失败自动重试并返回失败原因） |
+| POST | `/repos/revoke` | 一键撤回已发布的 Issue/PR 分析（管理员；删评论 / 撤 Review / 移除建议标签） |
 | GET·PUT | `/capabilities` | Agent 技能 + 专家团队目录 / 开关（PUT 需管理员） |
 | GET·POST | `/setup/status` `/setup/init` | 安装向导检测 / 一键初始化（init 需管理员） |
 
@@ -362,7 +365,12 @@ docker/
 
 ## Todo
 
-- [ ] **WebUI 功能管理与交互优化**：功能点已覆盖（任务/仓库/配置/日志/更新等），但整体交互与信息架构体验一般，待重新梳理导航层级、表格交互与状态反馈后改进。
+### 已完成
+- [x] **WebUI 功能管理与交互优化（第一批）**：标签配置免前缀表单、结果页一键撤回、PR Check Runs 可视化、自动审查开关、在线更新阶段进度条 + 日志折叠 + 完成后自动刷新。导航层级、表格交互与状态反馈已在各页逐步落地。
+
+### 计划中
+- [ ] **功能管理与交互优化（第二批）**：继续收敛导航层级与表格密度、空态/加载态统一、批量操作（如批量撤回、批量重跑）、任务详情页 Check Run 状态展示。
+- [ ] **跨仓库召回边界**：召回已限制在同一仓库内；后续可为 `/index/related` 调试接口补充可选的 repositoryFullName 过滤参数。
 
 ## 社区支持
 

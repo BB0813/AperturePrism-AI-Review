@@ -253,8 +253,25 @@ async function runUpdate(
       const trimmed = line.trim();
       if (!trimmed) continue;
       try {
-        const parsed = JSON.parse(trimmed) as { level?: string; message?: string };
-        push(parsed.level ?? "info", parsed.message ?? trimmed);
+        const parsed = JSON.parse(trimmed) as {
+          level?: string;
+          stage?: string;
+          message?: string;
+        };
+        // update.sh emits {"level":"stage","stage":"backup","message":"备份配置"}
+        // so the WebUI can advance a progress bar instead of only dumping logs.
+        if (parsed.level === "stage") {
+          seq += 1;
+          response.write(
+            serializeSseEvent({
+              seq,
+              type: "stage",
+              data: { stage: parsed.stage ?? "unknown", message: parsed.message ?? "" },
+            }),
+          );
+        } else {
+          push(parsed.level ?? "info", parsed.message ?? trimmed);
+        }
       } catch {
         push("info", trimmed);
       }

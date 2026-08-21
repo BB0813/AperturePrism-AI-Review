@@ -396,6 +396,8 @@ async function main(): Promise<void> {
               labels: context.issue.labels,
             }),
             topK: 5,
+            // 只在同一仓库内召回历史 Issue，避免把其他项目的 Issue 当作“相关”。
+            repository: context.repository,
           },
         );
       } catch (error) {

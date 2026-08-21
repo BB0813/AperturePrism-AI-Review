@@ -153,6 +153,7 @@ export type RepoSyncResult = {
   installations: number;
   synced: number;
   errors: number;
+  details?: { installationId: string; reason: string }[];
 };
 
 /** Pulls installed repositories from the GitHub App and upserts them (admin). */

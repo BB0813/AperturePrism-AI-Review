@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   applyUpdate,
   fetchUpdateHistory,
@@ -12,7 +12,21 @@ import { useToast } from "./Toast";
 
 type LogLine = { level: string; message: string };
 
-/** 在线更新：检查 / 一键更新（SSE 日志）/ 历史。管理员可触发更新。 */
+/** 更新阶段的顺序与展示名（与 update.sh 的 stage 标记对应）。 */
+const STAGES = ["backup", "pull", "migrate", "up", "health", "done"] as const;
+const STAGE_LABELS: Record<string, string> = {
+  backup: "备份配置",
+  pull: "拉取镜像",
+  migrate: "数据库迁移",
+  up: "重建容器",
+  health: "健康检查",
+  done: "更新完成",
+};
+const STAGE_INDEX: Record<string, number> = Object.fromEntries(
+  STAGES.map((s, i) => [s, i]),
+);
+
+/** 在线更新：检查 / 一键更新（SSE 日志 + 阶段进度）/ 历史。管理员可触发更新。 */
 export function UpdatePanel() {
   const toast = useToast();
   const [status, setStatus] = useState<UpdateStatus | null>(null);
@@ -20,6 +34,21 @@ export function UpdatePanel() {
   const [checking, setChecking] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [logs, setLogs] = useState<LogLine[]>([]);
+  const [stage, setStage] = useState<number>(-1);
+  const [stageLabel, setStageLabel] = useState("");
+  const [logsOpen, setLogsOpen] = useState(false);
+  const [reloadIn, setReloadIn] = useState<number | null>(null);
+  const reloadTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const autoReloaded = useRef(false);
+
+  const clearReloadTimer = () => {
+    if (reloadTimer.current) {
+      clearInterval(reloadTimer.current);
+      reloadTimer.current = null;
+    }
+  };
+
+  useEffect(() => () => clearReloadTimer(), []);
 
   const check = useCallback(async () => {
     setChecking(true);
@@ -41,6 +70,10 @@ export function UpdatePanel() {
 
   const update = async () => {
     setLogs([]);
+    setStage(-1);
+    setStageLabel("");
+    setLogsOpen(false);
+    autoReloaded.current = false;
     setUpdating(true);
     try {
       const body = await applyUpdate("latest", true);
@@ -80,6 +113,13 @@ export function UpdatePanel() {
                 message: String(parsed.message ?? ""),
               },
             ]);
+          } else if (event === "stage") {
+            const s = String(parsed.stage ?? "");
+            const idx = STAGE_INDEX[s] ?? -1;
+            if (idx >= 0) {
+              setStage(idx);
+              setStageLabel(String(parsed.message ?? STAGE_LABELS[s] ?? s));
+            }
           } else if (event === "done") {
             result =
               parsed.ok === true
@@ -92,8 +132,27 @@ export function UpdatePanel() {
         }
       }
       const finalResult = result ?? { ok: true, message: "更新流结束" };
-      if (finalResult.ok) toast.success(finalResult.message);
-      else toast.error(finalResult.message);
+      if (finalResult.ok) {
+        toast.success(finalResult.message);
+        // 更新完成后服务已重建，自动刷新页面让用户看到新版本；避免反复触发。
+        if (!autoReloaded.current) {
+          autoReloaded.current = true;
+          setReloadIn(5);
+          reloadTimer.current = setInterval(() => {
+            setReloadIn((prev) => {
+              if (prev === null) return null;
+              if (prev <= 1) {
+                clearReloadTimer();
+                window.location.reload();
+                return null;
+              }
+              return prev - 1;
+            });
+          }, 1000);
+        }
+      } else {
+        toast.error(finalResult.message);
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "更新失败");
     } finally {
@@ -103,6 +162,11 @@ export function UpdatePanel() {
         .catch(() => undefined);
     }
   };
+
+  const currentStageIdx = Math.max(stage, 0);
+  const progressPct = Math.round(
+    ((currentStageIdx + 1) / STAGES.length) * 100,
+  );
 
   return (
     <section className="panel">
@@ -147,10 +211,40 @@ export function UpdatePanel() {
         </button>
       </div>
 
-      {logs.length > 0 ? (
-        <pre className="jsonbox" style={{ maxHeight: 220 }}>
-          {logs.map((line) => `[${line.level}] ${line.message}`).join("\n")}
-        </pre>
+      {updating ? (
+        <div className="section" style={{ marginTop: 12 }}>
+          <div className="update-progress">
+            <div
+              className="update-progress-fill"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+          <p className="faint" style={{ margin: "8px 0 0", fontSize: 12 }}>
+            {stage >= 0
+              ? `第 ${currentStageIdx + 1}/${STAGES.length} 步：${stageLabel || (STAGE_LABELS[STAGES[currentStageIdx] ?? ""] ?? "")}`
+              : "准备更新…"}
+          </p>
+          {logs.length > 0 ? (
+            <details
+              className="update-logs"
+              open={logsOpen}
+              onToggle={(e) => setLogsOpen(e.currentTarget.open)}
+            >
+              <summary className="faint" style={{ fontSize: 12, cursor: "pointer" }}>
+                {logsOpen ? "收起详细日志" : `查看详细日志（${logs.length} 行）`}
+              </summary>
+              <pre className="jsonbox" style={{ maxHeight: 220, marginTop: 8 }}>
+                {logs.map((line) => `[${line.level}] ${line.message}`).join("\n")}
+              </pre>
+            </details>
+          ) : null}
+        </div>
+      ) : null}
+
+      {reloadIn !== null ? (
+        <p className="faint" style={{ margin: "8px 0 0", fontSize: 12 }}>
+          更新完成，<b className="mono">{reloadIn}s</b> 后自动刷新页面…
+        </p>
       ) : null}
 
       {history.length > 0 ? (
