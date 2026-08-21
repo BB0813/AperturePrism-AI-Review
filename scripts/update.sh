@@ -103,17 +103,37 @@ while [ "$attempt" -lt 12 ]; do
   code=$(curl -s -o /dev/null -w '%{http_code}' "$API_URL/health/ready" 2>/dev/null)
   if [ "$code" = "200" ]; then
     log info "health ok (attempt $attempt)"
-    exit 0
+    break
   fi
   log info "health pending ($code, attempt $attempt/12)"
   sleep 5
 done
 
-log error "health check failed; rolling back to $OLD_TAG"
-sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=$OLD_TAG/" "$ENV_FILE"
-if compose up -d --force-recreate 2>&1; then
-  log info "rolled back to $OLD_TAG"
-else
-  log error "rollback failed; manual intervention required"
+if [ "$attempt" -ge 12 ]; then
+  log error "health check failed; rolling back to $OLD_TAG"
+  sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=$OLD_TAG/" "$ENV_FILE"
+  if compose up -d --force-recreate 2>&1; then
+    log info "rolled back to $OLD_TAG"
+  else
+    log error "rollback failed; manual intervention required"
+  fi
+  exit 1
 fi
-exit 1
+
+# 容器重建后，nginx 解析到新 api 容器 IP 有一小段传播窗口；再经 nginx 层
+# 做一次端到端探测，并停留几秒，避免用户更新完立刻刷新撞上 502。
+log info "waiting for web layer (nginx -> api)…"
+web_attempt=0
+while [ "$web_attempt" -lt 8 ]; do
+  web_attempt=$((web_attempt + 1))
+  code=$(curl -s -o /dev/null -w '%{http_code}' "http://web/health/live" 2>/dev/null)
+  if [ "$code" = "200" ]; then
+    log info "web layer ok (attempt $web_attempt)"
+    break
+  fi
+  log info "web layer pending ($code, attempt $web_attempt/8)"
+  sleep 2
+done
+sleep 3
+log info "更新完成；请稍等几秒再刷新页面"
+exit 0
