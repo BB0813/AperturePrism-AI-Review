@@ -95,12 +95,12 @@ function parseArgs(args) {
 
 /* ---------- helpers ---------- */
 
-function run(cmd, args, { cwd = ROOT, silent = false } = {}) {
+function run(cmd, args, { cwd = ROOT, silent = false, env = process.env } = {}) {
   if (!silent) info(`$ ${cmd} ${args.join(" ")}`);
   const result = spawnSync(cmd, args, {
     cwd,
     stdio: silent ? "pipe" : "inherit",
-    env: process.env,
+    env,
     shell: process.platform === "win32",
   });
   return result.status === 0;
@@ -380,13 +380,22 @@ function checkNpm() {
 
 /* ---------- compose 全栈安装 ---------- */
 
-/** Compose 子命令公共参数（-f prod [-f verify] --env-file）。 */
+/** Compose 子命令公共参数：-f prod [-f verify]，均为绝对路径。 */
 function composeArgs() {
-  // 一律用绝对路径：compose 对相对 -f 会 chdir 到该文件目录，导致 --env-file
-  // 的相对解析错位到 docker/ 下。绝对化后 env-file 才能正确指向 ROOT/.env.production。
   const files = ["-f", join(ROOT, COMPOSE_PROD)];
   if (opts.verify) files.push("-f", join(ROOT, COMPOSE_VERIFY));
-  return [...files, "--env-file", ENV_PROD_FILE];
+  return files;
+}
+
+/**
+ * 把 .env.production 的变量注入 compose 进程 env，让 compose 的变量插值
+ * （POSTGRES_PASSWORD / DATABASE_URL / REDIS_URL 等）直接读取，规避
+ * `--env-file` 相对 compose 文件目录（docker/）解析错位的问题。
+ */
+function composeEnv() {
+  const text = readEnvFile(ENV_PROD_FILE);
+  if (!text) return process.env;
+  return { ...process.env, ...parseEnv(text) };
 }
 
 /** 生成 .env.production（不存在时）：随机密钥 + 指向 compose 服务的连接串。 */
@@ -447,16 +456,22 @@ async function installCompose() {
     return false;
   }
   info("拉取镜像（docker compose pull）…");
-  if (!run("docker", ["compose", ...composeArgs(), "pull"])) {
+  if (!run("docker", ["compose", ...composeArgs(), "pull"], { env: composeEnv() })) {
     fail("镜像拉取失败");
     return false;
   }
   info("应用数据库迁移（docker compose run --rm migrate）…");
-  if (!run("docker", ["compose", ...composeArgs(), "run", "--rm", "migrate"])) {
+  if (
+    !run(
+      "docker",
+      ["compose", ...composeArgs(), "run", "--rm", "migrate"],
+      { env: composeEnv() },
+    )
+  ) {
     warn(`迁移未成功，请确认 ${ENV_PROD_FILE} 中 DATABASE_URL 可达、pgvector 可用`);
   }
   info("启动全栈（docker compose up -d）…");
-  if (!run("docker", ["compose", ...composeArgs(), "up", "-d"])) {
+  if (!run("docker", ["compose", ...composeArgs(), "up", "-d"], { env: composeEnv() })) {
     fail("全栈启动失败");
     return false;
   }
@@ -471,8 +486,8 @@ function summaryCompose() {
   console.log(`${BOLD}──────────────────────────────${RESET}`);
   console.log(`  Web UI：  ${DIM}http://localhost${RESET}（默认 80，可在 .env.production 用 WEB_PORT 修改）`);
   console.log(`  API：     ${DIM}http://localhost:30001/health/live${RESET}（可用 API_PORT 修改）`);
-  console.log(`  查看状态：${DIM}docker compose -f ${COMPOSE_PROD} --env-file .env.production ps${RESET}`);
-  console.log(`  查看日志：${DIM}docker compose -f ${COMPOSE_PROD} --env-file .env.production logs -f api${RESET}`);
+  console.log(`  查看状态：${DIM}cd ${ROOT} && set -a && . ./.env.production && set +a && docker compose -f ${COMPOSE_PROD} ps${RESET}`);
+  console.log(`  查看日志：${DIM}cd ${ROOT} && set -a && . ./.env.production && set +a && docker compose -f ${COMPOSE_PROD} logs -f api${RESET}`);
   console.log(`${BOLD}──────────────────────────────${RESET}`);
   console.log(`升级：修改 ${ENV_PROD_FILE} 中 IMAGE_TAG=vX.Y.Z 后重跑本脚本，或 docker compose pull && up -d。`);
 }
