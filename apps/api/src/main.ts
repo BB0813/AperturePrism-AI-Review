@@ -144,6 +144,20 @@ function oauthConfigured(): boolean {
   return Boolean(clientId && clientSecret);
 }
 
+/**
+ * OAuth redirect URI resolution order:
+ *  1. explicit OAUTH_REDIRECT_URI env (most reliable — e.g. behind a reverse
+ *     proxy that rewrites Host or terminates TLS), then
+ *  2. derive from X-Forwarded-Proto + Host for direct/localhost deployments.
+ */
+function oauthRedirectUri(request: IncomingMessage): string {
+  const explicit = process.env.OAUTH_REDIRECT_URI?.trim();
+  if (explicit) return explicit;
+  const proto = request.headers["x-forwarded-proto"] === "https" ? "https" : "http";
+  const host = request.headers.host ?? "localhost";
+  return `${proto}://${host}/auth/callback`;
+}
+
 function signSession(login: string): string {
   const { clientId, clientSecret } = currentOAuth();
   return createSessionSigner({
@@ -1983,12 +1997,7 @@ async function handleAuth(
     const state = randomUUID();
     oauthStates.set(state, Date.now() + 10 * 60 * 1000);
     const { clientId } = currentOAuth();
-    // Dynamic callback: derive the redirect URI from the incoming request so OAuth
-    // works from any host (localhost, LAN IP, public domain). The GitHub App must
-    // have each of these URLs registered as a Callback URL.
-    const proto = request.headers["x-forwarded-proto"] === "https" ? "https" : "http";
-    const host = request.headers.host ?? "localhost";
-    const redirectUri = `${proto}://${host}/auth/callback`;
+    const redirectUri = oauthRedirectUri(request);
     const authorizeUrl =
       `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(clientId)}` +
       `&scope=read:user&state=${state}` +
