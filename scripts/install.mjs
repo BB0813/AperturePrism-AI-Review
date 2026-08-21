@@ -426,7 +426,9 @@ async function installCompose() {
   if (opts.skipDocker) warn("--skip-docker 不适用于 compose 模式，已忽略");
   if (!ensureDocker()) return false;
   generateProdEnv();
-  const confirm = await prompt("  确认继续安装（拉取镜像并启动全栈）？[y/N]: ", "n");
+  const confirm = opts.yes
+    ? "y"
+    : await prompt("  确认继续安装（拉取镜像并启动全栈）？[y/N]: ", "n");
   if (confirm.toLowerCase() !== "y") {
     warn("已取消安装");
     return false;
