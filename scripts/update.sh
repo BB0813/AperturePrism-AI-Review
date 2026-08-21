@@ -41,9 +41,11 @@ log info "update target=$TARGET current=$OLD_TAG project=$PROJECT"
 env | grep -E '^(DATABASE_URL|REDIS_URL|POSTGRES_|WEBUI_API_TOKEN|GITHUB_|MODEL_PROVIDER_BASE_URLS|CREDENTIAL_MASTER_KEY|EMBEDDING_|QQ_|INDEX_INTERVAL_MS|API_PORT|WEB_PORT|HOST|PORT|LOG_LEVEL|NODE_ENV)=' > "$ENV_FILE" || true
 echo "IMAGE_TAG=$TARGET" >> "$ENV_FILE"
 
-COMPOSE_FILES="-f docker-compose.prod.yml"
+# Compose runs from the api container's cwd (/app), so reference the compose
+# files by absolute path under BASE_DIR to avoid "no such file or directory".
+COMPOSE_FILES="-f $BASE_DIR/docker-compose.prod.yml"
 if [ "${AP_VERIFY:-0}" = "1" ] && [ -f "$BASE_DIR/compose.verify.yml" ]; then
-  COMPOSE_FILES="-f docker-compose.prod.yml -f compose.verify.yml"
+  COMPOSE_FILES="-f $BASE_DIR/docker-compose.prod.yml -f $BASE_DIR/compose.verify.yml"
 fi
 compose() { docker compose --project-name "$PROJECT" $COMPOSE_FILES --env-file "$ENV_FILE" "$@"; }
 
