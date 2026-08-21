@@ -416,8 +416,8 @@ function generateProdEnv() {
   writeFileSync(ENV_PROD_FILE, content);
   ok(`已生成 ${ENV_PROD_FILE}`);
   warn(
-    "请在其中补填 GITHUB_APP_* / GITHUB_OAUTH_* / EMBEDDING_* 等密钥（否则对应功能不可用），" +
-      "然后重新运行本脚本完成安装。",
+    "部分密钥为空（GITHUB_* / EMBEDDING_* 等），对应功能暂不可用。可先继续安装，装完后" +
+      "在 WebUI「系统配置」页或安装向导补填，无需改 .env 重启。",
   );
 }
 
