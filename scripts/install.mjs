@@ -429,6 +429,7 @@ async function installCompose() {
   const confirm = opts.yes
     ? "y"
     : await prompt("  确认继续安装（拉取镜像并启动全栈）？[y/N]: ", "n");
+  if (opts.yes) ok("--yes 已生效，自动确认继续安装");
   if (confirm.toLowerCase() !== "y") {
     warn("已取消安装");
     return false;
