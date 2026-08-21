@@ -217,10 +217,6 @@ docker compose -f docker/docker-compose.prod.yml --env-file .env.production up -
 
 - **v1.0.7 之前的旧版本无法在线自更新**：v1.0.1~v1.0.6 镜像内置的 update.sh 使用相对路径引用 compose 文件，容器内无法找到 `/app/docker-compose.prod.yml`（报 `open /app/docker-compose.prod.yml: no such file or directory` / `script_exit_1`）。此类安装需**手动升级一次**到 v1.0.7+，之后即可用 WebUI 一键更新。手动升级步骤同上（把 `IMAGE_TAG` 改为 v1.0.7 或更高）。
 
-## 社区支持
-
-- 技术社区论坛：[Linux.do](https://linux.do)
-
 ## 配置参考
 
 | 环境变量 | 说明 |
@@ -358,3 +354,7 @@ docker/
 ## Todo
 
 - [ ] **WebUI 功能管理与交互优化**：功能点已覆盖（任务/仓库/配置/日志/更新等），但整体交互与信息架构体验一般，待重新梳理导航层级、表格交互与状态反馈后改进。
+
+## 社区支持
+
+- 技术社区论坛：[Linux.do](https://linux.do)
