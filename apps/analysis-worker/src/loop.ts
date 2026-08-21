@@ -162,11 +162,12 @@ export async function runOnce(options: WorkerLoopOptions): Promise<boolean> {
           ? "canceled"
           : "handler_error";
     if (!leaseLost) await engine.fail(task, errorCategory);
+    const errorText = describeError(error);
     onEvent?.({
       type: "failed",
       taskId: task.id,
       errorCategory,
-      error: describeError(error),
+      ...(errorText === undefined ? {} : { error: errorText }),
     });
     return true;
   } finally {
