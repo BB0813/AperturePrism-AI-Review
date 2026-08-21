@@ -29,6 +29,7 @@ import {
   LABEL_RULE_PREFIXES,
   listAuditLogs,
   listLabelRules,
+  seedDefaultLabelRules,
   listRepoMemory,
   listUsers,
   modelRolePolicies,
@@ -1709,7 +1710,12 @@ async function handleLabelRules(
   const path = url.pathname;
 
   if (path === "/label-rules" && request.method === "GET") {
-    const items = await listLabelRules(database.db);
+    let items = await listLabelRules(database.db);
+    // 首次使用自动填充默认常用标签，方便用户直接编辑/启用。
+    if (items.length === 0) {
+      await seedDefaultLabelRules(database.db);
+      items = await listLabelRules(database.db);
+    }
     json(response, 200, { items, prefixes: LABEL_RULE_PREFIXES }, requestId);
     return;
   }

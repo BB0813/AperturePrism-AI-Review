@@ -18,6 +18,32 @@ export const LABEL_RULE_PREFIXES = [
   "quality",
 ] as const;
 
+/** 默认常用标签规则（首次进入标签配置为空时自动填充，用户可改可删）。 */
+export const DEFAULT_LABEL_RULES = [
+  { key: "category:bug", label: "bug" },
+  { key: "category:security", label: "security" },
+  { key: "category:performance", label: "performance" },
+  { key: "category:dependency", label: "dependency" },
+  { key: "category:documentation", label: "documentation" },
+  { key: "category:testing", label: "testing" },
+  { key: "category:refactor", label: "refactor" },
+  { key: "category:enhancement", label: "enhancement" },
+  { key: "severity:S1", label: "critical" },
+  { key: "severity:S2", label: "major" },
+  { key: "severity:S3", label: "minor" },
+] as const;
+
+/** 写入默认标签规则（幂等，仅在表为空时调用）。 */
+export async function seedDefaultLabelRules(db: Database): Promise<void> {
+  for (const rule of DEFAULT_LABEL_RULES) {
+    await upsertLabelRule(db, {
+      key: rule.key,
+      label: rule.label,
+      enabled: true,
+    });
+  }
+}
+
 export async function listLabelRules(db: Database): Promise<LabelRule[]> {
   const rows = await db
     .select({

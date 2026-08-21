@@ -271,3 +271,10 @@ export const MenuIcon = (p: IconProps) => (
     <path d="M4 6h16M4 12h16M4 18h16" />
   </Base>
 );
+
+export const TagIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M3.5 12.5 12 4a2 2 0 0 1 1.4-.6H19a2 2 0 0 1 2 2v5.6a2 2 0 0 1-.6 1.4L13 20.5a2 2 0 0 1-2.8 0l-6.7-6.7a2 2 0 0 1 0-2.8Z" />
+    <circle cx="16.5" cy="7.5" r="1.4" />
+  </Base>
+);
