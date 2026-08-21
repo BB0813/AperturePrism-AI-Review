@@ -42,6 +42,8 @@ function makeGithub(): GitHubClient {
       additions: 2,
       deletions: 1,
     }),
+    listPullRequests: async () => [],
+    createIssue: async () => ({ number: 1, htmlUrl: "" }),
     getPullRequestDiff: async () => diff,
   };
   return github;
