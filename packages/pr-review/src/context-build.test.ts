@@ -30,6 +30,12 @@ function makeGithub(): GitHubClient {
     addIssueLabels: async () => undefined,
     updateIssueComment: async () => ({ id: 1, htmlUrl: "" }),
     createPullRequestReview: async () => ({ id: 1 }),
+    listPullRequestReviews: async () => [],
+    dismissPullRequestReview: async () => undefined,
+    createCheckRun: async () => ({ id: 1, htmlUrl: "" }),
+    updateCheckRun: async () => ({ id: 1, htmlUrl: "" }),
+    removeIssueLabels: async () => undefined,
+    deleteIssueComment: async () => undefined,
     listInstallationRepositories: async () => [],
     getPullRequest: async () => ({
       number: 9,

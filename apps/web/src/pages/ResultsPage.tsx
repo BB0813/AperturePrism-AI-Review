@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { bumpCache, fetchResults, type ResultList, type SubjectResult } from "../lib/api";
-import { ChevronDownIcon, ChevronRightIcon, RefreshIcon, SearchIcon } from "../components/icons";
+import {
+  bumpCache,
+  fetchResults,
+  revokeSubject,
+  type ResultList,
+  type SubjectResult,
+} from "../lib/api";
+import { ChevronDownIcon, ChevronRightIcon, RefreshIcon, SearchIcon, XCircleIcon } from "../components/icons";
 import { Empty, ErrorPanel, JsonBlock, LoadingRows, fmtTime, shortText } from "../components/ui";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
+import { useToast } from "../components/Toast";
 
 type NormResult = {
   root: Record<string, unknown>;
@@ -158,6 +165,31 @@ export function ResultsPage(props: { type: "issue" | "pr"; label: string }) {
 function ResultCard({ item }: { item: SubjectResult }) {
   const norm = normalizeResult(item.result);
   const [open, setOpen] = useState(false);
+  const [revoking, setRevoking] = useState(false);
+  const toast = useToast();
+
+  const revoke = async () => {
+    const what = item.subjectType === "pr" ? "该 PR 的 AI 审查" : "该 Issue 的分析结果";
+    if (!window.confirm(`确定要撤回${what}吗？将删除评论、撤销 Review 并移除建议标签，且不可恢复。`)) return;
+    setRevoking(true);
+    try {
+      const result = await revokeSubject({
+        repositoryFullName: item.repositoryFullName,
+        number: item.subjectNumber,
+        type: item.subjectType,
+      });
+      const parts: string[] = [];
+      if (result.revoked.comments > 0) parts.push(`评论 ${result.revoked.comments} 条`);
+      if (result.revoked.reviews > 0) parts.push(`Review ${result.revoked.reviews} 个`);
+      if (result.revoked.labels > 0) parts.push(`标签 ${result.revoked.labels} 个`);
+      toast.success(parts.length > 0 ? `已撤回：${parts.join("、")}` : "未找到需要撤回的内容（可能已被清理）");
+      bumpCache();
+    } catch (err) {
+      toast.error(`撤回失败：${err instanceof Error ? err.message : err}`);
+    } finally {
+      setRevoking(false);
+    }
+  };
 
   return (
     <article className="result-card">
@@ -177,6 +209,16 @@ function ResultCard({ item }: { item: SubjectResult }) {
         >
           GitHub ↗
         </a>
+        <button
+          className="btn btn-ghost"
+          style={{ padding: "4px 10px" }}
+          onClick={revoke}
+          disabled={revoking}
+          aria-label="一键撤回已发布的 AI 审查"
+        >
+          <XCircleIcon size={14} />
+          {revoking ? "撤回中…" : "撤回"}
+        </button>
       </div>
 
       {norm.isIssue ? <IssueBody norm={norm} /> : <PrBody norm={norm} />}

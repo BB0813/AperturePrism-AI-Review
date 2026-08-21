@@ -21,6 +21,15 @@ export type PrReviewServices = {
   ) => Promise<void>;
   recordUsage: (task: LeasedTask, outcome: PrReviewOutcome) => Promise<void>;
   /**
+   * Optional: creates an in-progress Check Run before review (best-effort,
+   * failures are swallowed so a missing checks permission never fails review).
+   */
+  beginCheckRun?: (task: LeasedTask, context: PrReviewContext) => Promise<void>;
+  /**
+   * Optional: updates the Check Run to completed after publishing (best-effort).
+   */
+  finishCheckRun?: (task: LeasedTask, review: PrReviewContract) => Promise<void>;
+  /**
    * Optional: persists a distilled memory reflection after the final publish.
    * Best-effort — injected implementations swallow failures; the handler only
    * guards so a memory failure can never fail the completed task.
@@ -44,6 +53,13 @@ export function createPrReviewHandler(services: PrReviewServices): TaskHandler {
         return { outcome: "failed", errorCategory: "unsupported_task_type" };
 
       const context = await services.buildContext(task, signal);
+      // A Check Run surfaces the analysis state in the PR checks UI. It is
+      // best-effort: a missing `checks: write` permission must never fail review.
+      try {
+        await services.beginCheckRun?.(task, context);
+      } catch {
+        // Swallow: check-run support is optional.
+      }
       const outcome = await services.review(context, signal);
       await services.recordUsage(task, outcome);
 
@@ -51,6 +67,11 @@ export function createPrReviewHandler(services: PrReviewServices): TaskHandler {
         return { outcome: "failed", errorCategory: "invalid_output" };
 
       await services.publishFinal(task, outcome.review, signal);
+      try {
+        await services.finishCheckRun?.(task, outcome.review);
+      } catch {
+        // Swallow: check-run support is optional.
+      }
       try {
         await services.recordMemory?.(task, outcome.review);
       } catch {

@@ -28,6 +28,7 @@ import {
   ingestGitHubWebhook,
   issueDocuments,
   LABEL_RULE_PREFIXES,
+  externalPublications,
   listAuditLogs,
   listLabelRules,
   listScanRuns,
@@ -1199,6 +1200,153 @@ async function handleProviders(
   );
 }
 
+/**
+ * One-click revoke of a published AI analysis / review (D-stage interaction).
+ * Removes the artifacts this app published for a given issue/PR: review is
+ * dismissed, comments deleted, and the suggested labels removed. Best-effort:
+ * a single artifact failing to revoke never blocks the rest.
+ */
+async function handleRevokeSubject(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const body = await readBody(request);
+  let parsed: { repositoryFullName?: unknown; number?: unknown; type?: unknown };
+  try {
+    parsed = JSON.parse(body.toString("utf8"));
+  } catch {
+    json(response, 400, { status: "error", reason: "invalid JSON" }, requestId);
+    return;
+  }
+  const repositoryFullName =
+    typeof parsed.repositoryFullName === "string"
+      ? parsed.repositoryFullName.trim()
+      : "";
+  const subjectNumber = Number(parsed.number);
+  const type = parsed.type === "pr" ? "pr" : "issue";
+  if (!repositoryFullName || !Number.isInteger(subjectNumber) || subjectNumber <= 0) {
+    json(
+      response,
+      400,
+      { status: "error", reason: "需要仓库（owner/name）与正整数编号" },
+      requestId,
+    );
+    return;
+  }
+  const [owner, name] = repositoryFullName.split("/");
+  if (!owner || !name) {
+    json(response, 400, { status: "error", reason: "仓库格式应为 owner/name" }, requestId);
+    return;
+  }
+
+  const repoRows = await database.db
+    .select({ installationId: repositories.installationId })
+    .from(repositories)
+    .where(and(eq(repositories.owner, owner), eq(repositories.name, name)))
+    .limit(1);
+  const installationId = repoRows[0]?.installationId;
+  if (!installationId) {
+    json(response, 404, { status: "error", reason: "repository_not_installed" }, requestId);
+    return;
+  }
+
+  const subject = await database.db
+    .select({ taskId: subjectResults.taskId, result: subjectResults.result })
+    .from(subjectResults)
+    .where(
+      and(
+        eq(subjectResults.subjectType, type),
+        eq(subjectResults.subjectNumber, subjectNumber),
+        eq(subjectResults.repositoryFullName, repositoryFullName),
+      ),
+    )
+    .orderBy(desc(subjectResults.createdAt))
+    .limit(1);
+  if (!subject[0] || !subject[0].taskId) {
+    json(response, 404, { status: "error", reason: "未找到该对象的分析结果" }, requestId);
+    return;
+  }
+
+  const publications = await database.db
+    .select({
+      channel: externalPublications.channel,
+      externalObjectId: externalPublications.externalObjectId,
+    })
+    .from(externalPublications)
+    .where(eq(externalPublications.taskId, subject[0].taskId));
+
+  const github = await githubClientPromise;
+  if (!github) {
+    json(response, 503, { status: "error", reason: "github_not_configured" }, requestId);
+    return;
+  }
+
+  const revoked = { comments: 0, reviews: 0, labels: 0 };
+  for (const pub of publications) {
+    if (pub.externalObjectId === null) continue;
+    const externalId = Number(pub.externalObjectId);
+    if (!Number.isInteger(externalId)) continue;
+    try {
+      if (pub.channel === "github_issue_comment") {
+        await github.deleteIssueComment({
+          installationId,
+          owner,
+          name,
+          commentId: externalId,
+        });
+        revoked.comments += 1;
+      } else if (pub.channel === "github_pull_request_review") {
+        const reviews = await github.listPullRequestReviews({
+          installationId,
+          owner,
+          name,
+          pullNumber: subjectNumber,
+        });
+        const review = reviews.find((item) => item.id === externalId);
+        if (review && review.state !== "DISMISSED") {
+          await github.dismissPullRequestReview({
+            installationId,
+            owner,
+            name,
+            pullNumber: subjectNumber,
+            reviewId: externalId,
+            message: "已由管理员在 WebUI 撤回本次 AI 审查",
+          });
+          revoked.reviews += 1;
+        }
+      }
+      // check_run 无法由 App 删除，保留用于追溯。
+    } catch (error) {
+      void error; // 单个撤回失败不阻塞其他
+    }
+  }
+
+  // Issue 标签：移除该次分析结果建议的标签。
+  if (type === "issue") {
+    const result = subject[0].result as { suggestedLabels?: unknown } | null;
+    const labels = Array.isArray(result?.suggestedLabels)
+      ? result.suggestedLabels.filter((label): label is string => typeof label === "string")
+      : [];
+    if (labels.length > 0) {
+      try {
+        await github.removeIssueLabels({
+          installationId,
+          owner,
+          name,
+          number: subjectNumber,
+          labels,
+        });
+        revoked.labels += labels.length;
+      } catch (error) {
+        void error;
+      }
+    }
+  }
+
+  json(response, 200, { status: "ok", revoked }, requestId);
+}
+
 /** Aggregated counts for the WebUI overview KPIs (status/type/result totals). */
 async function handleSummary(
   response: ServerResponse,
@@ -2175,6 +2323,8 @@ async function handleSettings(
     "issue_auto_assign",
     "issue_assignee",
     "issue_rewrite_title",
+    "pr_check_run",
+    "pr_auto_review",
   ];
   const items = known.map((key) => {
     const row = byKey.get(key);
@@ -2617,7 +2767,7 @@ async function handleSetupStatus(
       provider: {
         count: providerCount,
         providerKey,
-        model: "deepseek-v3.2",
+        model: "mimo-v2.5-pro",
       },
       policies: { count: policyCount, required: DEFAULT_POLICIES.length },
       githubWebhookConfigured: Boolean(config.githubWebhookSecret),
@@ -2671,7 +2821,7 @@ async function handleSetupInit(
           role: policy.role,
           version: policy.version,
           candidates: [
-            { provider: providerKey, model: "deepseek-v3.2", accountName },
+            { provider: providerKey, model: "mimo-v2.5-pro", accountName },
           ],
         });
         created.push(policy.role);
@@ -3568,6 +3718,29 @@ async function handleRequest(
       return;
     }
     await handleRepositorySync(request, response, requestId);
+    return;
+  }
+
+  if (path === "/repos/revoke") {
+    if (request.method !== "POST") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    if (!(await isAdminRequest(request))) {
+      json(
+        response,
+        403,
+        { status: "error", reason: "admin required" },
+        requestId,
+      );
+      return;
+    }
+    await handleRevokeSubject(request, response, requestId);
     return;
   }
 

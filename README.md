@@ -351,6 +351,15 @@ docker/
 - **专家团队 / 记忆合并**：属于可选增强，需要配置对应模型角色策略（`expert_review` / `memory_consolidation`）后启用；未配置时自动降级为单模型审查。
 - **Docker 全栈**：`web` 通过 nginx 与 API 同源反代，浏览器无 CORS；SSE 已关闭代理缓冲。
 
+## 模型不可用排查
+
+当 Issue 分析 / PR 审查任务反复失败（「日志总览」显示 `handler_error` 且重试耗尽、审查队列堆积），**优先检查模型层**：
+
+1. **默认模型**：主模型 `mimo-v2.5-pro`（newapi），备用 `deepseek-v3.2`（cdn）。若 Provider 上这些模型余额不足或通道异常，模型请求会返回 `402 余额不足` / `405 bad_response_status_code`，导致所有任务 `handler_error`。
+2. **换模型**：在「数据与运维 → 模型路由」配置好 Provider 账号后，修改 `model_role_policies` 表中对应角色的 `candidates` 模型名（`issue_analysis` / `pr_review` / `duplicate_judgment` / `expert_review` / `memory_consolidation` / `spam_detection`）。worker 每次任务都从数据库读取策略，**改动即时生效，无需重启**。
+3. **验证**：在「已安装仓库」页手动触发一次分析，任务状态变为 `completed` 即正常；若仍失败，查看 worker 日志里的 `error` 字段（v1.0.12 起失败事件会记录具体错误信息）。
+4. **连通性**：确认 Provider baseUrl（如 `https://newapi.binbim.top/v1`）可达、API Key 有效，可用 `GET /v1/models` 快速验证。
+
 ## Todo
 
 - [ ] **WebUI 功能管理与交互优化**：功能点已覆盖（任务/仓库/配置/日志/更新等），但整体交互与信息架构体验一般，待重新梳理导航层级、表格交互与状态反馈后改进。

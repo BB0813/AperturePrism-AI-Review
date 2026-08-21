@@ -30,6 +30,8 @@ export type GitHubReviewClient = {
     revision: string;
     body: string;
     event: "COMMENT" | "APPROVE" | "REQUEST_CHANGES";
+    /** Optional inline review comments anchored to new-file lines. */
+    comments?: readonly { path: string; line: number; body: string }[];
   }) => Promise<{ id: number }>;
 };
 
@@ -73,6 +75,30 @@ export function renderReviewBody(review: PrReviewContract): string {
   return lines.join("\n");
 }
 
+/** Max inline comments per review to keep GitHub rate limits sane. */
+const MAX_INLINE_COMMENTS = 5;
+
+/**
+ * Maps findings that carry a new-file line anchor into inline review comments.
+ * Findings without a known line (afterLine === 0) are skipped — they cannot be
+ * pinned to the diff and are already fully covered by the review body.
+ */
+export function renderInlineComments(
+  review: PrReviewContract,
+): readonly { path: string; line: number; body: string }[] {
+  const comments: { path: string; line: number; body: string }[] = [];
+  for (const finding of review.findings) {
+    if (comments.length >= MAX_INLINE_COMMENTS) break;
+    if (finding.afterLine <= 0) continue;
+    comments.push({
+      path: finding.file,
+      line: finding.afterLine,
+      body: `**${finding.severity.toUpperCase()}** · \`${finding.rule}\`\n\n${finding.message}\n\n建议：${finding.suggestion}`,
+    });
+  }
+  return comments;
+}
+
 /**
  * Publishes a PR review tied to a head SHA. Because a GitHub review is
  * immutable, a retried or re-run task on the same head SHA must not create a
@@ -112,6 +138,7 @@ async function publishWithOwnPrFallback(
   input: PublishReviewInput,
   event: "COMMENT" | "APPROVE" | "REQUEST_CHANGES",
 ): Promise<{ id: number }> {
+  const comments = renderInlineComments(input.review);
   try {
     return await input.github.publishReview({
       installationId: input.installationId,
@@ -121,6 +148,7 @@ async function publishWithOwnPrFallback(
       revision: input.revision,
       body: renderReviewBody(input.review),
       event,
+      comments,
     });
   } catch (error) {
     // GitHub returns 422 with "Can not request changes on your own pull
@@ -131,16 +159,33 @@ async function publishWithOwnPrFallback(
       event === "REQUEST_CHANGES" &&
       (isGithubStatus(error, 422) ||
         (error instanceof Error && /own pull request/i.test(error.message)));
-    if (!ownPrRejection) throw error;
-    return input.github.publishReview({
-      installationId: input.installationId,
-      owner: input.owner,
-      name: input.name,
-      pullNumber: input.pullNumber,
-      revision: input.revision,
-      body: renderReviewBody(input.review),
-      event: "COMMENT",
-    });
+    if (ownPrRejection) {
+      return input.github.publishReview({
+        installationId: input.installationId,
+        owner: input.owner,
+        name: input.name,
+        pullNumber: input.pullNumber,
+        revision: input.revision,
+        body: renderReviewBody(input.review),
+        event: "COMMENT",
+        comments,
+      });
+    }
+    // Inline comments also 422 when an anchored line is not inside the diff
+    // hunk (e.g. a context line). Retry once without them — the review body
+    // still carries every finding, so nothing is lost.
+    if (comments.length > 0 && isGithubStatus(error, 422)) {
+      return input.github.publishReview({
+        installationId: input.installationId,
+        owner: input.owner,
+        name: input.name,
+        pullNumber: input.pullNumber,
+        revision: input.revision,
+        body: renderReviewBody(input.review),
+        event,
+      });
+    }
+    throw error;
   }
 }
 

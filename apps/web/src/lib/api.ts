@@ -905,6 +905,43 @@ export async function triggerManualTask(
   };
 }
 
+export type RevokeResult = {
+  status: string;
+  revoked: { comments: number; reviews: number; labels: number };
+};
+
+/**
+ * One-click revoke of a published AI analysis / review: deletes issue
+ * comments, dismisses PR reviews, and removes suggested labels (admin only).
+ */
+export async function revokeSubject(input: {
+  repositoryFullName: string;
+  number: number;
+  type: "issue" | "pr";
+}): Promise<RevokeResult> {
+  const response = await fetch("/repos/revoke", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...authHeaders() },
+    body: JSON.stringify(input),
+  });
+  const text = await response.text();
+  let parsed: { status?: string; reason?: string; revoked?: RevokeResult["revoked"] } = {};
+  try {
+    parsed = text ? JSON.parse(text) : {};
+  } catch {
+    // keep default
+  }
+  if (response.status === 401) throw new Error("unauthorized");
+  if (response.status === 403) throw new Error("需要管理员权限（403）");
+  if (!response.ok) {
+    throw new Error(parsed.reason ?? `revoke subject ${response.status}`);
+  }
+  return {
+    status: parsed.status ?? "ok",
+    revoked: parsed.revoked ?? { comments: 0, reviews: 0, labels: 0 },
+  };
+}
+
 /** Fetches model role policies + provider account names (no secrets). */
 export async function fetchProviders(): Promise<ProviderOverview> {
   return (await getJson("/providers")) as ProviderOverview;

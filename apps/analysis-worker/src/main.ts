@@ -47,6 +47,7 @@ import {
   parsePrReviewTaskPayload,
   publishAssessment,
   renderPrContextText,
+  renderReviewBody,
   reviewPullRequest,
   type PrReviewContext,
 } from "../../../packages/pr-review/src/index.js";
@@ -755,36 +756,63 @@ async function main(): Promise<void> {
     publishFinal: async (task, review) => {
       const { payload, identity } = prIdentity(task);
       const githubClient = assertGithub(github);
-      await publishAssessment({
-        store: publicationStore,
-        github: {
-          publishReview: ({
-            installationId,
-            owner,
-            name,
-            pullNumber,
-            revision,
-            body,
-            event,
-          }) =>
-            githubClient.createPullRequestReview({
+      const cfg = await prReviewConfig();
+      if (cfg.autoReview) {
+        // 正式 review（含行内 comments），幂等；行内锚点失败自动降级。
+        await publishAssessment({
+          store: publicationStore,
+          github: {
+            publishReview: ({
               installationId,
               owner,
               name,
               pullNumber,
-              commitId: revision,
+              revision,
               body,
               event,
-            }),
-        },
-        taskId: task.id,
-        installationId: payload.installationId,
-        owner: identity.owner,
-        name: identity.name,
-        pullNumber: payload.subjectNumber,
-        revision: payload.subjectRevision,
-        review,
-      });
+              comments,
+            }) =>
+              githubClient.createPullRequestReview({
+                installationId,
+                owner,
+                name,
+                pullNumber,
+                commitId: revision,
+                body,
+                event,
+                ...(comments && comments.length > 0 ? { comments } : {}),
+              }),
+          },
+          taskId: task.id,
+          installationId: payload.installationId,
+          owner: identity.owner,
+          name: identity.name,
+          pullNumber: payload.subjectNumber,
+          revision: payload.subjectRevision,
+          review,
+        });
+      } else {
+        // 自动审查关闭：不提交正式 review，只发一条摘要评论（幂等）。
+        const key = `pr-comment:${identity.owner}/${identity.name}#${payload.subjectNumber}:${payload.subjectRevision}`;
+        const existing = await publicationStore.findExternalObjectId(key);
+        if (existing === null) {
+          const comment = await githubClient.createIssueComment({
+            installationId: payload.installationId,
+            owner: identity.owner,
+            name: identity.name,
+            number: payload.subjectNumber,
+            body: renderReviewBody(review),
+          });
+          await publicationStore.insert({
+            taskId: task.id,
+            idempotencyKey: key,
+            externalObjectId: String(comment.id),
+            channel: "github_issue_comment",
+          });
+        } else {
+          await publicationStore.touch(key);
+        }
+      }
       await persistSubjectResult({
         taskId: task.id,
         subjectType: "pr",
@@ -792,6 +820,57 @@ async function main(): Promise<void> {
         repositoryFullName: payload.repositoryFullName,
         revision: payload.subjectRevision,
         result: review,
+      });
+    },
+
+    beginCheckRun: async (task) => {
+      const cfg = await prReviewConfig();
+      if (!cfg.checkRun) return;
+      const { payload, identity } = prIdentity(task);
+      const githubClient = assertGithub(github);
+      const key = `check-run:${identity.owner}/${identity.name}#${payload.subjectNumber}:${payload.subjectRevision}`;
+      const existing = await publicationStore.findExternalObjectId(key);
+      if (existing !== null) return;
+      const run = await githubClient.createCheckRun({
+        installationId: payload.installationId,
+        owner: identity.owner,
+        name: identity.name,
+        headSha: payload.subjectRevision,
+        runName: "AperturePrism AI Review",
+        status: "in_progress",
+        title: "AI 代码审查进行中",
+        summary: "正在分析 PR 的变更与上下文，请稍候…",
+      });
+      await publicationStore.insert({
+        taskId: task.id,
+        idempotencyKey: key,
+        externalObjectId: String(run.id),
+        channel: "check_run",
+      });
+    },
+
+    finishCheckRun: async (task, review) => {
+      const cfg = await prReviewConfig();
+      if (!cfg.checkRun) return;
+      const { payload, identity } = prIdentity(task);
+      const githubClient = assertGithub(github);
+      const key = `check-run:${identity.owner}/${identity.name}#${payload.subjectNumber}:${payload.subjectRevision}`;
+      const runId = await publicationStore.findExternalObjectId(key);
+      if (runId === null) return;
+      const findings = review.findings.length;
+      const severe = review.findings.some((finding) =>
+        finding.severity === "critical" || finding.severity === "high",
+      );
+      const conclusion = severe || findings > 0 ? "failure" : "success";
+      await githubClient.updateCheckRun({
+        installationId: payload.installationId,
+        owner: identity.owner,
+        name: identity.name,
+        checkRunId: Number(runId),
+        status: "completed",
+        conclusion,
+        title: findings > 0 ? `发现 ${findings} 个问题` : "未发现明显问题",
+        summary: `结论：${review.overallTone}；变更 ${review.changedFileCount} 个文件（+${review.additions}/-${review.deletions}）；findings ${findings}。`,
       });
     },
 
@@ -984,6 +1063,23 @@ async function issueEnhancementConfig(): Promise<{
     };
   } catch {
     return { autoAssign: false, assignee: "", rewriteTitle: false };
+  }
+}
+
+/** PR 审查交互开关（运行时设置，可在 WebUI「系统配置」热更新）。 */
+async function prReviewConfig(): Promise<{ checkRun: boolean; autoReview: boolean }> {
+  try {
+    const rows = await database.db
+      .select({ key: systemSettings.key, value: systemSettings.value })
+      .from(systemSettings)
+      .where(inArray(systemSettings.key, ["pr_check_run", "pr_auto_review"]));
+    const map = new Map(rows.map((row) => [row.key, row.value]));
+    return {
+      checkRun: map.get("pr_check_run") !== "false",
+      autoReview: map.get("pr_auto_review") !== "false",
+    };
+  } catch {
+    return { checkRun: true, autoReview: true };
   }
 }
 

@@ -59,6 +59,16 @@ const FIELD_META: Record<string, { label: string; hint: string; secret: boolean 
     hint: "true 启用 / false 关闭；分析给出更清晰的标题时自动改写 Issue 标题",
     secret: false,
   },
+  pr_check_run: {
+    label: "PR Check Run 可视化",
+    hint: "true 开启 / false 关闭；开启后在 PR 页面显示 AI 审查的 Check（进行中→完成，需 GitHub App 授予 checks: write 权限；无权限时自动跳过不影响审查）",
+    secret: false,
+  },
+  pr_auto_review: {
+    label: "PR 自动提交 Review",
+    hint: "true 开启 / false 关闭；开启则审查完成后提交正式 Review（含行内评论）；关闭则只发一条摘要评论，不占 Review 名额",
+    secret: false,
+  },
   oauth_client_id: {
     label: "GitHub OAuth Client ID",
     hint: "GitHub OAuth App 的 Client ID；留空则用环境变量",

@@ -285,9 +285,98 @@ export type GitHubClient = {
       commitId: string;
       body: string;
       event: "COMMENT" | "APPROVE" | "REQUEST_CHANGES";
+      /** Optional inline review comments (diff position by new-file line). */
+      comments?: readonly { path: string; line: number; body: string }[];
     },
     signal?: AbortSignal,
   ) => Promise<{ id: number }>;
+  /** Lists the reviews already submitted on a pull request. */
+  listPullRequestReviews: (
+    input: {
+      installationId: string;
+      owner: string;
+      name: string;
+      pullNumber: number;
+    },
+    signal?: AbortSignal,
+  ) => Promise<{ id: number; state: string }[]>;
+  /** Dismisses a submitted PR review (one-click revoke support). */
+  dismissPullRequestReview: (
+    input: {
+      installationId: string;
+      owner: string;
+      name: string;
+      pullNumber: number;
+      reviewId: number;
+      message: string;
+    },
+    signal?: AbortSignal,
+  ) => Promise<void>;
+  /**
+   * Creates a GitHub Check Run tied to a head SHA so the analysis state is
+   * visible in the PR checks UI. Requires `checks: write` on the App.
+   */
+  createCheckRun: (
+    input: {
+      installationId: string;
+      owner: string;
+      name: string;
+      headSha: string;
+      runName: string;
+      status: "queued" | "in_progress" | "completed";
+      conclusion?:
+        | "success"
+        | "failure"
+        | "neutral"
+        | "cancelled"
+        | "timed_out"
+        | "action_required";
+      title?: string;
+      summary?: string;
+    },
+    signal?: AbortSignal,
+  ) => Promise<{ id: number; htmlUrl: string }>;
+  /** Updates an existing check run (e.g. in_progress -> completed). */
+  updateCheckRun: (
+    input: {
+      installationId: string;
+      owner: string;
+      name: string;
+      checkRunId: number;
+      status: "queued" | "in_progress" | "completed";
+      conclusion?:
+        | "success"
+        | "failure"
+        | "neutral"
+        | "cancelled"
+        | "timed_out"
+        | "action_required";
+      title?: string;
+      summary?: string;
+    },
+    signal?: AbortSignal,
+  ) => Promise<{ id: number; htmlUrl: string }>;
+  /** Removes the given labels from an issue (idempotent). */
+  removeIssueLabels: (
+    input: {
+      installationId: string;
+      owner: string;
+      name: string;
+      number: number;
+      labels: readonly string[];
+    },
+    signal?: AbortSignal,
+  ) => Promise<void>;
+  /** Deletes an issue comment by id. */
+  deleteIssueComment: (
+    input: {
+      installationId: string;
+      owner: string;
+      name: string;
+      commentId: number;
+    },
+    signal?: AbortSignal,
+  ) => Promise<void>;
   /** Lists every repository installed to the app for a given installation. */
   listInstallationRepositories: (
     installationId: string,
@@ -365,7 +454,7 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
   const request = async <T>(
     path: string,
     init: {
-      method: "GET" | "POST" | "PATCH" | "DELETE";
+      method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
       token: string;
       body?: unknown | undefined;
       signal?: AbortSignal | undefined;
@@ -457,7 +546,7 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
   const authorized = async <T>(
     installationId: string,
     init: {
-      method: "GET" | "POST" | "PATCH" | "DELETE";
+      method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
       path: string;
       body?: unknown;
       accept?: string;
@@ -785,7 +874,7 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
     },
 
     createPullRequestReview: async (
-      { installationId, owner, name, pullNumber, commitId, body, event },
+      { installationId, owner, name, pullNumber, commitId, body, event, comments },
       signal,
     ) => {
       const review = await authorized<Record<string, unknown>>(
@@ -793,11 +882,134 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
         {
           method: "POST",
           path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${pullNumber}/reviews`,
-          body: { commit_id: commitId, body, event },
+          body: {
+            commit_id: commitId,
+            body,
+            event,
+            ...(comments && comments.length > 0 ? { comments: [...comments] } : {}),
+          },
         },
         signal,
       );
       return { id: numberValue(review.id) };
+    },
+
+    listPullRequestReviews: async (
+      { installationId, owner, name, pullNumber },
+      signal,
+    ) => {
+      const data = await authorized<Record<string, unknown>[]>(
+        installationId,
+        {
+          method: "GET",
+          path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${pullNumber}/reviews`,
+        },
+        signal,
+      );
+      return data.map((review) => ({
+        id: numberValue(review.id),
+        state: stringValue(review.state),
+      }));
+    },
+
+    dismissPullRequestReview: async (
+      { installationId, owner, name, pullNumber, reviewId, message },
+      signal,
+    ) => {
+      await authorized<Record<string, unknown>>(
+        installationId,
+        {
+          method: "PUT",
+          path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${pullNumber}/reviews/${reviewId}/dismissals`,
+          body: { message },
+        },
+        signal,
+      );
+    },
+
+    createCheckRun: async (
+      { installationId, owner, name, headSha, runName, status, conclusion, title, summary },
+      signal,
+    ) => {
+      const output = title || summary ? { title: title ?? runName, summary: summary ?? "" } : undefined;
+      const run = await authorized<Record<string, unknown>>(
+        installationId,
+        {
+          method: "POST",
+          path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/check-runs`,
+          body: {
+            head_sha: headSha,
+            name: runName,
+            status,
+            ...(conclusion === undefined ? {} : { conclusion }),
+            ...(output === undefined ? {} : { output }),
+          },
+        },
+        signal,
+      );
+      return {
+        id: numberValue(run.id),
+        htmlUrl: stringValue(run.html_url),
+      };
+    },
+
+    updateCheckRun: async (
+      { installationId, owner, name, checkRunId, status, conclusion, title, summary },
+      signal,
+    ) => {
+      const output = title || summary ? { title: title ?? `Check ${checkRunId}`, summary: summary ?? "" } : undefined;
+      const run = await authorized<Record<string, unknown>>(
+        installationId,
+        {
+          method: "PATCH",
+          path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/check-runs/${checkRunId}`,
+          body: {
+            status,
+            ...(conclusion === undefined ? {} : { conclusion }),
+            ...(output === undefined ? {} : { output }),
+          },
+        },
+        signal,
+      );
+      return {
+        id: numberValue(run.id),
+        htmlUrl: stringValue(run.html_url),
+      };
+    },
+
+    removeIssueLabels: async (
+      { installationId, owner, name, number, labels },
+      signal,
+    ) => {
+      for (const label of labels) {
+        if (!label || label.trim().length === 0) continue;
+        try {
+          await authorized<Record<string, unknown>>(
+            installationId,
+            {
+              method: "DELETE",
+              path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues/${number}/labels/${encodeURIComponent(label.trim())}`,
+            },
+            signal,
+          );
+        } catch {
+          // Removing a label that is not present returns 404; treat as done.
+        }
+      }
+    },
+
+    deleteIssueComment: async (
+      { installationId, owner, name, commentId },
+      signal,
+    ) => {
+      await authorized<Record<string, unknown>>(
+        installationId,
+        {
+          method: "DELETE",
+          path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues/comments/${commentId}`,
+        },
+        signal,
+      );
     },
 
     listInstallationRepositories: async (installationId, signal) => {

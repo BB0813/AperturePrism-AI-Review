@@ -8,34 +8,38 @@ import {
 import { useToast } from "../components/Toast";
 import { GearIcon, XCircleIcon } from "../components/icons";
 
-const RULE_VALUE_SUGGESTIONS = [
-  "bug",
-  "feature",
-  "question",
-  "security",
-  "other",
-  "S0",
-  "S1",
-  "S2",
-  "S3",
-  "unknown",
-  "P0",
-  "P1",
-  "P2",
-  "P3",
-  "needs_triage",
-  "complete",
-  "actionable",
-  "incomplete",
-  "invalid",
-];
+const RULE_PREFIXES = ["category", "severity", "priority", "quality"] as const;
 
-/** 标签配置：分析结果字段 → GitHub 标签，独立菜单便于维护。 */
+const VALUE_SUGGESTIONS: Record<string, string[]> = {
+  category: [
+    "bug",
+    "security",
+    "performance",
+    "dependency",
+    "documentation",
+    "testing",
+    "refactor",
+    "enhancement",
+    "feature",
+    "question",
+    "other",
+  ],
+  severity: ["S0", "S1", "S2", "S3", "unknown"],
+  priority: ["P0", "P1", "P2", "P3", "needs_triage"],
+  quality: ["complete", "actionable", "incomplete", "invalid"],
+};
+
+/** 标签配置：分析结果字段 → GitHub 标签。表单免前缀，选字段 + 填取值即可。 */
 export function LabelsPage() {
   const toast = useToast();
   const [items, setItems] = useState<LabelRuleItem[]>([]);
   const [prefixes, setPrefixes] = useState<string[]>([]);
-  const [draft, setDraft] = useState({ key: "", label: "", enabled: true });
+  const [draft, setDraft] = useState({
+    prefix: "category" as string,
+    value: "",
+    label: "",
+    enabled: true,
+  });
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(() => {
@@ -50,12 +54,13 @@ export function LabelsPage() {
   useEffect(() => load(), [load]);
 
   const save = async () => {
-    const key = draft.key.trim();
-    const label = draft.label.trim();
-    if (!key) {
-      toast.error("规则键不能为空");
+    const value = draft.value.trim();
+    if (!value) {
+      toast.error("请填写分析取值，如 bug / S1 / P0");
       return;
     }
+    const key = `${draft.prefix}:${value}`;
+    const label = draft.label.trim();
     setBusy(true);
     try {
       await saveLabelRule({ key, label, enabled: draft.enabled });
@@ -64,7 +69,7 @@ export function LabelsPage() {
           ? `已保存规则：${key} → ${label}（${draft.enabled ? "启用" : "停用"}）`
           : `已删除规则：${key}`,
       );
-      setDraft({ key: "", label: "", enabled: true });
+      setDraft({ prefix: "category", value: "", label: "", enabled: true });
       load();
     } catch (err) {
       toast.error(`保存失败：${err instanceof Error ? err.message : err}`);
@@ -87,6 +92,8 @@ export function LabelsPage() {
     }
   };
 
+  const suggestions = VALUE_SUGGESTIONS[draft.prefix] ?? [];
+
   return (
     <div className="page">
       <div className="page-head">
@@ -108,11 +115,13 @@ export function LabelsPage() {
           </div>
 
           <p className="faint" style={{ margin: "0 0 12px", fontSize: 12, lineHeight: 1.6 }}>
-            每条规则把<strong>分析结果字段</strong>映射为一个 <strong>GitHub 标签</strong>，例如
-            <code className="mono"> severity:S1 </code>→ 标签 <span className="chip">critical</span>、
-            <code className="mono"> category:bug </code>→ 标签 <span className="chip">bug</span>。
-            左边是匹配键（含前缀），右边箭头后才是实际打到 GitHub Issue 上的标签名，可改成任意 GitHub 标签
-            （如 <code className="mono">enhancement</code>）。
+            每条规则把一个<strong>分析结果取值</strong>映射为 <strong>GitHub 标签</strong>，例如
+            <code className="mono"> 分类 </code>取值为 <span className="chip">bug</span> → 标签{" "}
+            <span className="chip">bug</span>、
+            <code className="mono"> 严重度 </code>取值为 <span className="chip">S1</span> → 标签{" "}
+            <span className="chip">critical</span>。
+            左侧箭头后才是实际打到 GitHub Issue 上的标签名，可改成任意 GitHub 标签
+            （如 <code className="mono">enhancement</code>）。新增时无需手写前缀，选字段、填取值即可。
           </p>
 
           <div className="stack" style={{ gap: 8 }}>
@@ -148,25 +157,46 @@ export function LabelsPage() {
             )}
           </div>
 
-          <div style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <div
+            style={{ marginTop: 14, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}
+          >
+            <select
+              className="input"
+              style={{ flex: "0 0 118px" }}
+              value={draft.prefix}
+              onChange={(event) => setDraft((prev) => ({ ...prev, prefix: event.target.value }))}
+              title="分析结果字段"
+            >
+              {RULE_PREFIXES.map((prefix) => (
+                <option key={prefix} value={prefix}>
+                  {prefix === "category"
+                    ? "分类"
+                    : prefix === "severity"
+                      ? "严重度"
+                      : prefix === "priority"
+                        ? "优先级"
+                        : "完整度"}
+                  {" "}({prefix})
+                </option>
+              ))}
+            </select>
             <input
               className="input"
-              style={{ flex: "1 1 200px" }}
-              list="label-rule-keys"
-              placeholder="规则键，如 severity:S1"
-              value={draft.key}
-              onChange={(event) => setDraft((prev) => ({ ...prev, key: event.target.value }))}
+              style={{ flex: "1 1 150px" }}
+              list="label-rule-values"
+              placeholder="取值，如 bug / S1 / P0"
+              value={draft.value}
+              onChange={(event) => setDraft((prev) => ({ ...prev, value: event.target.value }))}
             />
-            <datalist id="label-rule-keys">
-              {prefixes.flatMap((prefix) =>
-                RULE_VALUE_SUGGESTIONS.map((value) => (
-                  <option key={`${prefix}:${value}`} value={`${prefix}:${value}`} />
-                )),
-              )}
+            <datalist id="label-rule-values">
+              {suggestions.map((value) => (
+                <option key={value} value={value} />
+              ))}
             </datalist>
+            <span className="faint">→</span>
             <input
               className="input"
-              style={{ flex: "1 1 160px" }}
+              style={{ flex: "1 1 150px" }}
               placeholder="GitHub 标签名（留空=删除该规则）"
               value={draft.label}
               onChange={(event) => setDraft((prev) => ({ ...prev, label: event.target.value }))}
@@ -184,8 +214,8 @@ export function LabelsPage() {
             </button>
           </div>
           <p className="faint" style={{ marginTop: 12, fontSize: 12 }}>
-            规则键形如 <code>category:bug</code> / <code>severity:S1</code> / <code>priority:P0</code> /{" "}
-            <code>quality:incomplete</code>。首次进入会自动填充一组默认常用标签，可直接修改或删除。
+            例如：选「分类」、填 <code>bug</code>、标签名填 <code>bug</code>，即保存为{" "}
+            <code>category:bug → bug</code>。首次进入会自动填充一组默认常用标签，可直接修改或删除。
           </p>
         </section>
       </div>
