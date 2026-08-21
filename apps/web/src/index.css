@@ -900,8 +900,8 @@ select.input {
    ============================================================ */
 .page-enter { animation: pageEnter var(--dur-3) var(--ease) both; }
 @keyframes pageEnter {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 /* KPI stagger */
@@ -913,8 +913,8 @@ select.input {
 .kpi-grid .kpi:nth-child(5) { animation-delay: 180ms; }
 .kpi-grid .kpi:nth-child(6) { animation-delay: 220ms; }
 @keyframes kpiEnter {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 /* ============================================================
@@ -928,23 +928,32 @@ select.input {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
 
+/* 桌面端默认：汉堡按钮与遮罩隐藏（移动端在下方 media query 中显示）。
+   必须放在 media query 之前，否则源顺序靠后的 display:none 会把移动端
+   的 display:inline-flex 覆盖掉，导致手机上看不到菜单。 */
+.nav-burger { display: none; }
+.nav-backdrop { display: none; }
+
 @media (max-width: 960px) {
   .shell { grid-template-columns: 1fr; }
   .main { padding: 18px 16px 60px; }
 
-  /* 侧边栏变为左侧抽屉：默认滑出屏幕，drawer-open 时滑入 */
+  /* 侧边栏变为左侧抽屉：默认滑出屏幕，drawer-open 时水平滑入。
+     用 translate3d 明确只做 X 轴位移，杜绝任何 Y 轴"上滑"观感；
+     height 用 100dvh 规避移动端地址栏导致的 fixed 高度跳动。 */
   .sidebar {
     position: fixed;
-    top: 0; left: 0; bottom: 0;
+    top: 0; left: 0;
+    height: 100dvh;
     z-index: 1100;
     width: 264px;
-    transform: translateX(-100%);
+    transform: translate3d(-100%, 0, 0);
     transition: transform var(--dur-3) var(--ease);
     will-change: transform;
     border-right: 1px solid var(--border);
     box-shadow: var(--shadow);
   }
-  .sidebar.drawer-open { transform: translateX(0); }
+  .sidebar.drawer-open { transform: translate3d(0, 0, 0); }
   .sidebar > div:first-child { padding-bottom: 22px; }
   .sidebar > .side-foot { padding-top: 22px; flex-direction: column; align-items: stretch; }
   .brand-sub { display: block; }
@@ -976,10 +985,6 @@ select.input {
   }
   .topbar-meta { min-width: 0; }
 }
-
-/* 桌面端：汉堡按钮与遮罩不渲染不显示 */
-.nav-burger { display: none; }
-.nav-backdrop { display: none; }
 
 @media (max-width: 640px) {
   .grid2 { grid-template-columns: 1fr; }

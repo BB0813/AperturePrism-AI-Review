@@ -116,6 +116,14 @@ export function ReposPage() {
           <p className="page-desc">GitHub App 授权仓库及其分析任务 / 结果统计</p>
         </div>
         <div className="actions">
+          <a
+            className="btn"
+            href="https://github.com/settings/installations"
+            target="_blank"
+            rel="noreferrer"
+          >
+            在 GitHub 添加仓库 ↗
+          </a>
           <button className="btn" onClick={() => { void sync(); }} disabled={syncBusy}>
             <ArrowPathIcon size={16} />
             {syncBusy ? "同步中…" : "同步仓库"}
@@ -126,6 +134,13 @@ export function ReposPage() {
           </button>
         </div>
       </div>
+
+      <section className="panel" style={{ padding: "10px 16px" }}>
+        <p className="faint" style={{ margin: 0, fontSize: 12, lineHeight: 1.6 }}>
+          新仓库需要先授权给 GitHub App：点上方「在 GitHub 添加仓库」进入 GitHub Apps 安装管理页，
+          把目标仓库勾选到本应用下；授权后回到本页点「同步仓库」即可在这里出现并纳入扫描 / 分析。
+        </p>
+      </section>
 
       <section className="panel">
         <div className="panel-title">
@@ -207,7 +222,7 @@ export function ReposPage() {
         ) : loading ? (
           <LoadingRows />
         ) : !repos || repos.length === 0 ? (
-          <Empty icon={<FolderIcon size={32} />} title="暂无可追踪仓库" hint="为 GitHub App 安装并授权仓库后，将在这里出现" />
+          <Empty icon={<FolderIcon size={32} />} title="暂无可追踪仓库" hint="点上方「在 GitHub 添加仓库」把仓库授权给 App，再点「同步仓库」即可出现在这里" />
         ) : (
           <div className="kpi-grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(240px,1fr))" }}>
             {repos.map((repo) => (
