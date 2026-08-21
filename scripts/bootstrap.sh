@@ -113,11 +113,11 @@ main() {
     local root
     root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
     cd "$root"
-    exec ./scripts/install.sh "$@"
+    exec bash ./scripts/install.sh "$@"
   fi
   acquire || { echo "[FAIL] 源码下载失败，请检查网络与仓库地址" >&2; exit 1; }
   cd "$SRC_DIR"
-  exec ./scripts/install.sh "$@"
+  exec bash ./scripts/install.sh "$@"
 }
 
 main "$@"
