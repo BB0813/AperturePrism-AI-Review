@@ -219,7 +219,7 @@ docker compose -f docker/docker-compose.prod.yml --env-file .env.production up -
 
 ## 社区支持
 
-`https://linux.do`
+- 技术社区论坛：[Linux.do](https://linux.do)
 
 ## 配置参考
 
