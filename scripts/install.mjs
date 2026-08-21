@@ -404,15 +404,25 @@ function generateProdEnv() {
   const webuiToken = randomUUID().replaceAll("-", "");
   const dbUser = "apertureprism";
   const dbName = "apertureprism";
-  let content = example
-    .replace(/^CREDENTIAL_MASTER_KEY=.*$/m, `CREDENTIAL_MASTER_KEY=${masterKey}`)
-    .replace(/^#\s*WEBUI_API_TOKEN=.*$/m, `WEBUI_API_TOKEN=${webuiToken}`)
-    .replace(/^#?\s*POSTGRES_PASSWORD=.*$/m, `POSTGRES_PASSWORD=${password}`)
-    .replace(
-      /^#?\s*DATABASE_URL=.*$/m,
-      `DATABASE_URL=postgresql://${dbUser}:${password}@postgres:5432/${dbName}`,
-    )
-    .replace(/^#?\s*REDIS_URL=.*$/m, `REDIS_URL=redis://redis:6379`);
+  // compose 层强依赖这些变量（POSTGRES_PASSWORD 为必填）。用 ensure 兜底：
+  // 已有该行则原位替换，否则追加，避免 .env.example 缺行导致 pull 失败。
+  const ensure = (content, key, value) => {
+    const re = new RegExp(`^#?\\s*${key}=.*$`, "m");
+    return re.test(content)
+      ? content.replace(re, `${key}=${value}`)
+      : `${content}\n${key}=${value}`;
+  };
+  let content = ensure(example, "CREDENTIAL_MASTER_KEY", masterKey);
+  content = ensure(content, "WEBUI_API_TOKEN", webuiToken);
+  content = ensure(content, "POSTGRES_PASSWORD", password);
+  content = ensure(content, "POSTGRES_USER", dbUser);
+  content = ensure(content, "POSTGRES_DB", dbName);
+  content = ensure(
+    content,
+    "DATABASE_URL",
+    `postgresql://${dbUser}:${password}@postgres:5432/${dbName}`,
+  );
+  content = ensure(content, "REDIS_URL", "redis://redis:6379");
   writeFileSync(ENV_PROD_FILE, content);
   ok(`已生成 ${ENV_PROD_FILE}`);
   warn(
