@@ -989,7 +989,7 @@ async function applyIssueEnhancements(input: {
   owner: string;
   name: string;
   issueNumber: number;
-  analysis: { suggestedTitle?: string };
+  analysis: { suggestedTitle?: string | undefined };
 }): Promise<void> {
   const cfg = await issueEnhancementConfig();
   const suggested = (input.analysis.suggestedTitle ?? "").trim();
