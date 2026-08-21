@@ -30,6 +30,13 @@ jobs:
         # No APERTUREPRISM_INTEGRATION_DATABASE_URL set: DB integration tests auto-skip.
         run: npm run test
 
+      - name: Web UI tests
+        # apps/web is an independent workspace; install and run its tests here.
+        working-directory: apps/web
+        run: |
+          npm ci
+          npm test
+
   build-and-push:
     name: Build & push (${{ matrix.target }})
     needs: test
