@@ -28,10 +28,21 @@ is_local_checkout() {
   [[ -f "$root/package.json" && -f "$root/scripts/install.sh" ]]
 }
 
-# 从 GitHub 拉取源码到稳定目录；已存在合法检出则复用。
+# 从 GitHub 拉取源码到稳定目录；已存在合法检出时自动快进同步到最新，避免复用旧版本。
 acquire() {
   if [[ -f "$SRC_DIR/package.json" && -f "$SRC_DIR/scripts/install.sh" ]]; then
-    echo "[OK] 复用本地源码: $SRC_DIR"
+    echo "[INFO] 复用本地源码并刷新: $SRC_DIR (ref=$REF)"
+    if command -v git >/dev/null 2>&1 && git -C "$SRC_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+      if git -C "$SRC_DIR" fetch --quiet --depth 1 origin "$REF" \
+        && git -C "$SRC_DIR" reset --quiet --hard "origin/$REF"; then
+        echo "[OK] 本地源码已同步到 $REF"
+      else
+        # fetch/reset 失败（如本地有冲突、断网）时降级复用现有版本，不阻断安装。
+        echo "[WARN] 本地源码刷新失败，继续使用现有版本" >&2
+      fi
+    else
+      echo "[INFO] 无 git / 非 git 目录，复用现有本地源码"
+    fi
     return 0
   fi
   echo "[INFO] 下载 AperturePrism 源码 → $SRC_DIR (ref=$REF)"
