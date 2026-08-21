@@ -91,6 +91,37 @@ export function buildPrReviewMessages(
   ];
 }
 
+/**
+ * 将同一 PR 此前的审查对话注入为新审查的上下文（增量续跑）。
+ * 过滤 tool 结果、剥离 assistant 上的 toolCalls，保留 system/user/assistant
+ * 文本序列，插在 system 之后、新 diff 之前，并提示模型做增量判断。
+ */
+export function injectReviewHistory(
+  base: readonly ModelMessage[],
+  history: readonly ModelMessage[],
+): ModelMessage[] {
+  const system = base[0];
+  if (!system) return [...base];
+
+  const prior = history
+    .filter((m) => m.role !== "tool")
+    .filter((m) => !(m.role === "assistant" && m.content.length === 0))
+    .map((m) => ({ role: m.role, content: m.content }));
+
+  if (prior.length === 0) return [...base];
+
+  return [
+    system,
+    ...prior,
+    ...base.slice(1),
+    {
+      role: "user",
+      content:
+        "以上是同一 PR 此前的审查对话（包含旧版本 diff 与之前的分析）。新提交已追加在下方：请参考之前的分析，针对新 diff 继续审查，避免重复报告已提过的同一问题；若之前的问题已被修复，请不再报告。",
+    },
+  ];
+}
+
 export function buildPrReviewRequest(
   context: RenderedPrContext,
   mode: ReviewMode = selectReviewMode(context),

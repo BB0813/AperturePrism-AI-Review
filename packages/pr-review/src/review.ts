@@ -3,6 +3,7 @@ import type {
   ModelCandidate,
   ModelInvocationRequest,
   ModelInvocationResponse,
+  ModelMessage,
   ModelProviderAdapter,
   ModelUsage,
 } from "../../../packages/domain/src/index.js";
@@ -12,7 +13,12 @@ import {
 } from "../../../packages/model-router/src/index.js";
 import type { RenderedPrContext } from "./context.js";
 import { selectReviewMode } from "./context.js";
-import { buildPrReviewRepairRequest, buildPrReviewMessages, buildPrReviewRequest } from "./prompt.js";
+import {
+  buildPrReviewRepairRequest,
+  buildPrReviewMessages,
+  buildPrReviewRequest,
+  injectReviewHistory,
+} from "./prompt.js";
 import type { PrReviewContract } from "./types.js";
 import { parsePrReviewJson } from "./validate.js";
 import { builtinTools, runToolLoop, type ToolExecutionContext } from "./tools.js";
@@ -31,6 +37,8 @@ export type PrReviewerOptions = {
     context: ToolExecutionContext;
     maxRounds?: number;
   };
+  /** 可选：同一 PR 此前的审查对话（增量续跑）。 */
+  history?: readonly ModelMessage[];
 };
 
 export type PrReviewOutcome =
@@ -41,12 +49,15 @@ export type PrReviewOutcome =
       candidate: ModelCandidate;
       attempts: readonly ModelAttemptOutcome[];
       durationMs: number;
+      /** 主审查阶段的最终对话（供增量续跑持久化）。 */
+      messages?: readonly ModelMessage[];
     }
   | {
       outcome: "invalid";
       usage: ModelUsage;
       attempts: readonly ModelAttemptOutcome[];
       durationMs: number;
+      messages?: readonly ModelMessage[];
     };
 
 /**
@@ -99,12 +110,16 @@ export async function reviewPullRequest(
     );
 
   const mode = selectReviewMode(context);
+  const baseMessages = buildPrReviewMessages(context, mode);
+  const messages = options.history
+    ? injectReviewHistory(baseMessages, options.history)
+    : baseMessages;
 
   let mainContent: string;
   if (options.tools) {
     const loop = await runToolLoop(
       invoke,
-      buildPrReviewMessages(context, mode),
+      messages,
       options.tools.context,
       {
         tools: builtinTools(),
@@ -119,9 +134,17 @@ export async function reviewPullRequest(
     );
     mainContent = loop.messages[loop.messages.length - 1]!.content;
   } else {
-    const main = await invoke(buildPrReviewRequest(context, mode));
+    const request = buildPrReviewRequest(context, mode);
+    const main = await invoke(
+      options.history ? { ...request, messages } : request,
+    );
     mainContent = main.content;
   }
+
+  const finalMessages: readonly ModelMessage[] = [
+    ...messages,
+    { role: "assistant", content: mainContent },
+  ];
 
   const validation = parsePrReviewJson(mainContent);
   if (validation.outcome === "valid") {
@@ -132,6 +155,7 @@ export async function reviewPullRequest(
       candidate: sticky ?? options.candidates[0]!,
       attempts,
       durationMs: now() - startedAt,
+      messages: finalMessages,
     };
   }
 
@@ -165,7 +189,14 @@ export async function reviewPullRequest(
       candidate: repair.candidate,
       attempts,
       durationMs: now() - startedAt,
+      messages: finalMessages,
     };
   }
-  return { outcome: "invalid", usage, attempts, durationMs: now() - startedAt };
+  return {
+    outcome: "invalid",
+    usage,
+    attempts,
+    durationMs: now() - startedAt,
+    messages: finalMessages,
+  };
 }

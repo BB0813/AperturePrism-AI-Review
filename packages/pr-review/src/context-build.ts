@@ -2,6 +2,7 @@ import type {
   GitHubClient,
   GitHubPullRequest,
 } from "../../../packages/github-adapter/src/index.js";
+import type { ModelMessage } from "../../../packages/domain/src/index.js";
 import {
   DEFAULT_PR_REVIEW_BUDGET,
   renderDiffForModel,
@@ -28,6 +29,8 @@ export type PrReviewContext = {
   repoMemory?: string;
   /** 可选：AI 主动探索工具的仓库只读上下文（由 worker 注入）。 */
   toolsContext?: ToolExecutionContext;
+  /** 可选：同一 PR 此前的审查对话（增量续跑，由 worker 注入）。 */
+  reviewHistory?: readonly ModelMessage[];
 };
 
 /**

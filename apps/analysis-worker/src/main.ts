@@ -24,6 +24,7 @@ import {
 import {
   ModelInvocationError,
   type ModelCandidate,
+  type ModelMessage,
   type ModelProviderAdapter,
   type ModelRole,
 } from "../../../packages/domain/src/index.js";
@@ -587,6 +588,65 @@ async function main(): Promise<void> {
     },
   });
 
+  // --- 增量审查续跑：按仓库+PR 持久化最近的审查对话，供下一次 push 续跑 ---
+  const REVIEW_HISTORY_PREFIX = "pr_review_history:";
+
+  async function loadReviewHistory(
+    repoFullName: string,
+    number: number,
+    currentRevision: string,
+  ): Promise<readonly ModelMessage[] | undefined> {
+    try {
+      const rows = await database.db
+        .select({ value: systemSettings.value })
+        .from(systemSettings)
+        .where(
+          eq(
+            systemSettings.key,
+            `${REVIEW_HISTORY_PREFIX}${repoFullName}:${number}`,
+          ),
+        )
+        .limit(1);
+      const raw = rows[0]?.value;
+      if (!raw) return undefined;
+      const parsed = JSON.parse(raw) as {
+        revision?: string;
+        messages?: ModelMessage[];
+      };
+      // 已是同一 revision，无需续跑。
+      if (parsed.revision === currentRevision) return undefined;
+      if (!Array.isArray(parsed.messages) || parsed.messages.length === 0)
+        return undefined;
+      return parsed.messages;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async function persistReviewHistory(
+    repoFullName: string,
+    number: number,
+    revision: string,
+    messages: readonly ModelMessage[],
+  ): Promise<void> {
+    const capped = messages.slice(-40).map((m) => ({
+      role: m.role,
+      content:
+        m.content.length > 4_000
+          ? `${m.content.slice(0, 4_000)}…`
+          : m.content,
+    }));
+    const key = `${REVIEW_HISTORY_PREFIX}${repoFullName}:${number}`;
+    const value = JSON.stringify({ revision, messages: capped });
+    await database.db
+      .insert(systemSettings)
+      .values({ key, value })
+      .onConflictDoUpdate({
+        target: systemSettings.key,
+        set: { value, updatedAt: new Date() },
+      });
+  }
+
   const prReviewHandler = createPrReviewHandler({
     buildContext: async (task, signal) => {
       if (!github) throw new Error("GitHub App is not configured");
@@ -605,9 +665,15 @@ async function main(): Promise<void> {
         ),
         repoMemoryText(payload.repositoryFullName),
       ]);
+      const history = await loadReviewHistory(
+        payload.repositoryFullName,
+        payload.subjectNumber,
+        payload.subjectRevision ?? "HEAD",
+      );
       return {
         ...context,
         ...(repoMemory ? { repoMemory, rendered: { ...context.rendered, repoMemory } } : {}),
+        ...(history ? { reviewHistory: history } : {}),
         toolsContext: {
           client: github,
           installationId: payload.installationId,
@@ -618,7 +684,7 @@ async function main(): Promise<void> {
       };
     },
 
-    review: (context: PrReviewContext, signal) => {
+    review: async (context: PrReviewContext, signal) => {
       const renderedText = renderPrContextText(context.rendered);
       if (expertTeamEnabled) {
         return runExpertReview(
@@ -640,7 +706,7 @@ async function main(): Promise<void> {
           },
         );
       }
-      return reviewPullRequest(
+      const outcome = await reviewPullRequest(
         {
           adapters,
           candidates: reviewCandidates,
@@ -650,9 +716,26 @@ async function main(): Promise<void> {
           ...(context.toolsContext
             ? { tools: { context: context.toolsContext } }
             : {}),
+          ...(context.reviewHistory
+            ? { history: context.reviewHistory }
+            : {}),
         },
         context.rendered,
       );
+      // 持久化本次审查对话，供下一次 push 增量续跑。
+      if (outcome.messages && context.toolsContext) {
+        const { owner, name } = context.toolsContext;
+        const revision = context.toolsContext.ref;
+        void persistReviewHistory(
+          `${owner}/${name}`,
+          context.pullRequest.number,
+          revision,
+          outcome.messages,
+        ).catch((error: unknown) =>
+          logger.warn({ err: error }, "persist review history failed"),
+        );
+      }
+      return outcome;
     },
 
     publishFinal: async (task, review) => {
