@@ -18,6 +18,25 @@ export function classifyPrSize(
   return "small";
 }
 
+/** Adaptive review strategy: small PRs review fast, large ones go deep. */
+export type ReviewMode = "quick" | "standard" | "deep";
+
+/**
+ * Picks the review strategy from PR size. Small PRs → quick (fewer findings,
+ * terse summary); large/oversized → deep (key-path focus, may use tools);
+ * anything else stays standard.
+ */
+export function selectReviewMode(rendered: RenderedPrContext): ReviewMode {
+  const size = classifyPrSize(
+    rendered.diff.files.length,
+    rendered.diff.additions,
+    rendered.diff.deletions,
+  );
+  if (size === "small") return "quick";
+  if (size === "large" || size === "oversized") return "deep";
+  return "standard";
+}
+
 export type PrReviewBudget = {
   /** Rough token ceiling for the rendered diff portion of the prompt. */
   maxTokens: number;

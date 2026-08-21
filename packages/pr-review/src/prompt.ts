@@ -2,7 +2,12 @@ import type {
   ModelInvocationRequest,
   ModelMessage,
 } from "../../../packages/domain/src/index.js";
-import { renderHunksText, type RenderedPrContext } from "./context.js";
+import {
+  renderHunksText,
+  selectReviewMode,
+  type RenderedPrContext,
+  type ReviewMode,
+} from "./context.js";
 
 /** Bump when the prompt semantics change so the idempotency key changes too. */
 export const PR_REVIEW_PROMPT_VERSION = "v1" as const;
@@ -43,6 +48,20 @@ const systemPrompt = `你是一个严谨的 GitHub Pull Request 代码审查器�
 - 如果整体没有问题，给出 approve，findings 可为空数组。
 - 上下文可能被降级（部分文件仅列名），此时要更谨慎，不要对未看到的代码下结论。`;
 
+const MODE_INSTRUCTIONS: Record<ReviewMode, string> = {
+  quick:
+    "审查模式：快速（小规模 PR）。聚焦最重要的 1-5 个高价值问题，findings 最多 10 条，摘要保持简洁。",
+  standard:
+    "审查模式：标准。给出高价值、可行动的问题，findings 最多 50 条。",
+  deep:
+    "审查模式：深度（大规模/复杂 PR）。重点关注关键路径与跨文件影响，findings 最多 50 条；优先报告严重度高的缺陷，宁可少而准，不要堆砌低价值意见。",
+};
+
+function systemPromptFor(mode: ReviewMode): string {
+  const extra = MODE_INSTRUCTIONS[mode];
+  return `${systemPrompt}\n\n${extra}`;
+}
+
 export function renderPrContextText(context: RenderedPrContext): string {
   const lines: string[] = [
     `变更文件数: ${context.diff.files.length}`,
@@ -64,18 +83,20 @@ export function renderPrContextText(context: RenderedPrContext): string {
 
 export function buildPrReviewMessages(
   context: RenderedPrContext,
+  mode: ReviewMode = selectReviewMode(context),
 ): readonly ModelMessage[] {
   return [
-    { role: "system", content: systemPrompt },
+    { role: "system", content: systemPromptFor(mode) },
     { role: "user", content: renderPrContextText(context) },
   ];
 }
 
 export function buildPrReviewRequest(
   context: RenderedPrContext,
+  mode: ReviewMode = selectReviewMode(context),
 ): ModelInvocationRequest {
   return {
-    messages: buildPrReviewMessages(context),
+    messages: buildPrReviewMessages(context, mode),
     responseFormat: "json",
     maxOutputTokens: 2_400,
     temperature: 0.2,
@@ -86,10 +107,11 @@ export function buildPrReviewRepairRequest(
   context: RenderedPrContext,
   invalidText: string,
   issues: readonly string[],
+  mode: ReviewMode = selectReviewMode(context),
 ): ModelInvocationRequest {
   return {
     messages: [
-      { role: "system", content: systemPrompt },
+      { role: "system", content: systemPromptFor(mode) },
       {
         role: "user",
         content: `${renderPrContextText(context)}

@@ -11,6 +11,7 @@ import {
   type RetryPolicy,
 } from "../../../packages/model-router/src/index.js";
 import type { RenderedPrContext } from "./context.js";
+import { selectReviewMode } from "./context.js";
 import { buildPrReviewRepairRequest, buildPrReviewMessages, buildPrReviewRequest } from "./prompt.js";
 import type { PrReviewContract } from "./types.js";
 import { parsePrReviewJson } from "./validate.js";
@@ -97,16 +98,20 @@ export async function reviewPullRequest(
       { inputTokens: 0, outputTokens: 0 },
     );
 
+  const mode = selectReviewMode(context);
+
   let mainContent: string;
   if (options.tools) {
     const loop = await runToolLoop(
       invoke,
-      buildPrReviewMessages(context),
+      buildPrReviewMessages(context, mode),
       options.tools.context,
       {
         tools: builtinTools(),
         exploreInstruction:
-          "你可以调用 read_file / list_directory / get_git_info 工具查看 diff 涉及或相关的源码文件以加深理解，然后给出审查结果。仅在确实需要更多上下文时才调用工具。",
+          mode === "deep"
+            ? "这是大规模/复杂 PR。你可以调用 read_file / list_directory / get_git_info 工具主动查看关键路径、跨文件依赖与相关源码，以全面理解变更影响后给出审查结果。"
+            : "你可以调用 read_file / list_directory / get_git_info 工具查看 diff 涉及或相关的源码文件以加深理解，然后给出审查结果。仅在确实需要更多上下文时才调用工具。",
         ...(options.tools.maxRounds === undefined
           ? {}
           : { maxRounds: options.tools.maxRounds }),
@@ -114,7 +119,7 @@ export async function reviewPullRequest(
     );
     mainContent = loop.messages[loop.messages.length - 1]!.content;
   } else {
-    const main = await invoke(buildPrReviewRequest(context));
+    const main = await invoke(buildPrReviewRequest(context, mode));
     mainContent = main.content;
   }
 
@@ -137,6 +142,7 @@ export async function reviewPullRequest(
       context,
       mainContent,
       validation.issues,
+      mode,
     ),
     deadlineMs: remainingMs,
     retryPolicy: options.retryPolicy,

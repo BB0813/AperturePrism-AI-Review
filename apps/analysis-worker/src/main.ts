@@ -613,7 +613,7 @@ async function main(): Promise<void> {
           installationId: payload.installationId,
           owner: identity.owner,
           name: identity.name,
-          ref: payload.headSha ?? "HEAD",
+          ref: payload.subjectRevision ?? "HEAD",
         },
       };
     },
