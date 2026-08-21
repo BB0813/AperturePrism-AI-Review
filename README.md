@@ -231,7 +231,7 @@ docker compose -f docker/docker-compose.prod.yml --env-file .env.production up -
 | 实时监控 / 审查日志 / 操作日志 | ✅ 已整合 | 并入「日志总览」（历史 + 实时 + 断点续传 + 诊断包） |
 | PR 审查 / Issue 分析 | ✅ 已上线 | 结果页（PR / Issue）+ 富结果卡 |
 | 审查队列 | ✅ 已上线 | 任务队列（筛选 + 详情） |
-| 已安装仓库 / 仓库扫描 | ✅ 已上线 | 仓库列表 + 统计；index-worker 定时扫描 + `/index/run`、`/index/rebuild`、`/index/status` |
+| 已安装仓库 / 仓库扫描 | ✅ 已上线 | 仓库列表 + 统计；「仓库扫描」页：全局/逐仓库定时扫描 + 自动建分析任务 + 可选自动建跟踪 Issue + 扫描历史（scan-worker） |
 | 向量存储 & 数据库 | ✅ 已上线 | 向量存储页（issue_documents 统计 + 索引触发/重建/轮次） |
 | 审查策略 / AI 配置 | ✅ 已整合 | 「模型路由」页 + 系统设置热更新 |
 | 全局配置 / 系统配置 | ✅ 已整合 | 「系统配置」页（含 Bot 设置 / 接入状态） |
@@ -268,6 +268,9 @@ docker compose -f docker/docker-compose.prod.yml --env-file .env.production up -
 | GET·PUT | `/users` `/users/:login` | 用户列表 / 管理员切换（需管理员） |
 | GET | `/audit` | 操作审计日志（需管理员） |
 | GET·POST·DELETE | `/memory` `/memory/consolidate` `/memory/:id` | 仓库记忆列表 / 触发合并（管理员）/ 删除（管理员） |
+| GET·PUT | `/scans/config` | 仓库扫描：全局开关 + 逐仓库配置（PUT 需管理员） |
+| POST | `/scans/run` | 手动触发一次仓库扫描（管理员；scan-worker 下一轮执行） |
+| GET | `/scans/runs` | 扫描历史（逐仓库：扫描数 / 新建任务 / 跟踪 Issue / 跳过） |
 | GET·PUT | `/capabilities` | Agent 技能 + 专家团队目录 / 开关（PUT 需管理员） |
 | GET·POST | `/setup/status` `/setup/init` | 安装向导检测 / 一键初始化（init 需管理员） |
 

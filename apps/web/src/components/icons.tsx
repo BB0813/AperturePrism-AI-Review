@@ -79,6 +79,15 @@ export const LogoutIcon = (p: IconProps) => (
   </Base>
 );
 
+export const RadarIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M12 12l6-6" />
+    <path d="M20 12a8 8 0 11-8-8" />
+    <path d="M17 12a5 5 0 11-5-5" />
+    <circle cx="12" cy="12" r="0.6" fill="currentColor" />
+  </Base>
+);
+
 export const StarIcon = (p: IconProps) => (
   <Base {...p}>
     <path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.8L12 16.9 6.8 19.6l1-5.8L3.5 9.7l5.9-.8L12 3.5z" />

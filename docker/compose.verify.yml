@@ -16,6 +16,8 @@ services:
     networks: [apnet]
   scheduler:
     networks: [apnet]
+  scan-worker:
+    networks: [apnet]
   migrate:
     networks: [apnet]
   web:

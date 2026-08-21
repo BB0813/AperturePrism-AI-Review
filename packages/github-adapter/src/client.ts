@@ -26,6 +26,11 @@ export type GitHubCreatedComment = {
   htmlUrl: string;
 };
 
+export type GitHubCreatedIssue = {
+  number: number;
+  htmlUrl: string;
+};
+
 export type GitHubPullRequest = {
   number: number;
   title: string;
@@ -127,6 +132,30 @@ export type GitHubClient = {
     },
     signal?: AbortSignal,
   ) => Promise<GitHubPullRequest>;
+  /** Lists pull requests (PRs only, unlike `/issues`), newest first, paged. */
+  listPullRequests: (
+    input: {
+      installationId: string;
+      owner: string;
+      name: string;
+      state?: "open" | "closed" | "all";
+      perPage?: number;
+      page?: number;
+    },
+    signal?: AbortSignal,
+  ) => Promise<GitHubPullRequest[]>;
+  /** Creates a new issue in the repository and returns its number + URL. */
+  createIssue: (
+    input: {
+      installationId: string;
+      owner: string;
+      name: string;
+      title: string;
+      body: string;
+      labels?: readonly string[];
+    },
+    signal?: AbortSignal,
+  ) => Promise<GitHubCreatedIssue>;
   /** Returns the raw unified diff text of a pull request. */
   getPullRequestDiff: (
     input: {
@@ -500,6 +529,26 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
       return mapPullRequest(pullRequest);
     },
 
+    listPullRequests: async (
+      { installationId, owner, name, state = "open", perPage = 100, page = 1 },
+      signal,
+    ) => {
+      const query = new URLSearchParams({
+        state,
+        per_page: String(perPage),
+        page: String(page),
+      }).toString();
+      const items = await authorized<Record<string, unknown>[]>(
+        installationId,
+        {
+          method: "GET",
+          path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls?${query}`,
+        },
+        signal,
+      );
+      return items.map(mapPullRequest);
+    },
+
     getPullRequestDiff: async (
       { installationId, owner, name, number },
       signal,
@@ -601,6 +650,26 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
         signal,
       );
       return mapComment(comment);
+    },
+
+    createIssue: async (
+      { installationId, owner, name, title, body, labels },
+      signal,
+    ) => {
+      const issue = await authorized<Record<string, unknown>>(
+        installationId,
+        {
+          method: "POST",
+          path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues`,
+          body: {
+            title,
+            body,
+            ...(labels && labels.length > 0 ? { labels: [...labels] } : {}),
+          },
+        },
+        signal,
+      );
+      return { number: numberValue(issue.number), htmlUrl: stringValue(issue.html_url) };
     },
 
     closeIssue: async (

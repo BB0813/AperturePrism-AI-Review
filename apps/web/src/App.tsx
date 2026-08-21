@@ -14,6 +14,7 @@ import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { TasksPage } from "./pages/TasksPage";
 import { ReposPage } from "./pages/ReposPage";
 import { VectorPage } from "./pages/VectorPage";
+import { ScanPage } from "./pages/ScanPage";
 import { LabelsPage } from "./pages/LabelsPage";
 import { ConfigPage } from "./pages/ConfigPage";
 import { AccountPage } from "./pages/AccountPage";
@@ -38,6 +39,7 @@ import {
   MenuIcon,
   MoonIcon,
   PullRequestIcon,
+  RadarIcon,
   ShieldIcon,
   SparkleIcon,
   SunIcon,
@@ -75,6 +77,7 @@ export const NAV: NavGroup[] = [
     items: [
       { path: "/repos", label: "已安装仓库", icon: FolderIcon },
       { path: "/vector", label: "向量存储", icon: DatabaseIcon },
+      { path: "/scan", label: "仓库扫描", icon: RadarIcon },
       { path: "/memory", label: "记忆管理", icon: SparkleIcon },
       { path: "/labels", label: "标签配置", icon: TagIcon },
       { path: "/provider", label: "模型路由", icon: CpuIcon },
@@ -190,6 +193,7 @@ function AuthedConsole(props: { onLogout: () => void }) {
   else if (active === "/pr") page = <ResultsPage type="pr" label="PR 审查" />;
   else if (active === "/repos") page = <ReposPage />;
   else if (active === "/vector") page = <VectorPage />;
+  else if (active === "/scan") page = <ScanPage />;
   else if (active === "/memory") page = <MemoryPage />;
   else if (active === "/labels") page = <LabelsPage />;
   else if (active === "/agent") page = <AgentPage />;

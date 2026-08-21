@@ -113,6 +113,13 @@
       "when": 1788100000000,
       "tag": "0015_drop_star_aid",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1788400000000,
+      "tag": "0016_scan_tables",
+      "breakpoints": true
     }
   ]
 }

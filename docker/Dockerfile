@@ -13,6 +13,7 @@ COPY apps/analysis-worker ./apps/analysis-worker
 COPY apps/index-worker ./apps/index-worker
 COPY apps/scheduler ./apps/scheduler
 COPY apps/qq-bot ./apps/qq-bot
+COPY apps/scan-worker ./apps/scan-worker
 RUN npm ci --no-audit --no-fund
 
 FROM deps AS build
@@ -50,6 +51,10 @@ CMD ["node", "apps/index-worker/dist/apps/index-worker/src/main.js"]
 FROM base AS scheduler
 COPY --from=build /app/apps/scheduler/dist ./apps/scheduler/dist
 CMD ["node", "apps/scheduler/dist/apps/scheduler/src/main.js"]
+
+FROM base AS scan-worker
+COPY --from=build /app/apps/scan-worker/dist ./apps/scan-worker/dist
+CMD ["node", "apps/scan-worker/dist/apps/scan-worker/src/main.js"]
 
 FROM base AS qq-bot
 COPY --from=build /app/apps/qq-bot/dist ./apps/qq-bot/dist

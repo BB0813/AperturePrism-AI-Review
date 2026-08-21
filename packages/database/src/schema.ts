@@ -444,3 +444,83 @@ export const repoMemory = pgTable(
     index("repo_memory_consolidated_idx").on(table.consolidated),
   ],
 );
+
+/**
+ * Per-repository scan configuration. Rows are created on demand (defaults)
+ * when a repository is scanned; the WebUI scan page edits these values.
+ */
+export const scanConfigs = pgTable(
+  "scan_configs",
+  {
+    repositoryId: uuid("repository_id")
+      .primaryKey()
+      .references(() => repositories.id),
+    enabled: boolean("enabled").default(true).notNull(),
+    intervalMinutes: integer("interval_minutes").default(1440).notNull(),
+    maxIssues: integer("max_issues").default(50).notNull(),
+    maxPrs: integer("max_prs").default(20).notNull(),
+    autoAnalyzeIssues: boolean("auto_analyze_issues").default(true).notNull(),
+    autoAnalyzePrs: boolean("auto_analyze_prs").default(true).notNull(),
+    createTrackingIssues: boolean("create_tracking_issues")
+      .default(false)
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+);
+
+/**
+ * One scan execution per repository: what was seen and what was enqueued.
+ * Drives the WebUI scan history list and the per-repo interval gating.
+ */
+export const scanRuns = pgTable(
+  "scan_runs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    repositoryId: uuid("repository_id").references(() => repositories.id),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    status: varchar("status", { length: 20 }).default("running").notNull(),
+    trigger: varchar("trigger", { length: 20 }).default("scheduled").notNull(),
+    scannedIssues: integer("scanned_issues").default(0).notNull(),
+    scannedPrs: integer("scanned_prs").default(0).notNull(),
+    createdIssueTasks: integer("created_issue_tasks").default(0).notNull(),
+    createdPrTasks: integer("created_pr_tasks").default(0).notNull(),
+    createdTrackingIssues: integer("created_tracking_issues")
+      .default(0)
+      .notNull(),
+    skipped: integer("skipped").default(0).notNull(),
+    error: text("error"),
+  },
+  (table) => [
+    index("scan_runs_repo_started_idx").on(table.repositoryId, table.startedAt),
+  ],
+);
+
+/**
+ * Records GitHub issues auto-created as tracking reports for scanned subjects
+ * (e.g. a new open PR), so a subject is reported only once.
+ */
+export const scanTracking = pgTable(
+  "scan_tracking",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    repositoryId: uuid("repository_id").references(() => repositories.id),
+    subjectType: varchar("subject_type", { length: 10 }).notNull(),
+    subjectNumber: integer("subject_number").notNull(),
+    trackingIssueNumber: integer("tracking_issue_number").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("scan_tracking_repo_subject_unique").on(
+      table.repositoryId,
+      table.subjectType,
+      table.subjectNumber,
+    ),
+  ],
+);

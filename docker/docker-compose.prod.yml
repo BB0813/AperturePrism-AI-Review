@@ -108,6 +108,20 @@ services:
       postgres:
         condition: service_healthy
 
+  scan-worker:
+    image: ghcr.io/bb0813/apertureprism-ai-review/scan-worker:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      SCAN_INTERVAL_MS: ${SCAN_INTERVAL_MS:-60000}
+    volumes:
+      - ${GITHUB_APP_KEY_MOUNT:-/opt/apertureprism/github-app.pem}:/opt/apertureprism/github-app.pem:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   # One-shot migration runner: docker compose ... run --rm migrate
   migrate:
     image: ghcr.io/bb0813/apertureprism-ai-review/migrate:${IMAGE_TAG:-latest}

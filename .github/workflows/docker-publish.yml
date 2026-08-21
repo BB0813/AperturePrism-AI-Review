@@ -44,7 +44,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [api, analysis-worker, index-worker, scheduler, qq-bot, migrate, web]
+        target: [api, analysis-worker, index-worker, scheduler, scan-worker, qq-bot, migrate, web]
     permissions:
       contents: read
       packages: write

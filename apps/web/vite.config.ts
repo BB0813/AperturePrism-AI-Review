@@ -32,6 +32,7 @@ export default defineConfig({
       "/backup": proxyTarget,
       "/index": proxyTarget,
       "/update": proxyTarget,
+      "/scans": proxyTarget,
       "/events": { target: proxyTarget, changeOrigin: true, ws: false },
     },
   },

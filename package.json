@@ -10,6 +10,7 @@
     "apps/analysis-worker",
     "apps/index-worker",
     "apps/qq-bot",
+    "apps/scan-worker",
     "apps/scheduler"
   ],
   "engines": {
