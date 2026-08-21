@@ -34,6 +34,7 @@ import {
   LayersIcon,
   ListIcon,
   LogoutIcon,
+  MenuIcon,
   MoonIcon,
   PullRequestIcon,
   ShieldIcon,
@@ -160,6 +161,12 @@ function AuthedConsole(props: { onLogout: () => void }) {
   const active = tabOf(route);
   const sse = useSse(eventsUrl());
   const { theme, toggle } = useTheme();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Route change always collapses the mobile drawer.
+  useEffect(() => setDrawerOpen(false), [route]);
+
+  const closeDrawer = () => setDrawerOpen(false);
 
   const pageTitle = useMemo(() => {
     if (route.startsWith("/tasks/") && route.length > "/tasks/".length) {
@@ -191,7 +198,7 @@ function AuthedConsole(props: { onLogout: () => void }) {
 
   return (
     <div className="shell">
-      <aside className="sidebar">
+      <aside className={drawerOpen ? "sidebar drawer-open" : "sidebar"}>
         <div>
           <a className="brand" href="#/" onClick={(e) => { e.preventDefault(); navigate("/"); }}>
             <img src="/aprism-logo.png" alt="AperturePrism" className="brand-logo" />
@@ -216,6 +223,7 @@ function AuthedConsole(props: { onLogout: () => void }) {
                     onClick={(event) => {
                       event.preventDefault();
                       navigate(item.path);
+                      closeDrawer();
                     }}
                   >
                     <Icon size={16} />
@@ -235,6 +243,7 @@ function AuthedConsole(props: { onLogout: () => void }) {
             onClick={(event) => {
               event.preventDefault();
               navigate("/account");
+              closeDrawer();
             }}
           >
             <UserCircleIcon size={18} />
@@ -247,8 +256,21 @@ function AuthedConsole(props: { onLogout: () => void }) {
         </div>
       </aside>
 
+      {drawerOpen ? (
+        <div className="nav-backdrop" onClick={closeDrawer} aria-hidden="true" />
+      ) : null}
+
       <main className="main" id="main">
         <div className="topbar">
+          <button
+            type="button"
+            className="nav-burger"
+            onClick={() => setDrawerOpen(true)}
+            aria-label="打开菜单"
+            aria-expanded={drawerOpen}
+          >
+            <MenuIcon size={18} />
+          </button>
           <div className="topbar-meta">
             <span className="topbar-eyebrow">{pageTitle.eyebrow}</span>
             <span className="topbar-dot" aria-hidden="true" />

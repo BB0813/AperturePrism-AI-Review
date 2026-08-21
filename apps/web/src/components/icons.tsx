@@ -265,3 +265,9 @@ export const UserCircleIcon = (p: IconProps) => (
     <path d="M5.5 19a7 7 0 0113 0" />
   </Base>
 );
+
+export const MenuIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M4 6h16M4 12h16M4 18h16" />
+  </Base>
+);

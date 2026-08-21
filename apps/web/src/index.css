@@ -930,20 +930,50 @@ select.input {
 
 @media (max-width: 960px) {
   .shell { grid-template-columns: 1fr; }
-  /* 导航单行横向滚动，避免 12 项换行撑高侧栏 */
-  .nav { flex-direction: row; flex-wrap: nowrap; overflow-x: auto; overflow-y: visible; -webkit-overflow-scrolling: touch; gap: 4px; scrollbar-width: thin; padding-bottom: 2px; }
-  .nav-group { flex-direction: row; align-items: center; flex-shrink: 0; }
-  .nav-title { display: none; }
-  .nav-item { white-space: nowrap; flex-shrink: 0; }
-  .nav-item-active::before { display: none; }
-  .sidebar { position: static; height: auto; flex-direction: row; align-items: center; flex-wrap: nowrap; border-right: 0; border-bottom: 1px solid var(--border); padding: 10px 12px; gap: 10px; }
-  .sidebar > div:first-child { padding-bottom: 0; flex-shrink: 0; }
-  .sidebar > .nav { flex: 1 1 auto; overflow-x: auto; min-height: 0; }
-  .sidebar > .side-foot { padding-top: 0; flex-shrink: 0; flex-direction: row; align-items: center; }
-  .brand-sub { display: none; }
-  .side-foot { margin: 0; }
   .main { padding: 18px 16px 60px; }
+
+  /* 侧边栏变为左侧抽屉：默认滑出屏幕，drawer-open 时滑入 */
+  .sidebar {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    z-index: 1100;
+    width: 264px;
+    transform: translateX(-100%);
+    transition: transform var(--dur-3) var(--ease);
+    border-right: 1px solid var(--border);
+    box-shadow: var(--shadow);
+  }
+  .sidebar.drawer-open { transform: translateX(0); }
+  .sidebar > div:first-child { padding-bottom: 22px; }
+  .sidebar > .side-foot { padding-top: 22px; flex-direction: column; align-items: stretch; }
+  .brand-sub { display: block; }
+  .side-foot { margin-top: auto; }
+  .nav { flex-direction: column; gap: 16px; overflow-y: auto; }
+  .nav-group { flex-direction: column; align-items: stretch; }
+  .nav-title { display: block; }
+  .nav-item { white-space: normal; }
+  .nav-item-active::before { display: block; }
+
+  /* 汉堡按钮与遮罩（仅移动端） */
+  .nav-burger {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 34px; height: 34px; flex-shrink: 0;
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--panel-2); color: var(--muted); cursor: pointer;
+    transition: color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease);
+  }
+  .nav-burger:hover { color: var(--text); border-color: var(--border-2); }
+  .nav-backdrop {
+    position: fixed; inset: 0; z-index: 1050;
+    background: rgba(2, 6, 23, 0.5);
+    backdrop-filter: blur(2px);
+  }
+  .topbar-meta { min-width: 0; }
 }
+
+/* 桌面端：汉堡按钮与遮罩不渲染不显示 */
+.nav-burger { display: none; }
+.nav-backdrop { display: none; }
 
 @media (max-width: 640px) {
   .grid2 { grid-template-columns: 1fr; }
