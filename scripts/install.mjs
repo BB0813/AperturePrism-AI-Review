@@ -485,6 +485,12 @@ function summaryCompose() {
   console.log(`${BOLD}${GREEN}安装完成${RESET}`);
   console.log(`${BOLD}──────────────────────────────${RESET}`);
   console.log(`  Web UI：  ${DIM}http://localhost${RESET}（默认 80，可在 .env.production 用 WEB_PORT 修改）`);
+  const prodEnv = parseEnv(readEnvFile(ENV_PROD_FILE) ?? "");
+  const webuiToken = (prodEnv.WEBUI_API_TOKEN || "").trim();
+  console.log(
+    `  管理令牌：${DIM}[${webuiToken || `见 ${ENV_PROD_FILE} 的 WEBUI_API_TOKEN`}]` +
+      `${RESET}   ← 首次进入 WebUI 安装向导时输入`,
+  );
   console.log(`  API：     ${DIM}http://localhost:30001/health/live${RESET}（可用 API_PORT 修改）`);
   console.log(`  查看状态：${DIM}cd ${ROOT} && set -a && . ./docker/.env.production && set +a && docker compose -f ${COMPOSE_PROD} ps${RESET}`);
   console.log(`  查看日志：${DIM}cd ${ROOT} && set -a && . ./docker/.env.production && set +a && docker compose -f ${COMPOSE_PROD} logs -f api${RESET}`);
