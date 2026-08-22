@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   bumpCache,
+  deleteResults,
   fetchResults,
   revokeSubject,
   type ResultList,
@@ -167,6 +168,55 @@ export function ResultsPage(props: { type: "issue" | "pr"; label: string }) {
     setBulkRevoking(false);
   };
 
+  const exportResults = () => {
+    if (filtered.length === 0) return;
+    const blob = new Blob([JSON.stringify(filtered, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    anchor.href = url;
+    anchor.download = `apertureprism-${props.type}-${stamp}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    toast.success(`已导出 ${filtered.length} 条${props.type === "pr" ? " PR 审查" : " Issue 分析"}结果`);
+  };
+
+  const bulkDelete = async () => {
+    const targets = filtered.filter((item) => selected.has(resultKey(item)));
+    if (targets.length === 0) return;
+    if (
+      !window.confirm(
+        `确定要删除选中的 ${targets.length} 个结果记录吗？将同时移除对应任务的评论/Review/Check Run 发布书签；GitHub 上已发布的评论/Review 不会自动删除，可先用「撤回」。此操作不可恢复。`,
+      )
+    )
+      return;
+    setBulkRevoking(true);
+    try {
+      const result = await deleteResults(
+        targets.map((item) => ({
+          subjectType: item.subjectType,
+          subjectNumber: item.subjectNumber,
+          repositoryFullName: item.repositoryFullName,
+          revision: item.revision,
+        })),
+      );
+      toast.success(
+        `已删除 ${result.deleted} 条结果记录${result.notFound > 0 ? `，未匹配 ${result.notFound} 条` : ""}`,
+      );
+      setSelected(new Set());
+      bumpCache();
+      refresh();
+    } catch (err) {
+      toast.error(`删除失败：${err instanceof Error ? err.message : err}`);
+    } finally {
+      setBulkRevoking(false);
+    }
+  };
+
   return (
     <div className="stack">
       <div className="page-head">
@@ -175,6 +225,13 @@ export function ResultsPage(props: { type: "issue" | "pr"; label: string }) {
           <p className="page-desc">已持久化的结构化分析结果</p>
         </div>
         <div className="actions">
+          <button
+            className="btn"
+            onClick={exportResults}
+            disabled={loading || filtered.length === 0}
+          >
+            导出
+          </button>
           <button className="btn" onClick={() => { bumpCache(); refresh(); }} disabled={loading}>
             <RefreshIcon size={16} />
             刷新
@@ -214,6 +271,9 @@ export function ResultsPage(props: { type: "issue" | "pr"; label: string }) {
             <>
               <button className="btn btn-primary" onClick={() => void bulkRevoke()} disabled={bulkRevoking}>
                 {bulkRevoking ? "撤回中…" : `批量撤回（${selected.size}）`}
+              </button>
+              <button className="btn" onClick={() => void bulkDelete()} disabled={bulkRevoking}>
+                批量删除
               </button>
               <button className="btn" onClick={clearSelected} disabled={bulkRevoking}>
                 取消选择

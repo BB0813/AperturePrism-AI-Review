@@ -15,6 +15,31 @@ import { useToast } from "../components/Toast";
 const TYPE_FILTERS = ["all", "issue_analysis", "pr_review", "repository_index"] as const;
 const STATUS_FILTERS = ["all", "queued", "running", "publishing", "completed", "failed", "retry_wait", "canceled"] as const;
 export type SortKey = "subjectNumber" | "status" | "attempt" | "updatedAt" | "policy";
+
+/** 任务表格列（列自定义用；key 持久化到 localStorage）。 */
+const TASK_COLUMNS = [
+  { key: "type", label: "类型" },
+  { key: "subject", label: "对象" },
+  { key: "status", label: "状态" },
+  { key: "policy", label: "策略" },
+  { key: "attempt", label: "尝试" },
+  { key: "error", label: "上次错误" },
+  { key: "updatedAt", label: "更新时间" },
+] as const;
+export type TaskColumnKey = (typeof TASK_COLUMNS)[number]["key"];
+const COLUMNS_STORAGE_KEY = "apertureprism.tasks.columns";
+
+function loadHiddenColumns(): Set<TaskColumnKey> {
+  try {
+    const raw = localStorage.getItem(COLUMNS_STORAGE_KEY);
+    if (!raw) return new Set();
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((k): k is TaskColumnKey => typeof k === "string"));
+  } catch {
+    return new Set();
+  }
+}
 export type SortState = { key: SortKey; dir: "asc" | "desc" };
 
 /** 按指定列对任务排序（纯函数，供组件与单元测试复用）。 */
@@ -60,7 +85,19 @@ export function TasksPage() {
   });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [rerunning, setRerunning] = useState(false);
+  const [hiddenColumns, setHiddenColumns] = useState<Set<TaskColumnKey>>(loadHiddenColumns);
+  const [columnsOpen, setColumnsOpen] = useState(false);
   const toast = useToast();
+
+  const toggleColumn = (key: TaskColumnKey) => {
+    setHiddenColumns((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  };
 
   const toggleSort = (key: SortKey) => {
     setSort((prev) =>
@@ -227,6 +264,43 @@ export function TasksPage() {
           ) : null}
         </div>
 
+        <div className="filters" style={{ marginBottom: 14, gap: 10 }}>
+          <div style={{ position: "relative" }}>
+            <button className="btn" onClick={() => setColumnsOpen((v) => !v)}>
+              列设置
+            </button>
+            {columnsOpen ? (
+              <div
+                className="column-menu"
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 4px)",
+                  left: 0,
+                  zIndex: 20,
+                  background: "var(--panel-2)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--radius)",
+                  padding: "8px 10px",
+                  display: "grid",
+                  gap: 6,
+                  minWidth: 150,
+                }}
+              >
+                {TASK_COLUMNS.map((col) => (
+                  <label key={col.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+                    <input
+                      type="checkbox"
+                      checked={!hiddenColumns.has(col.key)}
+                      onChange={() => toggleColumn(col.key)}
+                    />
+                    {col.label}
+                  </label>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
+
         {rerunnable.size > 0 ? (
           <div className="filters" style={{ marginBottom: 14, gap: 10 }}>
             <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
@@ -262,13 +336,23 @@ export function TasksPage() {
               <thead>
                 <tr>
                   <th style={{ width: 32 }}></th>
-                  <th>类型</th>
-                  <SortableTh label="对象" active={sort.key === "subjectNumber"} dir={sort.dir} onClick={() => toggleSort("subjectNumber")} />
-                  <SortableTh label="状态" active={sort.key === "status"} dir={sort.dir} onClick={() => toggleSort("status")} />
-                  <SortableTh label="策略" active={sort.key === "policy"} dir={sort.dir} onClick={() => toggleSort("policy")} />
-                  <SortableTh label="尝试" active={sort.key === "attempt"} dir={sort.dir} onClick={() => toggleSort("attempt")} />
-                  <th>上次错误</th>
-                  <SortableTh label="更新时间" active={sort.key === "updatedAt"} dir={sort.dir} onClick={() => toggleSort("updatedAt")} />
+                  {!hiddenColumns.has("type") ? <th>类型</th> : null}
+                  {!hiddenColumns.has("subject") ? (
+                    <SortableTh label="对象" active={sort.key === "subjectNumber"} dir={sort.dir} onClick={() => toggleSort("subjectNumber")} />
+                  ) : null}
+                  {!hiddenColumns.has("status") ? (
+                    <SortableTh label="状态" active={sort.key === "status"} dir={sort.dir} onClick={() => toggleSort("status")} />
+                  ) : null}
+                  {!hiddenColumns.has("policy") ? (
+                    <SortableTh label="策略" active={sort.key === "policy"} dir={sort.dir} onClick={() => toggleSort("policy")} />
+                  ) : null}
+                  {!hiddenColumns.has("attempt") ? (
+                    <SortableTh label="尝试" active={sort.key === "attempt"} dir={sort.dir} onClick={() => toggleSort("attempt")} />
+                  ) : null}
+                  {!hiddenColumns.has("error") ? <th>上次错误</th> : null}
+                  {!hiddenColumns.has("updatedAt") ? (
+                    <SortableTh label="更新时间" active={sort.key === "updatedAt"} dir={sort.dir} onClick={() => toggleSort("updatedAt")} />
+                  ) : null}
                   <th />
                 </tr>
               </thead>
@@ -280,6 +364,7 @@ export function TasksPage() {
                     rerunnable={rerunnable.has(task.id)}
                     selected={selected.has(task.id)}
                     onToggle={() => toggleSelected(task.id)}
+                    hiddenColumns={hiddenColumns}
                   />
                 ))}
               </tbody>
@@ -302,11 +387,13 @@ function TaskRow({
   rerunnable,
   selected,
   onToggle,
+  hiddenColumns,
 }: {
   task: TaskSummary;
   rerunnable: boolean;
   selected: boolean;
   onToggle: () => void;
+  hiddenColumns: Set<TaskColumnKey>;
 }) {
   return (
     <tr className={`clickable${selected ? " row-selected" : ""}`} onClick={() => navigate(`/tasks/${task.id}`)}>
@@ -320,15 +407,19 @@ function TaskRow({
           title={rerunnable ? "选择以重新执行" : "仅失败/已取消任务可重新执行"}
         />
       </td>
-      <td><TypeChip type={task.taskType} /></td>
-      <td className="num">#{task.subjectNumber ?? "—"}</td>
-      <td><StatusPill status={task.status} /></td>
-      <td><span className="chip mono">{task.policyVersion}</span></td>
-      <td className="num muted">
-        {task.attemptCount}/{task.maxAttempts}
-      </td>
-      <td>{task.lastErrorCategory ? <span className="pill pill-err">{task.lastErrorCategory}</span> : <span className="faint">—</span>}</td>
-      <td className="muted">{timeAgo(task.updatedAt)}</td>
+      {!hiddenColumns.has("type") ? <td><TypeChip type={task.taskType} /></td> : null}
+      {!hiddenColumns.has("subject") ? <td className="num">#{task.subjectNumber ?? "—"}</td> : null}
+      {!hiddenColumns.has("status") ? <td><StatusPill status={task.status} /></td> : null}
+      {!hiddenColumns.has("policy") ? <td><span className="chip mono">{task.policyVersion}</span></td> : null}
+      {!hiddenColumns.has("attempt") ? (
+        <td className="num muted">
+          {task.attemptCount}/{task.maxAttempts}
+        </td>
+      ) : null}
+      {!hiddenColumns.has("error") ? (
+        <td>{task.lastErrorCategory ? <span className="pill pill-err">{task.lastErrorCategory}</span> : <span className="faint">—</span>}</td>
+      ) : null}
+      {!hiddenColumns.has("updatedAt") ? <td className="muted">{timeAgo(task.updatedAt)}</td> : null}
       <td style={{ textAlign: "right" }}><ChevronRightIcon size={15} /></td>
     </tr>
   );

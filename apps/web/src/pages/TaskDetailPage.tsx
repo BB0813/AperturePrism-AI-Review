@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useState, type ReactElement } from "react";
-import { fetchTaskDetail, type TaskDetail } from "../lib/api";
+import {
+  fetchTaskCheckRun,
+  fetchTaskDetail,
+  type CheckRunStatus,
+  type TaskDetail,
+} from "../lib/api";
 import { navigate } from "../hooks/useHash";
 import {
   AlertIcon,
@@ -34,6 +39,8 @@ export function TaskDetailPage({ id }: { id: string }) {
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [checkRun, setCheckRun] = useState<CheckRunStatus | null>(null);
+  const [checkRunDegraded, setCheckRunDegraded] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -48,6 +55,35 @@ export function TaskDetailPage({ id }: { id: string }) {
   }, [id]);
 
   useEffect(() => load(), [load]);
+
+  // 轮询任务发布的 Check Run 实时状态（每 5s；只在任务存在且任务状态非终态时高频，
+  // 终态任务一次查询即可，避免持续请求 GitHub）。
+  useEffect(() => {
+    if (!detail) return;
+    const hasCheckRun = (detail.publications ?? []).some(
+      (pub) => pub.channel === "check_run",
+    );
+    if (!hasCheckRun) return;
+    const poll = async () => {
+      try {
+        const result = await fetchTaskCheckRun(id);
+        if (result.present && result.checkRun) {
+          setCheckRun(result.checkRun);
+          setCheckRunDegraded(Boolean(result.degraded));
+        } else {
+          setCheckRun(null);
+          setCheckRunDegraded(Boolean(result.degraded));
+        }
+      } catch {
+        setCheckRunDegraded(true);
+      }
+    };
+    void poll();
+    const isTerminal = detail.status === "completed" || detail.status === "failed" || detail.status === "canceled";
+    if (isTerminal) return;
+    const timer = setInterval(poll, 5000);
+    return () => clearInterval(timer);
+  }, [detail, id]);
 
   if (error) {
     return (
@@ -171,6 +207,34 @@ export function TaskDetailPage({ id }: { id: string }) {
           <h2>发布与外部对象</h2>
           <span className="count">{detail.publications?.length ?? 0} 条</span>
         </div>
+        {(detail.publications ?? []).some((pub) => pub.channel === "check_run") ? (
+          <div style={{ marginBottom: 12 }}>
+            <span className="faint" style={{ fontSize: 12, marginRight: 8 }}>
+              Check Run 实时状态：
+            </span>
+            {checkRun ? (
+              <>
+                <span className={`pill ${checkRunPillCls(checkRun)}`}>
+                  {checkRunStatusText(checkRun)}
+                </span>
+                {checkRun.htmlUrl ? (
+                  <a
+                    href={checkRun.htmlUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ marginLeft: 10, fontSize: 12 }}
+                  >
+                    在 GitHub 查看 ↗
+                  </a>
+                ) : null}
+              </>
+            ) : checkRunDegraded ? (
+              <span className="pill pill-dim">状态获取失败（GitHub 不可达或未配置）</span>
+            ) : (
+              <span className="pill pill-dim">查询中…</span>
+            )}
+          </div>
+        ) : null}
         {detail.publications && detail.publications.length > 0 ? (
           <div className="tablewrap">
             <table className="table">
@@ -255,6 +319,29 @@ function publicationChannelLabel(channel: string): string {
     default:
       return channel;
   }
+}
+
+function checkRunPillCls(run: CheckRunStatus): string {
+  if (run.status === "completed") {
+    if (run.conclusion === "success") return "pill-ok";
+    if (run.conclusion === "failure") return "pill-err";
+    return "pill-dim";
+  }
+  return "pill-warn";
+}
+
+function checkRunStatusText(run: CheckRunStatus): string {
+  if (run.status === "completed") {
+    const conclusion =
+      run.conclusion === "success"
+        ? "成功"
+        : run.conclusion === "failure"
+          ? "失败"
+          : (run.conclusion ?? "完成");
+    return `已完成 · ${conclusion}`;
+  }
+  if (run.status === "in_progress") return "进行中…";
+  return "排队中…";
 }
 
 function publicationLink(

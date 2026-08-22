@@ -356,6 +356,22 @@ export type GitHubClient = {
     },
     signal?: AbortSignal,
   ) => Promise<{ id: number; htmlUrl: string }>;
+  /** Fetches the live status of a check run (for WebUI polling). */
+  getCheckRun: (
+    input: {
+      installationId: string;
+      owner: string;
+      name: string;
+      checkRunId: number;
+    },
+    signal?: AbortSignal,
+  ) => Promise<{
+    id: number;
+    status: "queued" | "in_progress" | "completed";
+    conclusion: string | null;
+    title: string | null;
+    htmlUrl: string | null;
+  }>;
   /** Removes the given labels from an issue (idempotent). */
   removeIssueLabels: (
     input: {
@@ -974,6 +990,33 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
       return {
         id: numberValue(run.id),
         htmlUrl: stringValue(run.html_url),
+      };
+    },
+
+    getCheckRun: async (
+      { installationId, owner, name, checkRunId },
+      signal,
+    ) => {
+      const run = await authorized<Record<string, unknown>>(
+        installationId,
+        {
+          method: "GET",
+          path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/check-runs/${checkRunId}`,
+        },
+        signal,
+      );
+      const output = (run.output ?? {}) as { title?: unknown };
+      return {
+        id: numberValue(run.id),
+        status: (["queued", "in_progress", "completed"].includes(String(run.status))
+          ? String(run.status)
+          : "queued") as "queued" | "in_progress" | "completed",
+        conclusion:
+          typeof run.conclusion === "string" && run.conclusion.length > 0
+            ? run.conclusion
+            : null,
+        title: typeof output.title === "string" ? output.title : null,
+        htmlUrl: typeof run.html_url === "string" ? run.html_url : null,
       };
     },
 

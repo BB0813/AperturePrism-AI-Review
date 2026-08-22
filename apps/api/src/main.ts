@@ -1234,6 +1234,124 @@ async function handleTaskRerun(
   json(response, 200, { status: "ok", rerun, skipped }, requestId);
 }
 
+/**
+ * GET /tasks/check-run?taskId=<uuid> — live status of a task's published
+ * GitHub Check Run. Looks up the check_run publication for the task and
+ * queries GitHub for its current status/conclusion so the WebUI can poll
+ * without keeping an SSE channel open. Degrades gracefully (no publication /
+ * GitHub unconfigured / GitHub error) with a `degraded` flag.
+ */
+async function handleTaskCheckRun(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const url = new URL(
+    request.url ?? "/",
+    `http://${request.headers.host ?? "localhost"}`,
+  );
+  const taskId = url.searchParams.get("taskId") ?? "";
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      taskId,
+    )
+  ) {
+    json(
+      response,
+      400,
+      { status: "error", reason: "taskId must be a UUID" },
+      requestId,
+    );
+    return;
+  }
+
+  const task = await database.db
+    .select({ payload: analysisTasks.payload })
+    .from(analysisTasks)
+    .where(eq(analysisTasks.id, taskId))
+    .limit(1);
+  const payload = task[0]?.payload as
+    | {
+        installationId?: unknown;
+        repositoryFullName?: unknown;
+        subjectNumber?: unknown;
+      }
+    | null
+    | undefined;
+  if (!payload) {
+    json(response, 404, { status: "error", reason: "task not found" }, requestId);
+    return;
+  }
+
+  const publication = await database.db
+    .select({ externalObjectId: externalPublications.externalObjectId })
+    .from(externalPublications)
+    .where(
+      and(
+        eq(externalPublications.taskId, taskId),
+        eq(externalPublications.channel, "check_run"),
+      ),
+    )
+    .limit(1);
+  const checkRunId = Number(publication[0]?.externalObjectId ?? 0);
+  if (!Number.isInteger(checkRunId) || checkRunId <= 0) {
+    json(
+      response,
+      200,
+      { status: "ok", present: false, degraded: false },
+      requestId,
+    );
+    return;
+  }
+
+  const github = await githubClientPromise;
+  const installationId = String(payload.installationId ?? "");
+  const repositoryFullName = String(payload.repositoryFullName ?? "");
+  const [owner, name] = repositoryFullName.split("/");
+  if (!github || !installationId || !owner || !name) {
+    json(
+      response,
+      200,
+      { status: "ok", present: true, degraded: true },
+      requestId,
+    );
+    return;
+  }
+
+  try {
+    const run = await github.getCheckRun({
+      installationId,
+      owner,
+      name,
+      checkRunId,
+    });
+    json(
+      response,
+      200,
+      {
+        status: "ok",
+        present: true,
+        degraded: false,
+        checkRun: {
+          id: run.id,
+          status: run.status,
+          conclusion: run.conclusion,
+          title: run.title,
+          htmlUrl: run.htmlUrl,
+        },
+      },
+      requestId,
+    );
+  } catch {
+    json(
+      response,
+      200,
+      { status: "ok", present: true, degraded: true },
+      requestId,
+    );
+  }
+}
+
 /** Model role policies + configured provider account names (never the keys). */
 async function handleProviders(
   response: ServerResponse,
@@ -3308,6 +3426,101 @@ async function handleResults(
 }
 
 /**
+ * POST /results/delete — batch-deletes persisted results (admin only).
+ * Body: `{"items":[{"subjectType","subjectNumber","repositoryFullName","revision"}]}`.
+ * Each item removes the matching subject_results row(s). Returns how many rows
+ * were deleted and how many items matched nothing. Also removes the task's
+ * external publications so revoke bookkeeping does not linger.
+ */
+async function handleResultsDelete(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  if (!(await isAdminRequest(request))) {
+    json(
+      response,
+      403,
+      { status: "error", reason: "admin required" },
+      requestId,
+    );
+    return;
+  }
+  const body = await readBody(request);
+  let parsed: { items?: unknown };
+  try {
+    parsed = JSON.parse(body.toString("utf8"));
+  } catch {
+    json(response, 400, { status: "error", reason: "invalid JSON" }, requestId);
+    return;
+  }
+  const items = Array.isArray(parsed.items)
+    ? (parsed.items as Record<string, unknown>[]).filter(
+        (item): item is Record<string, unknown> => typeof item === "object" && item !== null,
+      )
+    : [];
+  if (items.length === 0) {
+    json(
+      response,
+      400,
+      { status: "error", reason: "items must be a non-empty array" },
+      requestId,
+    );
+    return;
+  }
+
+  let deleted = 0;
+  let notFound = 0;
+  for (const item of items) {
+    const subjectType = item.subjectType === "pr" ? "pr" : "issue";
+    const subjectNumber = Number(item.subjectNumber);
+    const repositoryFullName = typeof item.repositoryFullName === "string" ? item.repositoryFullName : "";
+    const revision = typeof item.revision === "string" ? item.revision : "";
+    if (!Number.isInteger(subjectNumber) || subjectNumber <= 0 || !repositoryFullName) {
+      notFound += 1;
+      continue;
+    }
+    const conditions = [
+      eq(subjectResults.subjectType, subjectType),
+      eq(subjectResults.subjectNumber, subjectNumber),
+      eq(subjectResults.repositoryFullName, repositoryFullName),
+    ];
+    if (revision) conditions.push(eq(subjectResults.revision, revision));
+
+    const rows = await database.db
+      .select({ id: subjectResults.id, taskId: subjectResults.taskId })
+      .from(subjectResults)
+      .where(and(...conditions));
+    if (rows.length === 0) {
+      notFound += 1;
+      continue;
+    }
+    const resultIds = rows.map((r) => r.id);
+    await database.db
+      .delete(subjectResults)
+      .where(
+        and(
+          eq(subjectResults.subjectType, subjectType),
+          eq(subjectResults.subjectNumber, subjectNumber),
+          eq(subjectResults.repositoryFullName, repositoryFullName),
+        ),
+      );
+    deleted += resultIds.length;
+    // 清理该主体的 external_publications 书签，避免撤回/Check Run 查询残留。
+    const taskIds = rows
+      .map((r) => r.taskId)
+      .filter((t): t is string => Boolean(t));
+    if (taskIds.length > 0) {
+      await database.db
+        .delete(externalPublications)
+        .where(inArray(externalPublications.taskId, taskIds));
+    }
+  }
+  audit(request, "results.delete", undefined, { items: items.length, deleted, notFound });
+  json(response, 200, { status: "ok", deleted, notFound }, requestId);
+}
+
+/**
  * Repository memory management:
  *  - GET /memory: list (any authenticated user), filterable by repositoryId /
  *    kind, offset-paginated; always returns per-kind counts for the UI cards.
@@ -3815,6 +4028,20 @@ async function handleRequest(
     return;
   }
 
+  if (path === "/tasks/check-run") {
+    if (request.method !== "GET") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    await handleTaskCheckRun(request, response, requestId);
+    return;
+  }
+
   if (path === "/repositories/sync") {
     if (request.method !== "POST") {
       json(
@@ -3954,6 +4181,20 @@ async function handleRequest(
 
   if (path === "/providers") {
     await handleProviders(response, requestId);
+    return;
+  }
+
+  if (path === "/results/delete") {
+    if (String(request.method) !== "POST") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    await handleResultsDelete(request, response, requestId);
     return;
   }
 

@@ -882,6 +882,30 @@ export type RerunResult = {
   skipped: number;
 };
 
+export type CheckRunStatus = {
+  id: number;
+  status: "queued" | "in_progress" | "completed";
+  conclusion: string | null;
+  title: string | null;
+  htmlUrl: string | null;
+};
+
+export type TaskCheckRunResult = {
+  status: string;
+  present: boolean;
+  degraded?: boolean;
+  checkRun?: CheckRunStatus;
+};
+
+/** Live status of a task's published GitHub Check Run (polled by the WebUI). */
+export async function fetchTaskCheckRun(
+  taskId: string,
+): Promise<TaskCheckRunResult> {
+  return (await getJson(
+    `/tasks/check-run?taskId=${encodeURIComponent(taskId)}`,
+  )) as TaskCheckRunResult;
+}
+
 /** Re-queues finished tasks (failed / canceled) for another run (admin only). */
 export async function rerunTasks(taskIds: string[]): Promise<RerunResult> {
   const response = await fetch("/tasks/rerun", {
@@ -1015,6 +1039,40 @@ export async function fetchResults(
   const params = new URLSearchParams({ type });
   if (offset !== undefined) params.set("offset", String(offset));
   return (await getJson(`/results?${params.toString()}`)) as ResultList;
+}
+
+export type ResultsDeleteResult = {
+  status: string;
+  deleted: number;
+  notFound: number;
+};
+
+/** Batch-deletes persisted results (admin only). */
+export async function deleteResults(
+  items: { subjectType: "issue" | "pr"; subjectNumber: number; repositoryFullName: string; revision: string }[],
+): Promise<ResultsDeleteResult> {
+  const response = await fetch("/results/delete", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ items }),
+  });
+  const text = await response.text();
+  let parsed: { status?: string; reason?: string; deleted?: number; notFound?: number } = {};
+  try {
+    parsed = text ? JSON.parse(text) : {};
+  } catch {
+    // keep default
+  }
+  if (response.status === 401) throw new Error("unauthorized");
+  if (response.status === 403) throw new Error("需要管理员权限（403）");
+  if (!response.ok) {
+    throw new Error(parsed.reason ?? `delete results ${response.status}`);
+  }
+  return {
+    status: parsed.status ?? "ok",
+    deleted: parsed.deleted ?? 0,
+    notFound: parsed.notFound ?? 0,
+  };
 }
 
 /* ---------- repository scanning (scan-worker) ---------- */

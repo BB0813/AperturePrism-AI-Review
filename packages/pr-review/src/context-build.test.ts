@@ -34,6 +34,13 @@ function makeGithub(): GitHubClient {
     dismissPullRequestReview: async () => undefined,
     createCheckRun: async () => ({ id: 1, htmlUrl: "" }),
     updateCheckRun: async () => ({ id: 1, htmlUrl: "" }),
+    getCheckRun: async () => ({
+      id: 1,
+      status: "completed" as const,
+      conclusion: "success",
+      title: "AI Review",
+      htmlUrl: "https://github.com/o/r/actions/runs/1",
+    }),
     removeIssueLabels: async () => undefined,
     deleteIssueComment: async () => undefined,
     listInstallationRepositories: async () => [],
