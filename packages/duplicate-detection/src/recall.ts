@@ -208,6 +208,11 @@ export type RelatedIssueRow = {
  *
  * `repository` optionally restricts recall to a single repository (by
  * owner/name) so analysis never surfaces "related" issues from other projects.
+ *
+ * `excludeIssueNumber` drops the issue being analyzed from its own results: the
+ * analyzed issue is indexed before recall runs, so without this it always
+ * recalls itself as the top "related" match. Callers pass `repository` too, so
+ * matching on the number alone is enough to identify it.
  */
 export async function recallCandidatesWithRepos(
   sql: SqlTag,
@@ -217,6 +222,7 @@ export async function recallCandidatesWithRepos(
     signals: IssueSignals;
     topK?: number;
     repository?: { owner: string; name: string } | null;
+    excludeIssueNumber?: number | null;
   },
 ): Promise<RelatedIssueRow[]> {
   const topK = input.topK ?? 5;
@@ -240,6 +246,12 @@ export async function recallCandidatesWithRepos(
        or (${input.title} <> '' and (d.title ilike '%' || ${input.title} || '%'
             or d.body ilike '%' || ${input.title} || '%')))
        ${input.repository ? sql`and r.owner = ${input.repository.owner} and r.name = ${input.repository.name}` : sql``}
+       ${
+         input.excludeIssueNumber === undefined ||
+         input.excludeIssueNumber === null
+           ? sql``
+           : sql`and d.issue_number <> ${input.excludeIssueNumber}`
+       }
     order by "ftsRank" desc, "signalRank" desc
     limit ${topK}`;
   return rows.map((row) => {

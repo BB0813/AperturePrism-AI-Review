@@ -52,13 +52,16 @@ export function repositoryOwnerName(fullName: string): {
 }
 
 /**
- * Stable across every retry of the same task, so publishing is idempotent
- * even if the worker crashes between analysis and the final comment update.
+ * Identifies the single analysis comment for an issue, so every task for that
+ * issue updates one comment in place instead of appending a new one.
+ *
+ * Deliberately excludes the subject revision: the revision is the issue's
+ * `updated_at`, so keying on it made each edit publish an extra comment (#2
+ * accumulated five). Stable across retries for the same reason.
  */
 export function issueCommentIdempotencyKey(
   repositoryFullName: string,
   issueNumber: number,
-  subjectRevision: string,
 ): string {
-  return `github-issue-comment:${repositoryFullName}:${issueNumber}:${subjectRevision}`;
+  return `github-issue-comment:${repositoryFullName}:${issueNumber}`;
 }

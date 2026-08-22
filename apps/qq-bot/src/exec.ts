@@ -151,8 +151,13 @@ async function taskStatus(deps: TaskActionDeps, raw: string): Promise<string> {
     `更新时间：${formatTime(task.updatedAt)}`,
   ];
 
-  if (task.status === "failed" && task.lastErrorCategory) {
-    lines.push(`错误：${task.lastErrorCategory}`);
+  // retry_wait 也要透出失败原因：否则用户在重试等待期只看到状态、看不到原因，
+  // 表现为「bot 只回一个失败」（见 issue #6）。
+  if (
+    (task.status === "failed" || task.status === "retry_wait") &&
+    task.lastErrorCategory
+  ) {
+    lines.push(`错误：${errorLabel(task.lastErrorCategory)}`);
   } else if (task.status === "completed") {
     const result = await deps.database.db
       .select({ published: subjectResults.published })
@@ -176,6 +181,29 @@ async function retryTask(deps: TaskActionDeps, raw: string): Promise<string> {
   return ok
     ? `已将任务 ${taskId.slice(0, 8)} 重新加入队列。`
     : "任务不存在或状态不允许重跑（仅 failed / canceled 可重跑）。";
+}
+
+/**
+ * 把机器错误分类翻译成用户能据此行动的说明。裸分类（如 invalid_output）
+ * 对用户没有意义，也是 issue #6 里「只回一个失败」的一部分。
+ */
+export function errorLabel(category: string): string {
+  const map: Record<string, string> = {
+    authentication_failed: "模型服务认证失败，请检查 Provider 密钥",
+    rate_limited: "模型服务限流，稍后重试即可",
+    server_error: "模型服务端错误，稍后重试即可",
+    timeout: "模型调用超时，稍后重试即可",
+    connection_failed: "无法连接模型服务，请检查网络或服务地址",
+    model_not_found: "配置的模型不存在，请检查模型名称",
+    context_overflow: "内容超出模型上下文上限",
+    invalid_output: "模型返回的结果不符合约定格式",
+    canceled: "任务已被取消",
+    analysis_not_implemented: "该任务类型尚未实现分析逻辑",
+    handler_error: "执行过程中出现未预期的错误",
+    lease_expired: "执行超时，任务租约已过期",
+  };
+  const label = map[category];
+  return label ? `${label}（${category}）` : category;
 }
 
 function statusLabel(status: string): string {

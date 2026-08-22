@@ -365,7 +365,6 @@ async function main(): Promise<void> {
         idempotencyKey: issueCommentIdempotencyKey(
           payload.repositoryFullName,
           payload.subjectNumber,
-          payload.subjectRevision,
         ),
         body: buildPlaceholderComment(),
       });
@@ -398,6 +397,8 @@ async function main(): Promise<void> {
             topK: 5,
             // 只在同一仓库内召回历史 Issue，避免把其他项目的 Issue 当作“相关”。
             repository: context.repository,
+            // 当前 Issue 在召回前已入库，不排除会把自己列为最相关项。
+            excludeIssueNumber: context.issue.number,
           },
         );
       } catch (error) {
@@ -419,7 +420,6 @@ async function main(): Promise<void> {
         idempotencyKey: issueCommentIdempotencyKey(
           payload.repositoryFullName,
           payload.subjectNumber,
-          payload.subjectRevision,
         ),
         body: buildIssueAnalysisComment(analysis, related),
       });

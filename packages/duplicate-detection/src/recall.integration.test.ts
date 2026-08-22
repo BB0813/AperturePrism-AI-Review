@@ -135,6 +135,46 @@ describeIntegration("duplicate recall PostgreSQL integration", () => {
     expect(hit?.reasons.length).toBeGreaterThan(0);
   });
 
+  it("excludes the analyzed issue from its own recall results", async () => {
+    const repositoryId = await createRepository();
+    const title = `${prefix}-self`;
+    const body = "HTTP_522 gateway timeout in the loader module";
+    const signals = extractIssueSignals({ title, body, labels: [] });
+    // The analyzed issue is indexed before recall runs, which is exactly the
+    // situation that used to make it recall itself.
+    await indexIssueDocument(client.sql as unknown as SqlTag, {
+      repositoryId,
+      issueNumber: 42,
+      title,
+      body,
+      signals,
+      contentHash: "self-hash-42",
+    });
+    await indexIssueDocument(client.sql as unknown as SqlTag, {
+      repositoryId,
+      issueNumber: 43,
+      title: `${prefix}-other`,
+      body,
+      signals,
+      contentHash: "self-hash-43",
+    });
+
+    const repository = { owner: "test-owner", name: prefix };
+    const withoutExclusion = await recallCandidatesWithRepos(
+      client.sql as unknown as SqlTag,
+      { title, body, signals, topK: 5, repository },
+    );
+    expect(withoutExclusion.map((r) => r.issueNumber)).toContain(42);
+
+    const rows = await recallCandidatesWithRepos(
+      client.sql as unknown as SqlTag,
+      { title, body, signals, topK: 5, repository, excludeIssueNumber: 42 },
+    );
+    expect(rows.map((r) => r.issueNumber)).not.toContain(42);
+    // Excluding self must not suppress genuinely related issues.
+    expect(rows.map((r) => r.issueNumber)).toContain(43);
+  });
+
   it("recalls a matching candidate by shared error code and full text", async () => {
     await index(
       `${prefix}-a`,

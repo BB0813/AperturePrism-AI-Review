@@ -15,6 +15,10 @@ export type NormalizedGitHubEvent = {
   repositoryFullName: string | null;
   subjectNumber: number | null;
   subjectRevision: string | null;
+  /** Login of the account that triggered the event, e.g. `octocat[bot]`. */
+  senderLogin: string | null;
+  /** True when GitHub marks the sender as a Bot account. */
+  senderIsBot: boolean;
   receivedAt: string;
   payload: unknown;
 };
@@ -91,6 +95,8 @@ export function normalizeGitHubEvent(
   const issue = objectValue(root.issue);
   const pullRequest = objectValue(root.pull_request);
   const subject = eventName === "pull_request" ? pullRequest : issue;
+  const sender = objectValue(root.sender);
+  const senderLogin = stringValue(sender.login);
 
   return {
     deliveryId,
@@ -104,6 +110,10 @@ export function normalizeGitHubEvent(
       eventName === "pull_request"
         ? stringValue(pullRequest.head && objectValue(pullRequest.head).sha)
         : stringValue(issue.updated_at),
+    senderLogin,
+    senderIsBot:
+      stringValue(sender.type) === "Bot" ||
+      (senderLogin !== null && senderLogin.endsWith("[bot]")),
     receivedAt,
     payload,
   };
@@ -133,6 +143,12 @@ export function mapGitHubEventToTask(
   if (event.eventName === "ping") return { outcome: "ignored", reason: "ping" };
   if (event.eventName === "issue_comment")
     return { outcome: "ignored", reason: "comment_commands_not_enabled" };
+  // Posting or editing our own analysis comment bumps the issue's updated_at,
+  // which is the issue revision. Without this guard that arrives back as an
+  // `edited` event with a fresh revision, so it dedupes as a new task and
+  // publishes another comment — a self-sustaining loop (observed on #2).
+  if (event.senderIsBot)
+    return { outcome: "ignored", reason: "bot_originated_event" };
   if (
     (event.eventName === "issues" && !issueActions.has(event.action)) ||
     (event.eventName === "pull_request" &&

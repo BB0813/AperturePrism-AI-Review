@@ -129,6 +129,46 @@ describe("GitHub webhook adapter", () => {
     );
   });
 
+  it("ignores events triggered by our own bot account", () => {
+    // Our analysis comment bumps the issue's updated_at, which is the revision.
+    // Reprocessing that event would create a new task and post another comment.
+    const byBotType = normalizeGitHubEvent("issues", "delivery-bot-type", {
+      action: "edited",
+      repository: { id: 100, full_name: "owner/repo" },
+      issue: { number: 7, updated_at: "2026-08-22T01:00:00Z" },
+      sender: { login: "apertureprism", type: "Bot" },
+    });
+    const byBotSuffix = normalizeGitHubEvent("issues", "delivery-bot-suffix", {
+      action: "edited",
+      repository: { id: 100, full_name: "owner/repo" },
+      issue: { number: 7, updated_at: "2026-08-22T02:00:00Z" },
+      sender: { login: "clodbreeze-ai-reviewer[bot]", type: "User" },
+    });
+
+    expect(byBotType.senderIsBot).toBe(true);
+    expect(byBotSuffix.senderIsBot).toBe(true);
+    for (const event of [byBotType, byBotSuffix]) {
+      expect(mapGitHubEventToTask(event, "repository-uuid", "v1")).toEqual({
+        outcome: "ignored",
+        reason: "bot_originated_event",
+      });
+    }
+  });
+
+  it("still analyzes events triggered by humans", () => {
+    const byHuman = normalizeGitHubEvent("issues", "delivery-human", {
+      action: "edited",
+      repository: { id: 100, full_name: "owner/repo" },
+      issue: { number: 7, updated_at: "2026-08-22T03:00:00Z" },
+      sender: { login: "octocat", type: "User" },
+    });
+    expect(byHuman.senderIsBot).toBe(false);
+    expect(byHuman.senderLogin).toBe("octocat");
+    expect(
+      mapGitHubEventToTask(byHuman, "repository-uuid", "v1").outcome,
+    ).toBe("task");
+  });
+
   it("rejects unsupported events", () => {
     expect(() => normalizeGitHubEvent("push", "delivery-3", {})).toThrow(
       UnsupportedGitHubEventError,
