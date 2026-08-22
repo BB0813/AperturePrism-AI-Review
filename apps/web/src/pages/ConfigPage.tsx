@@ -18,11 +18,23 @@ function BoolBadge({ ok, yes = "已启用", no = "未配置" }: { ok: boolean; y
   return <span className={ok ? "pill pill-ok" : "pill pill-dim"}>{ok ? yes : no}</span>;
 }
 
-const FIELD_META: Record<string, { label: string; hint: string; secret: boolean }> = {
+type FieldMeta = {
+  label: string;
+  hint: string;
+  secret: boolean;
+  /** 布尔项渲染为开关，避免让用户手写 true/false（issue #7）。 */
+  kind?: "boolean";
+  /** 未覆盖时的应用默认值，决定开关初始状态。 */
+  defaultOn?: boolean;
+};
+
+const FIELD_META: Record<string, FieldMeta> = {
   github_webhook_enabled: {
     label: "Webhook 开关",
-    hint: "true 启用 / false 停用 GitHub 事件入口",
+    hint: "启用 / 停用 GitHub 事件入口；未覆盖时跟随环境变量",
     secret: false,
+    kind: "boolean",
+    defaultOn: false,
   },
   github_webhook_secret: {
     label: "Webhook 签名密钥",
@@ -46,28 +58,36 @@ const FIELD_META: Record<string, { label: string; hint: string; secret: boolean 
   },
   issue_auto_assign: {
     label: "Issue 自动指派",
-    hint: "true 启用 / false 关闭；分析完成后自动把 Issue 指派给 issue_assignee（默认仓库所有者，跳过作者本人）",
+    hint: "分析完成后自动指派 Issue；留空 issue_assignee 时默认指派仓库所有者与协作者，并跳过作者本人",
     secret: false,
+    kind: "boolean",
+    defaultOn: false,
   },
   issue_assignee: {
     label: "Issue 指派对象",
-    hint: "GitHub 用户名；留空则默认指派给仓库所有者",
+    hint: "GitHub 用户名；留空则默认指派给仓库所有者与协作者",
     secret: false,
   },
   issue_rewrite_title: {
     label: "Issue 标题改写",
-    hint: "true 启用 / false 关闭；分析给出更清晰的标题时自动改写 Issue 标题",
+    hint: "分析给出更清晰的标题时自动改写 Issue 标题",
     secret: false,
+    kind: "boolean",
+    defaultOn: false,
   },
   pr_check_run: {
     label: "PR Check Run 可视化",
-    hint: "true 开启 / false 关闭；开启后在 PR 页面显示 AI 审查的 Check（进行中→完成，需 GitHub App 授予 checks: write 权限；无权限时自动跳过不影响审查）",
+    hint: "在 PR 页面显示 AI 审查的 Check（进行中→完成，需 GitHub App 授予 checks: write 权限；无权限时自动跳过不影响审查）",
     secret: false,
+    kind: "boolean",
+    defaultOn: true,
   },
   pr_auto_review: {
     label: "PR 自动提交 Review",
-    hint: "true 开启 / false 关闭；开启则审查完成后提交正式 Review（含行内评论）；关闭则只发一条摘要评论，不占 Review 名额",
+    hint: "开启则审查完成后提交正式 Review（含行内评论）；关闭则只发一条摘要评论，不占 Review 名额",
     secret: false,
+    kind: "boolean",
+    defaultOn: true,
   },
   oauth_client_id: {
     label: "GitHub OAuth Client ID",
@@ -125,31 +145,53 @@ function Row({ it, drafts, setDrafts, save, busyKey }: {
   it: SettingItem;
   drafts: Record<string, string>;
   setDrafts: (fn: (p: Record<string, string>) => Record<string, string>) => void;
-  save: (key: string) => void;
+  save: (key: string, value?: string) => void;
   busyKey: string | null;
 }) {
   const meta = FIELD_META[it.key];
   if (!meta) return null;
+  // 布尔项：已覆盖时读取实际值，未覆盖时用应用默认值。
+  const on = it.hasValue ? it.value === "true" : (meta.defaultOn ?? false);
   return (
     <div className="result-card">
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <span style={{ fontWeight: 700, fontSize: 13 }}>{meta.label}</span>
         {it.hasValue ? <span className="pill pill-info">已覆盖</span> : <span className="pill pill-dim">使用环境变量</span>}
       </div>
-      <div style={{ marginTop: 10, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <input
-          className="input"
-          style={{ flex: "1 1 260px" }}
-          type={meta.secret ? "password" : "text"}
-          placeholder={meta.secret ? "••••••••" : "输入新值"}
-          value={drafts[it.key] ?? ""}
-          onChange={(event) => setDrafts((p) => ({ ...p, [it.key]: event.target.value }))}
-          data-lpignore="true"
-        />
-        <button className="btn btn-primary" onClick={() => save(it.key)} disabled={busyKey === it.key}>
-          {busyKey === it.key ? "保存中…" : "保存"}
-        </button>
-      </div>
+      {meta.kind === "boolean" ? (
+        <div style={{ marginTop: 10 }}>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={on}
+            aria-label={meta.label}
+            className="switch"
+            data-on={on ? "true" : "false"}
+            disabled={busyKey === it.key}
+            onClick={() => save(it.key, on ? "false" : "true")}
+          >
+            <span className="switch-knob" />
+          </button>
+          <span className="faint" style={{ marginLeft: 10, fontSize: 12 }}>
+            {busyKey === it.key ? "保存中…" : on ? "已开启" : "已关闭"}
+          </span>
+        </div>
+      ) : (
+        <div style={{ marginTop: 10, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <input
+            className="input"
+            style={{ flex: "1 1 260px" }}
+            type={meta.secret ? "password" : "text"}
+            placeholder={meta.secret ? "••••••••" : "输入新值"}
+            value={drafts[it.key] ?? ""}
+            onChange={(event) => setDrafts((p) => ({ ...p, [it.key]: event.target.value }))}
+            data-lpignore="true"
+          />
+          <button className="btn btn-primary" onClick={() => save(it.key)} disabled={busyKey === it.key}>
+            {busyKey === it.key ? "保存中…" : "保存"}
+          </button>
+        </div>
+      )}
       <p className="faint" style={{ margin: "8px 0 0", fontSize: 12 }}>{meta.hint}</p>
     </div>
   );
@@ -190,10 +232,11 @@ export function ConfigPage() {
 
   useEffect(() => load(), [load]);
 
-  const save = async (key: string) => {
+  const save = async (key: string, value?: string) => {
     setBusyKey(key);
     try {
-      await saveSetting(key, (drafts[key] ?? "").trim());
+      // 布尔开关直接传值；文本项仍走草稿。
+      await saveSetting(key, value ?? (drafts[key] ?? "").trim());
       toast.success(`已保存并热生效：${FIELD_META[key]?.label ?? key}`);
       const fresh = await fetchSettings();
       setItems(fresh.items);

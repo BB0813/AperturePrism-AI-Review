@@ -22,7 +22,7 @@ const systemPrompt = `你是一个严谨的 GitHub Issue 分析器。你的任�
   "severity": "S0 | S1 | S2 | S3 | unknown",
   "priority": "P0 | P1 | P2 | P3 | needs_triage",
   "quality": "complete | actionable | incomplete | invalid",
-  "suggestedTitle": "可选：当原标题含糊/冗长时给出的更清晰标题（≤120 字符）；原标题已清晰则省略该字段",
+  "suggestedTitle": "可选：当原标题含糊/冗长时给出的更清晰标题（≤120 字符）；只写标题本身，不要自行添加 [标签][重要度] 前缀（服务端会统一拼接）；原标题已清晰则省略该字段",
   "evidence": [{ "kind": "reproduction_steps | logs | stack_trace | data_loss | security_path | impact_scope", "excerpt": "来自 Issue 的原文摘录" }],
   "missingInformation": ["Issue 未提供、且对判断很重要的事实，最多 10 条"],
   "suggestedLabels": ["建议的标签，最多 10 个"],

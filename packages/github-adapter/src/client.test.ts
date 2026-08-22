@@ -327,4 +327,28 @@ describe("GitHub API client", () => {
       event: "APPROVE",
     });
   });
+
+  it("lists collaborator logins and drops malformed entries", async () => {
+    const { client, calls } = clientWith(
+      withToken(() =>
+        jsonResponse([
+          { login: "owner-user" },
+          { login: "collab-user" },
+          { id: 3 },
+          { login: "" },
+        ]),
+      ),
+    );
+
+    const logins = await client.listCollaborators({
+      installationId: "42",
+      owner: "o",
+      name: "r",
+    });
+
+    expect(logins).toEqual(["owner-user", "collab-user"]);
+    expect(calls.at(-1)?.url).toBe(
+      "https://api.github.test/repos/o/r/collaborators?per_page=100",
+    );
+  });
 });

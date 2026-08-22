@@ -1,4 +1,7 @@
-import type { GradedIssueAnalysis } from "../../../packages/contracts/src/index.js";
+import {
+  formatSuggestedTitle,
+  type GradedIssueAnalysis,
+} from "../../../packages/contracts/src/index.js";
 import type { RelatedIssueRow } from "../../../packages/duplicate-detection/src/index.js";
 
 const severityLabels: Readonly<Record<string, string>> = {
@@ -54,8 +57,10 @@ export function buildIssueAnalysisComment(
     result.summary,
   ];
 
-  if (result.suggestedTitle && result.suggestedTitle.trim().length > 0) {
-    lines.push("", `### 建议标题`, result.suggestedTitle.trim());
+  // 与实际改写保持一致：展示服务端拼装后的 [标签][重要度]标题（issue #5）。
+  const suggestedTitle = formatSuggestedTitle(result);
+  if (suggestedTitle) {
+    lines.push("", `### 建议标题`, suggestedTitle);
   }
 
   if (result.evidence.length > 0) {

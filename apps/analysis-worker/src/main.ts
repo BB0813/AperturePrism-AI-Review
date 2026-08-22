@@ -30,6 +30,10 @@ import {
 } from "../../../packages/domain/src/index.js";
 import { createGitHubClient, GitHubApiError } from "../../../packages/github-adapter/src/index.js";
 import {
+  formatSuggestedTitle,
+  type IssueAnalysisResult,
+} from "../../../packages/contracts/src/index.js";
+import {
   analyzeIssue,
   buildIssueAnalysisComment,
   buildIssueContext,
@@ -1085,8 +1089,53 @@ async function prReviewConfig(): Promise<{ checkRun: boolean; autoReview: boolea
   }
 }
 
+/** GitHub 单个 Issue 最多接受 10 个 assignee，超出会整请求失败。 */
+const maxIssueAssignees = 10;
+
 /**
- * Issue 增强：自动指派（默认派给仓库所有者，可配置 issue_assignee；跳过
+ * 解析指派名单：配置了 issue_assignee 就只用它；留空时默认「仓库所有者 +
+ * 协作者」（issue #7）。始终排除 Issue 作者——把问题派回给报告者没有意义。
+ * 拉取协作者需要额外权限，失败时降级为仅所有者，不让指派整体失效。
+ */
+async function resolveIssueAssignees(input: {
+  github: ReturnType<typeof createGitHubClient>;
+  installationId: string;
+  owner: string;
+  name: string;
+  configured: string;
+  author: string;
+}): Promise<string[]> {
+  if (input.configured) {
+    return input.configured === input.author ? [] : [input.configured];
+  }
+
+  let collaborators: string[] = [];
+  try {
+    collaborators = await input.github.listCollaborators({
+      installationId: input.installationId,
+      owner: input.owner,
+      name: input.name,
+    });
+  } catch (error) {
+    logger.warn(
+      { err: error, repo: `${input.owner}/${input.name}` },
+      "collaborator lookup failed; assigning the owner only",
+    );
+  }
+
+  const seen = new Set<string>();
+  const assignees: string[] = [];
+  for (const login of [input.owner, ...collaborators]) {
+    if (login === input.author || seen.has(login)) continue;
+    seen.add(login);
+    assignees.push(login);
+    if (assignees.length === maxIssueAssignees) break;
+  }
+  return assignees;
+}
+
+/**
+ * Issue 增强：自动指派（issue_assignee 留空时默认仓库所有者与协作者，跳过
  * 作者本人）与标题改写（issue_rewrite_title 开启时应用 suggestedTitle）。
  * 全部 best-effort：失败只告警，不影响分析任务状态。
  */
@@ -1096,10 +1145,14 @@ async function applyIssueEnhancements(input: {
   owner: string;
   name: string;
   issueNumber: number;
-  analysis: { suggestedTitle?: string | undefined };
+  analysis: Pick<
+    IssueAnalysisResult,
+    "severity" | "priority" | "suggestedLabels" | "suggestedTitle"
+  >;
 }): Promise<void> {
   const cfg = await issueEnhancementConfig();
-  const suggested = (input.analysis.suggestedTitle ?? "").trim();
+  // 标题按 [标签][重要度]标题 格式拼装（issue #5），前缀由服务端生成。
+  const suggested = formatSuggestedTitle(input.analysis) ?? "";
   if (!cfg.autoAssign && !(cfg.rewriteTitle && suggested)) return;
 
   // 需要作者（跳过自己）与当前标题（避免无效改写）时再拉取一次 Issue。
@@ -1110,10 +1163,17 @@ async function applyIssueEnhancements(input: {
     number: input.issueNumber,
   });
 
-  const assignee = cfg.assignee || input.owner;
   const patches: { title?: string; assignees?: string[] } = {};
-  if (cfg.autoAssign && issue.author !== assignee) {
-    patches.assignees = [assignee];
+  if (cfg.autoAssign) {
+    const assignees = await resolveIssueAssignees({
+      github: input.github,
+      installationId: input.installationId,
+      owner: input.owner,
+      name: input.name,
+      configured: cfg.assignee,
+      author: issue.author,
+    });
+    if (assignees.length > 0) patches.assignees = assignees;
   }
   if (cfg.rewriteTitle && suggested && suggested !== issue.title) {
     patches.title = suggested;

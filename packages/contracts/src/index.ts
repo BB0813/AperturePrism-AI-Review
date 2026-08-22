@@ -1,5 +1,6 @@
 export * from "./issue-analysis.js";
 export * from "./grading.js";
+export * from "./issue-title.js";
 
 export type HealthStatus = {
   name: string;

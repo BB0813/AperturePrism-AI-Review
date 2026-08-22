@@ -123,6 +123,20 @@ export type GitHubClient = {
     },
     signal?: AbortSignal,
   ) => Promise<GitHubIssue[]>;
+  /**
+   * Lists accounts with push access, used as the default assignee set. Requires
+   * the installation to have repository admin/metadata access; callers degrade
+   * to the owner alone when it fails.
+   */
+  listCollaborators: (
+    input: {
+      installationId: string;
+      owner: string;
+      name: string;
+      perPage?: number;
+    },
+    signal?: AbortSignal,
+  ) => Promise<string[]>;
   getPullRequest: (
     input: {
       installationId: string;
@@ -635,6 +649,26 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
       );
       // The issues endpoint also returns pull requests; skip them.
       return items.filter((item) => !item.pull_request).map(mapIssue);
+    },
+
+    listCollaborators: async (
+      { installationId, owner, name, perPage = 100 },
+      signal,
+    ) => {
+      const query = new URLSearchParams({
+        per_page: String(perPage),
+      }).toString();
+      const items = await authorized<Record<string, unknown>[]>(
+        installationId,
+        {
+          method: "GET",
+          path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/collaborators?${query}`,
+        },
+        signal,
+      );
+      return items
+        .map((item) => (typeof item.login === "string" ? item.login : ""))
+        .filter((login) => login.length > 0);
     },
 
     getPullRequest: async ({ installationId, owner, name, number }, signal) => {
