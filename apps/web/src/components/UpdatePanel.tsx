@@ -13,13 +13,14 @@ import { useToast } from "./Toast";
 type LogLine = { level: string; message: string };
 
 /** 更新阶段的顺序与展示名（与 update.sh 的 stage 标记对应）。 */
-const STAGES = ["backup", "pull", "migrate", "up", "health", "done"] as const;
+const STAGES = ["backup", "pull", "migrate", "up", "health", "api", "done"] as const;
 const STAGE_LABELS: Record<string, string> = {
   backup: "备份配置",
   pull: "拉取镜像",
   migrate: "数据库迁移",
   up: "重建容器",
   health: "健康检查",
+  api: "重启 API 容器",
   done: "更新完成",
 };
 const STAGE_INDEX: Record<string, number> = Object.fromEntries(
@@ -46,6 +47,24 @@ export function UpdatePanel() {
       clearInterval(reloadTimer.current);
       reloadTimer.current = null;
     }
+  };
+
+  /** 倒计时后自动刷新页面（更新完成后 API 已重建，避免用户手动刷新撞上 502）。 */
+  const scheduleReload = (seconds: number) => {
+    if (autoReloaded.current) return;
+    autoReloaded.current = true;
+    setReloadIn(seconds);
+    reloadTimer.current = setInterval(() => {
+      setReloadIn((prev) => {
+        if (prev === null) return null;
+        if (prev <= 1) {
+          clearReloadTimer();
+          window.location.reload();
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
   };
 
   useEffect(() => () => clearReloadTimer(), []);
@@ -135,26 +154,19 @@ export function UpdatePanel() {
       if (finalResult.ok) {
         toast.success(finalResult.message);
         // 更新完成后服务已重建，自动刷新页面让用户看到新版本；避免反复触发。
-        if (!autoReloaded.current) {
-          autoReloaded.current = true;
-          setReloadIn(5);
-          reloadTimer.current = setInterval(() => {
-            setReloadIn((prev) => {
-              if (prev === null) return null;
-              if (prev <= 1) {
-                clearReloadTimer();
-                window.location.reload();
-                return null;
-              }
-              return prev - 1;
-            });
-          }, 1000);
-        }
+        scheduleReload(6);
       } else {
         toast.error(finalResult.message);
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "更新失败");
+      // API 容器重建时会中断 SSE 流（属预期）：此时更新仍在后台由独立
+      // helper 容器继续执行，稍后自动刷新确认结果，而不是报“更新失败”。
+      if (updating) {
+        toast.info("更新连接已中断（API 正在重启）；将自动刷新页面确认结果");
+        scheduleReload(8);
+      } else {
+        toast.error(err instanceof Error ? err.message : "更新失败");
+      }
     } finally {
       setUpdating(false);
       void fetchUpdateHistory()

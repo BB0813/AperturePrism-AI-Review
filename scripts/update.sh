@@ -95,8 +95,17 @@ fi
 log info "migrate ok"
 
 stage up "重建并启动容器"
-log info "recreating containers…"
-if ! compose up -d --force-recreate 2>&1; then
+log info "recreating service containers…"
+# Recreate every service EXCEPT api: recreating the api container from inside
+# the api container would kill this updater mid-run (see the api stage below).
+# qq-bot 仅在 profile 已启用（容器在运行）时一并重建。
+SERVICES="web analysis-worker index-worker scheduler scan-worker"
+PROFILE_ARG=""
+if docker ps --format '{{.Names}}' | grep -q '^apertureprism-ai-review-qq-bot-1$'; then
+  PROFILE_ARG="--profile qq"
+  SERVICES="$SERVICES qq-bot"
+fi
+if ! compose $PROFILE_ARG up -d --force-recreate $SERVICES 2>&1; then
   log error "up failed"
   exit 1
 fi
@@ -118,7 +127,7 @@ done
 if [ "$attempt" -ge 12 ]; then
   log error "health check failed; rolling back to $OLD_TAG"
   sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=$OLD_TAG/" "$ENV_FILE"
-  if compose up -d --force-recreate 2>&1; then
+  if compose $PROFILE_ARG up -d --force-recreate $SERVICES 2>&1; then
     log info "rolled back to $OLD_TAG"
   else
     log error "rollback failed; manual intervention required"
@@ -126,8 +135,8 @@ if [ "$attempt" -ge 12 ]; then
   exit 1
 fi
 
-# 容器重建后，nginx 解析到新 api 容器 IP 有一小段传播窗口；再经 nginx 层
-# 做一次端到端探测，并停留几秒，避免用户更新完立刻刷新撞上 502。
+# 容器重建后，nginx 解析到新 api 容器 IP 有一小段传播窗口；先经 nginx 层
+# 做一次端到端探测并停留几秒，确保各服务已就绪，再安排 api 自身的重启。
 log info "waiting for web layer (nginx -> api)…"
 web_attempt=0
 while [ "$web_attempt" -lt 8 ]; do
@@ -140,7 +149,28 @@ while [ "$web_attempt" -lt 8 ]; do
   log info "web layer pending ($code, attempt $web_attempt/8)"
   sleep 2
 done
-sleep 3
+sleep 2
+
+# Recreate the api container LAST via a detached one-shot helper that runs
+# outside the api container. Recreating api from inside itself kills this
+# updater before the recreate finishes (the api dies mid-`compose up`, leaving
+# the stack half-updated). The helper reuses the api image (has docker CLI +
+# compose + the compose files + docker.sock) and survives the api restart; it
+# waits a few seconds so the final "done" SSE event flushes to the WebUI first.
+stage api "重启 API 容器"
+log info "scheduling api restart…"
+API_IMAGE="$(docker inspect --format '{{.Config.Image}}' "$(hostname)" 2>/dev/null || echo "ghcr.io/bb0813/apertureprism-ai-review/api:$TARGET")"
+ENV_B64="$(base64 "$ENV_FILE" | tr -d '\n')"
+if docker run -d --rm --name "aprism-api-recreate-$(date +%s)" \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  "$API_IMAGE" \
+  /bin/sh -c "echo '$ENV_B64' | base64 -d > /app/docker/.env.production && sleep 3 && docker compose --project-name '$PROJECT' $COMPOSE_FILES --env-file /app/docker/.env.production up -d --no-deps api" \
+  >/dev/null 2>&1; then
+  log info "api restart scheduled; the page will reload automatically"
+else
+  log warn "api restart scheduling failed; restart api manually: docker compose -f docker/docker-compose.prod.yml --env-file docker/.env.production up -d --force-recreate api"
+fi
+
 stage done "更新完成"
-log info "更新完成；请稍等几秒再刷新页面"
+log info "更新完成；API 正在重启，请稍等几秒再刷新页面"
 exit 0
