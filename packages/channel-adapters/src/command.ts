@@ -4,6 +4,7 @@ const KNOWN: Record<string, BotCommand["kind"]> = {
   analyze: "analyze",
   review: "review",
   retry: "retry",
+  status: "status",
   prism: "help",
 };
 

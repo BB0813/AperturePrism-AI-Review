@@ -138,6 +138,12 @@ const environmentSchema = z.object({
     .number()
     .int()
     .default(1 << 25),
+  /**
+   * Base URL of the AperturePrism API that the bot calls to trigger manual
+   * analysis/review tasks (POST /tasks/manual). Defaults to the in-compose
+   * service name so the qq-bot container can reach the API without extra env.
+   */
+  QQ_BOT_API_BASE_URL: z.string().min(1).default("http://api:3300"),
   /** Optional separate embedding endpoint (review vs embedding must differ). */
   EMBEDDING_BASE_URL: z.string().min(1).optional(),
   /** Separate embedding API key; if unset, EMBEDDING_BASE_URL is ignored. */
@@ -177,6 +183,7 @@ export type AppConfig = Readonly<{
   qqOfficialAppSecret: string | undefined;
   qqOfficialGatewayUrl: string | undefined;
   qqOfficialIntents: number;
+  qqBotApiBaseUrl: string;
   webuiApiToken: string | undefined;
   webhookRateLimit: number;
   apiRateLimit: number;
@@ -216,6 +223,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv): AppConfig {
     qqOfficialAppSecret: parsed.QQ_OFFICIAL_APP_SECRET,
     qqOfficialGatewayUrl: parsed.QQ_OFFICIAL_GATEWAY_URL,
     qqOfficialIntents: parsed.QQ_OFFICIAL_INTENTS,
+    qqBotApiBaseUrl: parsed.QQ_BOT_API_BASE_URL,
     webuiApiToken: parsed.WEBUI_API_TOKEN,
     webhookRateLimit: parsed.WEBHOOK_RATE_LIMIT,
     apiRateLimit: parsed.API_RATE_LIMIT,

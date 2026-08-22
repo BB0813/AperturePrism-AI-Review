@@ -817,6 +817,8 @@ select.input {
 .stack > * { min-width: 0; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; min-width: 0; }
 .grid2 > * { min-width: 0; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; min-width: 0; }
+.grid3 > * { min-width: 0; }
 
 /* ============================================================
    Login — prism-fragment background, themed card
@@ -996,6 +998,7 @@ select.input {
 
 @media (max-width: 640px) {
   .grid2 { grid-template-columns: 1fr; }
+  .grid3 { grid-template-columns: 1fr; }
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
   .page-head { align-items: flex-start; }
   .actions { width: 100%; flex-wrap: wrap; }

@@ -17,6 +17,10 @@ describe("bot command parser", () => {
       kind: "retry",
       raw: "https://github.com/o/r/issues/7",
     });
+    expect(parseBotCommand("/status 123e4567-e89b-12d3-a456-426614174000")).toEqual({
+      kind: "status",
+      raw: "123e4567-e89b-12d3-a456-426614174000",
+    });
     expect(parseBotCommand("/prism help")).toEqual({ kind: "help", raw: "" });
     expect(parseBotCommand("/prism")).toEqual({ kind: "help", raw: "" });
   });

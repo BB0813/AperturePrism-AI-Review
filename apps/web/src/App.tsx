@@ -24,8 +24,10 @@ import { MemoryPage } from "./pages/MemoryPage";
 import { AgentPage } from "./pages/AgentPage";
 import { AboutPage } from "./pages/AboutPage";
 import { SetupPage } from "./pages/SetupPage";
+import { BotPage } from "./pages/BotPage";
 import {
   ActivityIcon,
+  BotIcon,
   BugIcon,
   CpuIcon,
   DatabaseIcon,
@@ -82,6 +84,7 @@ export const NAV: NavGroup[] = [
       { path: "/labels", label: "标签配置", icon: TagIcon },
       { path: "/provider", label: "模型路由", icon: CpuIcon },
       { path: "/agent", label: "Agent 能力", icon: LayersIcon },
+      { path: "/bot", label: "机器人", icon: BotIcon },
     ],
   },
   {
@@ -210,6 +213,7 @@ function AuthedConsole(props: { onLogout: () => void }) {
   else if (active === "/memory") page = <MemoryPage />;
   else if (active === "/labels") page = <LabelsPage />;
   else if (active === "/agent") page = <AgentPage />;
+  else if (active === "/bot") page = <BotPage />;
   else if (active === "/provider") page = <ProviderPage />;
   else if (active === "/config") page = <ConfigPage />;
   else if (active === "/security") page = <SecurityPage />;

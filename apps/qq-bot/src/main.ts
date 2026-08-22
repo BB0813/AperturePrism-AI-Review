@@ -17,10 +17,21 @@ import {
   type NormalizedChannelMessage,
 } from "../../../packages/channel-adapters/src/index.js";
 import { createLogger } from "../../../packages/observability/src/index.js";
-import { dispatchBotTurn } from "./dispatch.js";
+import {
+  dispatchBotTurn,
+  defaultCommandReply,
+  type DispatchAction,
+} from "./dispatch.js";
+import { createTaskAction } from "./exec.js";
 
 const config = loadConfig(process.env);
 const logger = createLogger(config.logLevel);
+
+/**
+ * Real task executor injected in main() before any gateway connects. The
+ * fallback acknowledges commands without side effects (used only in tests).
+ */
+let taskAction: DispatchAction = defaultCommandReply;
 
 /**
  * Effective QQ bot config. Runtime settings (`qq_bot_protocols`,
@@ -164,7 +175,7 @@ async function handleEvent(
   const message = normalize(protocol, raw);
   if (!message) return;
   const command = parseBotCommand(message.body);
-  const reply = dispatchBotTurn(message, command);
+  const reply = await dispatchBotTurn(message, command, taskAction);
   if (!reply) return;
   try {
     await sendChannelMessage(connector, {
@@ -186,9 +197,16 @@ async function handleEvent(
 
 async function main(): Promise<void> {
   await loadQqOverrides();
+  const database = createDatabaseClient(config.databaseUrl);
+  taskAction = createTaskAction({
+    apiBaseUrl: config.qqBotApiBaseUrl,
+    apiToken: config.webuiApiToken ?? "",
+    database,
+  });
   if (!qq.officialAppId || !qq.officialAppSecret) {
     if (Object.keys(qq.protocols).length === 0) {
       logger.info("no QQ bot protocols configured; exiting");
+      await database.close();
       return;
     }
   } else {
@@ -205,6 +223,7 @@ async function main(): Promise<void> {
   await new Promise<void>((resolve) => {
     const stop = (): void => {
       logger.info("QQ bot shutting down");
+      void database.close();
       resolve();
     };
     process.once("SIGINT", stop);
@@ -334,7 +353,7 @@ async function handleOfficialQqDispatch(
   const message = normalizeOfficialQqMessage(dispatch);
   if (!message) return;
   const command = parseBotCommand(message.body);
-  const reply = dispatchBotTurn(message, command);
+  const reply = await dispatchBotTurn(message, command, taskAction);
   if (!reply) return;
   const msgId = message.messageId.replace(/^oqq:/u, "");
   const request = officialQqSendMessageRequest({

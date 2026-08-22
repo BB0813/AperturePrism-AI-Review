@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { NormalizedChannelMessage } from "../../../packages/channel-adapters/src/index.js";
-import { dispatchBotTurn, firstGitHubUrl } from "./dispatch.js";
+import {
+  dispatchBotTurn,
+  firstGitHubUrl,
+  parseGitHubUrl,
+} from "./dispatch.js";
 
 function message(body: string): NormalizedChannelMessage {
   return {
@@ -16,21 +20,22 @@ function message(body: string): NormalizedChannelMessage {
 }
 
 describe("QQ bot dispatch", () => {
-  it("stays silent when the message is not a command", () => {
-    expect(dispatchBotTurn(message("just chatting"), null)).toBeNull();
+  it("stays silent when the message is not a command", async () => {
+    expect(await dispatchBotTurn(message("just chatting"), null)).toBeNull();
     expect(
-      dispatchBotTurn(message("just chatting"), null, () => "should not fire"),
+      await dispatchBotTurn(message("just chatting"), null, () => "should not fire"),
     ).toBeNull();
   });
 
-  it("returns the interactive help list", () => {
-    const reply = dispatchBotTurn(message("x"), { kind: "help", raw: "" });
+  it("returns the interactive help list", async () => {
+    const reply = await dispatchBotTurn(message("x"), { kind: "help", raw: "" });
     expect(reply).toContain("/analyze");
+    expect(reply).toContain("/status");
     expect(reply).toContain("/prism help");
   });
 
-  it("acknowledges an analyze command with a GitHub link", () => {
-    const reply = dispatchBotTurn(
+  it("acknowledges an analyze command with a GitHub link", async () => {
+    const reply = await dispatchBotTurn(
       message("/analyze https://github.com/o/r/issues/7"),
       { kind: "analyze", raw: "https://github.com/o/r/issues/7" },
     );
@@ -38,24 +43,28 @@ describe("QQ bot dispatch", () => {
     expect(reply).toContain("尚未接入");
   });
 
-  it("asks for a link when none is provided", () => {
-    const reply = dispatchBotTurn(message("/review"), {
+  it("asks for a link or task id when none is provided", async () => {
+    const review = await dispatchBotTurn(message("/review"), {
       kind: "review",
       raw: "",
     });
-    expect(reply).toContain("/review https://github.com/owner/repo/pull");
+    expect(review).toContain("/review https://github.com/owner/repo/issues/123");
 
-    const retried = dispatchBotTurn(message("/retry"), {
+    const retried = await dispatchBotTurn(message("/retry"), {
       kind: "retry",
       raw: "",
     });
-    expect(retried).toContain(
-      "/retry https://github.com/owner/repo/issues/123",
-    );
+    expect(retried).toContain("/retry <任务ID>");
+
+    const status = await dispatchBotTurn(message("/status"), {
+      kind: "status",
+      raw: "",
+    });
+    expect(status).toContain("/status <任务ID>");
   });
 
-  it("lets an injected action override the default response", () => {
-    const reply = dispatchBotTurn(
+  it("lets an injected action override the default response", async () => {
+    const reply = await dispatchBotTurn(
       message("/analyze https://github.com/o/r/issues/7"),
       { kind: "analyze", raw: "https://github.com/o/r/issues/7" },
       (_msg, command) => `wired:${command.raw}`,
@@ -68,5 +77,20 @@ describe("QQ bot dispatch", () => {
       "https://github.com/o/r/issues/7",
     );
     expect(firstGitHubUrl("no link")).toBeNull();
+  });
+
+  it("parses GitHub issue/PR urls into owner / repo / number", () => {
+    expect(parseGitHubUrl("https://github.com/Some/Repo/issues/123")).toEqual({
+      owner: "Some",
+      name: "Repo",
+      number: 123,
+    });
+    expect(parseGitHubUrl("https://github.com/o/r/pull/99#discussion_r1")).toEqual({
+      owner: "o",
+      name: "r",
+      number: 99,
+    });
+    expect(parseGitHubUrl("https://github.com/o/r")).toBeNull();
+    expect(parseGitHubUrl("https://example.com/o/r/issues/1")).toBeNull();
   });
 });

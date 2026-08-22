@@ -50,7 +50,14 @@ export type BotCommand =
   | { kind: "analyze"; raw: string }
   | { kind: "review"; raw: string }
   | { kind: "retry"; raw: string }
+  | { kind: "status"; raw: string }
   | { kind: "help"; raw: string };
 
-export const botCommandKinds = ["analyze", "review", "retry", "help"] as const;
+export const botCommandKinds = [
+  "analyze",
+  "review",
+  "retry",
+  "status",
+  "help",
+] as const;
 export type BotCommandKind = (typeof botCommandKinds)[number];

@@ -86,3 +86,47 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  release:
+    name: Create GitHub Release
+    needs: build-and-push
+    # 仅在 push 语义化版本 tag（v*）时自动创建 GitHub Release，
+    # 让 Releases 页始终展示最新包与 tag（此前只推镜像，Releases 停在旧版本）。
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate release notes
+        id: notes
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          PREV=$(git tag --sort=-version:refname | grep -v '^v0\.' | sed -n '2p')
+          if [ -z "$PREV" ]; then PREV=""; fi
+          {
+            echo "## $TAG"
+            echo ""
+            echo "镜像已推送 GHCR：\`ghcr.io/bb0813/apertureprism-ai-review/<svc>:$TAG\`"
+            echo ""
+            echo "### 变更"
+            if [ -n "$PREV" ]; then
+              git log --oneline --no-merges "$PREV".."$TAG"
+            else
+              git log --oneline --no-merges -10
+            fi
+          } > /tmp/release-body.md
+          cat /tmp/release-body.md
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: /tmp/release-body.md
+          draft: false
+          prerelease: false
