@@ -39,7 +39,9 @@ log info "update target=$TARGET current=$OLD_TAG project=$PROJECT"
 
 # Rebuild the compose env file from the container environment so the script
 # (and any nested `env_file:` in compose) has every production variable.
-env | grep -E '^(DATABASE_URL|REDIS_URL|POSTGRES_|WEBUI_API_TOKEN|GITHUB_|MODEL_PROVIDER_BASE_URLS|DEFAULT_LLM_MODEL|CREDENTIAL_MASTER_KEY|EMBEDDING_|QQ_|INDEX_INTERVAL_MS|API_PORT|WEB_PORT|HOST|PORT|LOG_LEVEL|NODE_ENV)=' > "$ENV_FILE" || true
+# 注意：前缀类变量（POSTGRES_/GITHUB_/EMBEDDING_/QQ_）不能带尾随 `=`，
+# 否则 `GITHUB_APP_ID=` 这类变量永远匹配不上，重建出的容器会丢失凭据。
+env | grep -E '^(DATABASE_URL|REDIS_URL|WEBUI_API_TOKEN|MODEL_PROVIDER_BASE_URLS|DEFAULT_LLM_MODEL|CREDENTIAL_MASTER_KEY|INDEX_INTERVAL_MS|API_PORT|WEB_PORT|HOST|PORT|LOG_LEVEL|NODE_ENV)=|^(POSTGRES_|GITHUB_|EMBEDDING_|QQ_)' > "$ENV_FILE" || true
 echo "IMAGE_TAG=$TARGET" >> "$ENV_FILE"
 
 # Compose runs from the api container's cwd (/app), so reference the compose
@@ -98,6 +100,7 @@ stage up "重建并启动容器"
 log info "recreating service containers…"
 # Recreate every service EXCEPT api: recreating the api container from inside
 # the api container would kill this updater mid-run (see the api stage below).
+# --no-deps 防止 web 的 depends_on 把 api 也带进来重建（会杀掉本脚本）。
 # qq-bot 仅在 profile 已启用（容器在运行）时一并重建。
 SERVICES="web analysis-worker index-worker scheduler scan-worker"
 PROFILE_ARG=""
@@ -105,7 +108,7 @@ if docker ps --format '{{.Names}}' | grep -q '^apertureprism-ai-review-qq-bot-1$
   PROFILE_ARG="--profile qq"
   SERVICES="$SERVICES qq-bot"
 fi
-if ! compose $PROFILE_ARG up -d --force-recreate $SERVICES 2>&1; then
+if ! compose $PROFILE_ARG up -d --force-recreate --no-deps $SERVICES 2>&1; then
   log error "up failed"
   exit 1
 fi
@@ -127,7 +130,7 @@ done
 if [ "$attempt" -ge 12 ]; then
   log error "health check failed; rolling back to $OLD_TAG"
   sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=$OLD_TAG/" "$ENV_FILE"
-  if compose $PROFILE_ARG up -d --force-recreate $SERVICES 2>&1; then
+  if compose $PROFILE_ARG up -d --force-recreate --no-deps $SERVICES 2>&1; then
     log info "rolled back to $OLD_TAG"
   else
     log error "rollback failed; manual intervention required"

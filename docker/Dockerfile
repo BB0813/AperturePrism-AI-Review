@@ -32,6 +32,8 @@ COPY --from=build /app/apps/api/dist ./apps/api/dist
 # docker CLI + compose plugin so the api can drive online updates (docker.sock is mounted by compose).
 COPY --from=docker:cli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker:cli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
+# curl 供 update.sh 做健康检查与 nginx 层探测（alpine 默认不含）。
+RUN apk add --no-cache curl
 COPY scripts ./scripts
 RUN chmod +x scripts/update.sh
 COPY docker/docker-compose.prod.yml ./docker/docker-compose.prod.yml
