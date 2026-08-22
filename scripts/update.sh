@@ -65,6 +65,15 @@ if [ ! -f "$BASE_DIR/docker-compose.prod.yml" ]; then
 fi
 compose() { docker compose --project-name "$PROJECT" $COMPOSE_FILES --env-file "$ENV_FILE" "$@"; }
 
+# 只更新应用自身镜像（ghcr.io）：postgres/redis 来自 docker.io，NAS 上
+# registry-1.docker.io 常 TLS 超时，且它们版本固定无需每次拉取。
+APP_SERVICES="web api analysis-worker index-worker scheduler scan-worker migrate"
+PROFILE_ARG=""
+if docker ps --format '{{.Names}}' | grep -q '^apertureprism-ai-review-qq-bot-1$'; then
+  PROFILE_ARG="--profile qq"
+  APP_SERVICES="$APP_SERVICES qq-bot"
+fi
+
 if [ "$DRY_RUN" = "1" ]; then
   log info "dry-run: would pull $TARGET, run migrate, then up -d --force-recreate"
   exit 0
@@ -82,7 +91,7 @@ fi
 
 stage pull "拉取镜像"
 log info "pulling $TARGET…"
-if ! compose pull 2>&1; then
+if ! compose $PROFILE_ARG pull $APP_SERVICES 2>&1; then
   log error "pull failed"
   exit 1
 fi
@@ -90,7 +99,9 @@ log info "pull ok"
 
 stage migrate "执行数据库迁移"
 log info "applying migrations…"
-if ! compose run --rm migrate 2>&1; then
+# -T 强制非交互：api 容器内由 Node spawn 执行时 stdin 非 TTY，缺 -T 时
+# compose run 可能在创建 migrate 容器后挂起（无法分配 TTY）。
+if ! compose run --rm -T migrate 2>&1; then
   log error "migrate failed"
   exit 1
 fi
@@ -101,13 +112,14 @@ log info "recreating service containers…"
 # Recreate every service EXCEPT api: recreating the api container from inside
 # the api container would kill this updater mid-run (see the api stage below).
 # --no-deps 防止 web 的 depends_on 把 api 也带进来重建（会杀掉本脚本）。
-# qq-bot 仅在 profile 已启用（容器在运行）时一并重建。
-SERVICES="web analysis-worker index-worker scheduler scan-worker"
-PROFILE_ARG=""
-if docker ps --format '{{.Names}}' | grep -q '^apertureprism-ai-review-qq-bot-1$'; then
-  PROFILE_ARG="--profile qq"
-  SERVICES="$SERVICES qq-bot"
-fi
+# migrate 是已执行的一次性服务，不进 up 列表。
+SERVICES=""
+for svc in $APP_SERVICES; do
+  case "$svc" in
+    api|migrate) ;;
+    *) SERVICES="$SERVICES $svc" ;;
+  esac
+done
 if ! compose $PROFILE_ARG up -d --force-recreate --no-deps $SERVICES 2>&1; then
   log error "up failed"
   exit 1
