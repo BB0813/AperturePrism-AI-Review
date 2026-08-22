@@ -2861,7 +2861,7 @@ async function handleSetupStatus(
       provider: {
         count: providerCount,
         providerKey,
-        model: "mimo-v2.5-pro",
+        model: config.defaultLlmModel,
       },
       policies: { count: policyCount, required: DEFAULT_POLICIES.length },
       githubWebhookConfigured: Boolean(config.githubWebhookSecret),
@@ -2915,7 +2915,7 @@ async function handleSetupInit(
           role: policy.role,
           version: policy.version,
           candidates: [
-            { provider: providerKey, model: "mimo-v2.5-pro", accountName },
+            { provider: providerKey, model: config.defaultLlmModel, accountName },
           ],
         });
         created.push(policy.role);

@@ -143,6 +143,13 @@ const environmentSchema = z.object({
   /** Separate embedding API key; if unset, EMBEDDING_BASE_URL is ignored. */
   EMBEDDING_API_KEY: z.string().min(1).optional(),
   EMBEDDING_MODEL: z.string().min(1).default("nvidia/nv-embed-v1"),
+  /**
+   * Default review/analysis model used by the setup wizard when seeding role
+   * policies before any model list has been fetched. Deployment-specific: set
+   * it to whatever your OpenAI-compatible gateway serves. No hard-coded vendor
+   * model is assumed.
+   */
+  DEFAULT_LLM_MODEL: z.string().min(1).default("gpt-4o-mini"),
   /** Optional bearer token guarding the WebUI-facing API routes (/tasks, /results, /providers, /events). */
   WEBUI_API_TOKEN: z.string().min(1).optional(),
   /** Per-IP webhook request budget per minute (in-memory token bucket). */
@@ -173,6 +180,7 @@ export type AppConfig = Readonly<{
   webuiApiToken: string | undefined;
   webhookRateLimit: number;
   apiRateLimit: number;
+  defaultLlmModel: string;
   embedding: Readonly<{
     baseUrl: string | undefined;
     apiKey: string | undefined;
@@ -211,6 +219,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv): AppConfig {
     webuiApiToken: parsed.WEBUI_API_TOKEN,
     webhookRateLimit: parsed.WEBHOOK_RATE_LIMIT,
     apiRateLimit: parsed.API_RATE_LIMIT,
+    defaultLlmModel: parsed.DEFAULT_LLM_MODEL,
     embedding: Object.freeze({
       baseUrl: parsed.EMBEDDING_BASE_URL,
       apiKey: parsed.EMBEDDING_API_KEY,

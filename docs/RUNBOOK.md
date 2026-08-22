@@ -9,6 +9,7 @@
 | `api` | `node apps/api/dist/apps/api/src/main.js` | HTTP / webhook / SSE，端口 `API_PORT`（默认 30001） |
 | `analysis-worker` | 同上（analysis-worker） | 领取并执行 Issue/PR 任务 |
 | `index-worker` | 同上（index-worker） | 定时索引仓库 Issue（内容哈希去重） |
+| `scan-worker` | 同上（scan-worker） | 定时扫描已安装仓库并自动建分析任务（WebUI「仓库扫描」） |
 | `scheduler` | 同上（scheduler） | 每 10s 回收过期 lease、释放到期 retry |
 | `postgres` | pgvector/pgvector:pg16 | 业务数据 + `issue_documents` 向量 |
 | `redis` | redis:7-alpine | SSE 广播与任务事件分发 |
@@ -65,8 +66,51 @@ docker compose -f docker/docker-compose.prod.yml exec -T postgres \
 - **手动触发索引**：`POST /index/run`（WebUI 向量页「开始索引」）。
 - **重建索引**：`POST /index/rebuild`（清空 `issue_documents` 并触发全量重扫）。
 - **查看索引健康**：`GET /index/status`（最近轮次 summary + 挂起触发）。
-- **只读 RAG 召回**：`GET /index/related?title=...&body=...`。
-- **运行时配置热更新**：`PUT /settings`（`webui_api_token` / `github_webhook_secret` / `github_webhook_enabled` / `log_level`，约 8s 生效）。
+- **只读 RAG 召回**：`GET /index/related?title=...&body=...`；可加 `repositoryFullName=owner/name`
+  把召回限制在同一仓库内，避免跨项目“相关”Issue（worker 分析默认已按仓库过滤）。
+- **同步 GitHub App 安装仓库**：`POST /repositories/sync`（管理员；单安装失败自动重试一次，
+  返回 `details` 失败明细，WebUI「已安装仓库」页也会每 12 小时自动拉取）。
+- **一键撤回已发布分析**：`POST /repos/revoke`（管理员；body `{"repositoryFullName","number","type"}`，
+  删除评论 / 撤销 PR Review / 移除建议标签，best-effort）。WebUI 结果页提供单条与批量撤回。
+- **批量重跑失败/取消任务**：`POST /tasks/rerun`（管理员；body `{"taskIds":[...]}`，把
+  `failed`/`canceled` 任务重置回 `queued` 并清零尝试数，可立即被 worker 领取）。
+- **仓库扫描**：`GET /scans/config`（全局开关 + 逐仓库配置）、`PUT /scans/config`（管理员修改）、
+  `POST /scans/run`（管理员手动触发一轮）、`GET /scans/runs`（扫描历史）。
+- **在线更新**：`GET /update/status`（版本对比）、`POST /update/apply`（管理员，SSE 阶段日志 +
+  自动回滚）、`GET /update/history`（历史）。WebUI 更新完成后会倒计时自动刷新页面。
+- **运行时配置热更新**：`PUT /settings`（`webui_api_token` / `github_webhook_secret` /
+  `github_webhook_enabled` / `log_level` / `pr_check_run` / `pr_auto_review`，约 8s 生效）。
+
+### 5.1 Docker 部署 override（NAS 等受限环境）
+
+生产环境默认用 `docker/docker-compose.prod.yml`。以下两个 override 文件按需叠加：
+
+- **`docker/images-mirror.yml`（镜像站）**：当 NAS 无法直连 `ghcr.io`（Docker Go TLS 握手超时）时，
+  用国内镜像站重写各服务镜像，如 `ghcr.nju.edu.cn/bb0813/apertureprism-ai-review/*`。新增容器服务时
+  需同步在该文件补对应镜像重写条目，否则 pull 会直连 ghcr 失败。
+- **`docker/compose.verify.yml`（external 网络）**：当 Docker 地址池耗尽（bridge 网络创建失败）时，
+  将全部服务挂到 external 网络 `apnet`（`apertureprism-verify`），并设 `AP_VERIFY=1` 让在线更新器
+  使用同一组文件。
+
+组合命令示例（NAS 生产）：
+
+```bash
+docker compose \
+  --env-file .env.production \
+  -f docker/docker-compose.prod.yml \
+  -f docker/compose.verify.yml \
+  -f docker/images-mirror.yml \
+  pull
+docker compose --env-file .env.production -f docker/docker-compose.prod.yml \
+  -f docker/compose.verify.yml -f docker/images-mirror.yml \
+  run --rm migrate
+docker compose --env-file .env.production -f docker/docker-compose.prod.yml \
+  -f docker/compose.verify.yml -f docker/images-mirror.yml \
+  up -d
+```
+
+> 注意：NAS 上 compose 文件位于 `/root/ap-verify/docker/`，env 为 `/root/ap-verify/.env.production`；
+> 升级前显式 `docker compose pull` 确保拉取最新镜像（避免复用旧 tag 缓存）。
 
 ## 6. 告警清单
 

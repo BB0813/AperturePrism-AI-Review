@@ -197,6 +197,23 @@ curl http://<host>/health/ready    # 200 才代表 DB+Redis 均就绪
 
 > 说明：`docker/Dockerfile` 为多阶段构建（deps → build → base → 各服务），`web` 目标独立构建 `apps/web` 静态产物后由 nginx 提供。详细运维见[运维手册](docs/RUNBOOK.md)。
 
+**受限环境 override**：当 NAS 等环境无法直连 `ghcr.io`（Docker Go TLS 握手超时）或 Docker 地址池耗尽时，叠加两个 override 文件：
+
+- `docker/images-mirror.yml`：用国内镜像站重写各服务镜像（`ghcr.nju.edu.cn/...`）；新增容器服务需同步补镜像重写条目。
+- `docker/compose.verify.yml`：把全部服务挂到 external 网络 `apnet`（`apertureprism-verify`），并设 `AP_VERIFY=1` 让在线更新器使用同一组文件。
+
+```bash
+docker compose --env-file .env.production \
+  -f docker/docker-compose.prod.yml -f docker/compose.verify.yml -f docker/images-mirror.yml \
+  pull
+docker compose --env-file .env.production \
+  -f docker/docker-compose.prod.yml -f docker/compose.verify.yml -f docker/images-mirror.yml \
+  run --rm migrate
+docker compose --env-file .env.production \
+  -f docker/docker-compose.prod.yml -f docker/compose.verify.yml -f docker/images-mirror.yml \
+  up -d
+```
+
 **容器命名**：compose 顶层 `name: AperturePrism-AI-Review` 固定项目名（compose 会规范化为小写），容器 / 网络统一为 `apertureprism-ai-review-*`（如 `apertureprism-ai-review-api-1`、`apertureprism-ai-review-web-1`），不随目录名变化。已有旧部署（默认目录名命名的 `docker-*`）需先 `down` 再 `up` 才能切换容器名：
 
 ```bash
@@ -228,6 +245,7 @@ docker compose -f docker/docker-compose.prod.yml --env-file .env.production up -
 | `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET` | WebUI 登录；**回调必须指向本实例**（本地 `http://127.0.0.1:30001/auth/callback`，见下） |
 | `MODEL_PROVIDER_BASE_URLS` | Provider → OpenAI 兼容 baseUrl 的 JSON 映射 |
 | `CREDENTIAL_MASTER_KEY` | AES-GCM 主密钥：解密 provider 密钥 / 记忆与专家团队模型调用 |
+| `DEFAULT_LLM_MODEL` | 安装向导预填的默认审查/分析模型名（默认 `gpt-4o-mini`，按你的网关实际可用模型修改） |
 | `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY` / `EMBEDDING_MODEL` | 与 review 模型独立配置（默认 `nvidia/nv-embed-v1`，4096 维） |
 | `QQ_BOT_PROTOCOLS` | NTQQ 网关 JSON（onebot11 / satori / milky） |
 | `QQ_OFFICIAL_APP_ID` / `QQ_OFFICIAL_APP_SECRET` / `QQ_OFFICIAL_GATEWAY_URL` / `QQ_OFFICIAL_INTENTS` | 官方开放平台 api-v2 |
@@ -273,7 +291,7 @@ docker compose -f docker/docker-compose.prod.yml --env-file .env.production up -
 | GET | `/summary` `/results?type=issue\|pr` `/results/:type/:number` | 概览 KPI / 结果列表 / 单主体各版本结果 |
 | GET | `/providers` `/repositories` `/logs` `/vector` | 模型策略 / 仓库 / 日志总览 / 向量索引统计 |
 | GET | `/events` | SSE 任务事件流（`?since=` 断线回放） |
-| GET / POST | `/index/status` `/index/related` `/index/run` `/index/rebuild` | 索引状态 / 只读召回 / 触发 / 重建 |
+| GET / POST | `/index/status` `/index/related` `/index/run` `/index/rebuild` | 索引状态 / 只读召回（可传 `repositoryFullName` 限同仓库）/ 触发 / 重建 |
 | GET·PUT | `/settings` | 运行时配置读取（密钥脱敏）/ 热更新 |
 | GET | `/update/status` | 在线更新：当前/最新版本对比（Registry 查询） |
 | POST | `/update/apply` | 一键在线更新（管理员；SSE 日志，失败自动回滚到上一版本） |

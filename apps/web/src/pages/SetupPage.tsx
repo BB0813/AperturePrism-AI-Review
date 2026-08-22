@@ -298,7 +298,7 @@ export function SetupPage() {
           </div>
           <div className="field">
             <label htmlFor="llm-base">Base URL</label>
-            <input id="llm-base" className="input" value={llmBaseUrl} onChange={(e) => setLlmBaseUrl(e.target.value)} placeholder="https://newapi.binbim.top/v1" />
+            <input id="llm-base" className="input" value={llmBaseUrl} onChange={(e) => setLlmBaseUrl(e.target.value)} placeholder="https://你的网关地址/v1" />
           </div>
           <div className="field">
             <label htmlFor="llm-key">API Key</label>
@@ -312,7 +312,7 @@ export function SetupPage() {
                   {llmModels.map((m) => <option key={m} value={m}>{m}</option>)}
                 </select>
               ) : (
-                <input className="input" style={{ flex: 1 }} value={llmModel} onChange={(e) => setLlmModel(e.target.value)} placeholder="mimo-v2.5-pro" />
+                <input className="input" style={{ flex: 1 }} value={llmModel} onChange={(e) => setLlmModel(e.target.value)} placeholder="如 gpt-4o" />
               )}
               <button className="btn" onClick={fetchLlmModels} disabled={llmBusy}>
                 {llmBusy ? "拉取中…" : "拉取模型列表"}
@@ -338,7 +338,7 @@ export function SetupPage() {
           </p>
           <div className="field">
             <label htmlFor="emb-base">Embedding Base URL</label>
-            <input id="emb-base" className="input" value={embBaseUrl} onChange={(e) => setEmbBaseUrl(e.target.value)} placeholder="https://newapi.binbim.top/v1" />
+            <input id="emb-base" className="input" value={embBaseUrl} onChange={(e) => setEmbBaseUrl(e.target.value)} placeholder="https://你的网关地址/v1" />
           </div>
           <div className="field">
             <label htmlFor="emb-key">API Key</label>

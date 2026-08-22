@@ -1,7 +1,7 @@
 {
   "name": "@apertureprism/test-support",
   "private": true,
-  "version": "1.0.15",
+  "version": "1.0.16",
   "type": "module",
   "scripts": {
     "build": "tsc",

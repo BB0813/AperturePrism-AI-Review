@@ -39,7 +39,7 @@ log info "update target=$TARGET current=$OLD_TAG project=$PROJECT"
 
 # Rebuild the compose env file from the container environment so the script
 # (and any nested `env_file:` in compose) has every production variable.
-env | grep -E '^(DATABASE_URL|REDIS_URL|POSTGRES_|WEBUI_API_TOKEN|GITHUB_|MODEL_PROVIDER_BASE_URLS|CREDENTIAL_MASTER_KEY|EMBEDDING_|QQ_|INDEX_INTERVAL_MS|API_PORT|WEB_PORT|HOST|PORT|LOG_LEVEL|NODE_ENV)=' > "$ENV_FILE" || true
+env | grep -E '^(DATABASE_URL|REDIS_URL|POSTGRES_|WEBUI_API_TOKEN|GITHUB_|MODEL_PROVIDER_BASE_URLS|DEFAULT_LLM_MODEL|CREDENTIAL_MASTER_KEY|EMBEDDING_|QQ_|INDEX_INTERVAL_MS|API_PORT|WEB_PORT|HOST|PORT|LOG_LEVEL|NODE_ENV)=' > "$ENV_FILE" || true
 echo "IMAGE_TAG=$TARGET" >> "$ENV_FILE"
 
 # Compose runs from the api container's cwd (/app), so reference the compose
