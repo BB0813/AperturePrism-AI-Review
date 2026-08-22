@@ -1103,7 +1103,7 @@ async function resolveIssueAssignees(input: {
   owner: string;
   name: string;
   configured: string;
-  author: string;
+  author: string | null;
 }): Promise<string[]> {
   if (input.configured) {
     return input.configured === input.author ? [] : [input.configured];
