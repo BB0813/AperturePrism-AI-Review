@@ -106,6 +106,41 @@ function run(cmd, args, { cwd = ROOT, silent = false, env = process.env } = {}) 
   return result.status === 0;
 }
 
+/**
+ * 镜像总量约 3GB，但多轮 latest 更新会累积无标签的悬空镜像。空间不足时
+ * containerd 会在写 ingest 目录时报 no space left on device，且已下载的层全部作废。
+ * 拉取前先探测可用空间，必要时只回收悬空镜像（不动在用镜像和数据卷）。
+ */
+function ensureDiskSpace() {
+  if (process.platform === "win32") return;
+  const readAvailMb = () => {
+    const r = spawnSync("df", ["-Pm", "/var/lib/docker"], {
+      stdio: "pipe",
+      encoding: "utf8",
+    });
+    if (r.status !== 0) return null;
+    const line = String(r.stdout).trim().split("\n")[1] ?? "";
+    const avail = Number(line.split(/\s+/)[3]);
+    return Number.isFinite(avail) ? avail : null;
+  };
+
+  const before = readAvailMb();
+  if (before === null) return;
+  info(`可用磁盘空间：${before}MB`);
+  if (before >= 8192) return;
+
+  warn("可用空间不足 8GB，先回收悬空镜像（不影响运行中的容器和数据卷）");
+  run("docker", ["image", "prune", "-f"], { silent: true });
+  const after = readAvailMb();
+  if (after !== null) info(`回收后可用空间：${after}MB`);
+  if (after !== null && after < 4096) {
+    warn(
+      "空间仍然偏低，拉取可能失败。可执行 docker system prune -af 进一步回收" +
+        "（切勿加 --volumes，会删除数据库数据），或扩容磁盘。",
+    );
+  }
+}
+
 function readEnvFile(path) {
   try {
     return readFileSync(path, "utf8");
@@ -455,9 +490,13 @@ async function installCompose() {
     warn("已取消安装");
     return false;
   }
+  ensureDiskSpace();
   info("拉取镜像（docker compose pull）…");
   if (!run("docker", ["compose", ...composeArgs(), "pull"], { env: composeEnv() })) {
-    fail("镜像拉取失败");
+    fail(
+      "镜像拉取失败。若日志出现 no space left on device，请执行 " +
+        "docker system prune -af 回收空间后重试（不要加 --volumes，会删数据库数据）。",
+    );
     return false;
   }
   info("应用数据库迁移（docker compose run --rm migrate）…");

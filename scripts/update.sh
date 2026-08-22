@@ -90,6 +90,21 @@ if [ "$BACKUP" = "1" ] && [ -f /app/scripts/backup.mjs ]; then
 fi
 
 stage pull "拉取镜像"
+# 每轮更新拉新 latest 后旧镜像会失去引用但不会自动删除，累积多轮后可能占满磁盘
+# （实测有环境累积 76 个镜像、24GB 可回收，导致 containerd 写入 ingest 失败）。
+# 拉取前先按可用空间决定是否提前回收，避免拉到一半因 no space 失败。
+AVAIL_MB=$(df -Pm /var/lib/docker 2>/dev/null | awk 'NR==2 {print $4}')
+if [ -n "$AVAIL_MB" ]; then
+  log info "disk available: ${AVAIL_MB}MB"
+  if [ "$AVAIL_MB" -lt 8192 ]; then
+    log warn "low disk space, reclaiming dangling images before pull"
+    # 只删无标签的悬空镜像，不动当前在用或已打标签的镜像。
+    docker image prune -f >/dev/null 2>&1 || true
+    AVAIL_MB=$(df -Pm /var/lib/docker 2>/dev/null | awk 'NR==2 {print $4}')
+    log info "disk available after prune: ${AVAIL_MB}MB"
+  fi
+fi
+
 log info "pulling $TARGET…"
 if ! compose $PROFILE_ARG pull $APP_SERVICES 2>&1; then
   log error "pull failed"
@@ -179,7 +194,7 @@ ENV_B64="$(base64 "$ENV_FILE" | tr -d '\n')"
 if docker run -d --rm --name "aprism-api-recreate-$(date +%s)" \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   "$API_IMAGE" \
-  /bin/sh -c "echo '$ENV_B64' | base64 -d > /app/docker/.env.production && sleep 3 && docker compose --project-name '$PROJECT' $COMPOSE_FILES --env-file /app/docker/.env.production up -d --no-deps api" \
+  /bin/sh -c "echo '$ENV_B64' | base64 -d > /app/docker/.env.production && sleep 3 && docker compose --project-name '$PROJECT' $COMPOSE_FILES --env-file /app/docker/.env.production up -d --no-deps api && sleep 5 && docker image prune -f" \
   >/dev/null 2>&1; then
   log info "api restart scheduled; the page will reload automatically"
 else
