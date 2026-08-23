@@ -24,6 +24,15 @@ export type IssueAnalysisServices = {
     signal: AbortSignal,
   ) => Promise<IssueContext>;
   publishPlaceholder: (task: LeasedTask, signal: AbortSignal) => Promise<void>;
+  /**
+   * 分析失败时把占位评论改写为可诊断的说明。缺少它的话，占位会永远停在
+   * 「正在分析」，用户看到的是一条误导性评论（NAS 上实测出现过）。
+   */
+  publishFailure?: (
+    task: LeasedTask,
+    errorCategory: string,
+    signal: AbortSignal,
+  ) => Promise<void>;
   analyze: (
     context: IssueContext,
     signal: AbortSignal,
@@ -113,8 +122,11 @@ export function createIssueAnalysisHandler(
       const outcome = await services.analyze(context, signal);
       await services.recordUsage(task, outcome);
 
-      if (outcome.outcome === "invalid")
+      if (outcome.outcome === "invalid") {
+        // 占位评论已经发出：不改写的话它会永远停在「正在分析」。
+        await publishFailureSafely(services, task, "invalid_output", signal);
         return { outcome: "failed", errorCategory: "invalid_output" };
+      }
 
       let related: RelatedIssueRow[] = [];
       try {
@@ -138,7 +150,23 @@ export function createIssueAnalysisHandler(
         if (error.category === "authentication_failed")
           return { outcome: "failed", errorCategory: "github_auth_failed" };
       }
+      // 模型不可用等异常同样要收尾占位评论，否则它会一直停在「正在分析」。
+      await publishFailureSafely(services, task, "handler_error", signal);
       throw error;
     }
   };
+}
+
+/** 占位收尾是 best-effort：它自身失败不应改变任务的失败原因。 */
+async function publishFailureSafely(
+  services: IssueAnalysisServices,
+  task: LeasedTask,
+  errorCategory: string,
+  signal: AbortSignal,
+): Promise<void> {
+  try {
+    await services.publishFailure?.(task, errorCategory, signal);
+  } catch {
+    // 忽略：真正的失败原因已由 task_events 记录。
+  }
 }

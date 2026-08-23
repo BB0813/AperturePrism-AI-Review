@@ -37,6 +37,7 @@ import {
   analyzeIssue,
   buildIssueAnalysisComment,
   buildIssueContext,
+  buildFailureComment,
   buildPlaceholderComment,
   detectSpamIssue,
   issueCommentIdempotencyKey,
@@ -372,6 +373,25 @@ async function main(): Promise<void> {
           payload.subjectNumber,
         ),
         body: buildPlaceholderComment(),
+      });
+    },
+
+    // 用同一幂等键原位改写占位评论，不新增评论。
+    publishFailure: async (task, errorCategory) => {
+      const { payload, identity } = issueIdentity(task);
+      await publishIssueComment({
+        store: publicationStore,
+        github: assertGithub(github),
+        taskId: task.id,
+        installationId: payload.installationId,
+        owner: identity.owner,
+        name: identity.name,
+        issueNumber: payload.subjectNumber,
+        idempotencyKey: issueCommentIdempotencyKey(
+          payload.repositoryFullName,
+          payload.subjectNumber,
+        ),
+        body: buildFailureComment(errorCategory),
       });
     },
 

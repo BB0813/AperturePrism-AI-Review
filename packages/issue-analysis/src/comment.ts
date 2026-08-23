@@ -40,6 +40,33 @@ export function buildPlaceholderComment(): string {
   return "🤖 **AperturePrism** 正在分析该 Issue，完成后会原位更新此评论。";
 }
 
+/** 失败原因到用户可读说明的映射；未知分类只说明结果，不编造原因。 */
+const failureReasons: Readonly<Record<string, string>> = {
+  invalid_output: "模型返回的结果不符合约定格式，已自动重试若干次仍未通过校验。",
+  handler_error: "分析过程中出现异常，可能是模型服务暂时不可用。",
+  github_not_found: "读取该 Issue 时 GitHub 返回资源不存在。",
+  github_auth_failed: "GitHub 授权失败，无法读取该 Issue。",
+  unsupported_task_type: "当前版本尚不支持该任务类型。",
+};
+
+/**
+ * 分析失败时改写占位评论。不做这件事的话，占位会永远停在「正在分析」，
+ * 用户看到的是一条误导性评论。
+ */
+export function buildFailureComment(errorCategory: string): string {
+  const reason =
+    failureReasons[errorCategory] ?? "分析未能完成，具体原因已记录在任务事件中。";
+  return [
+    "## 🤖 AperturePrism 分析未完成",
+    "",
+    reason,
+    "",
+    `失败原因：\`${errorCategory}\``,
+    "",
+    "> 可在 WebUI 的任务详情中查看完整失败信息；修复后可重新触发分析。",
+  ].join("\n");
+}
+
 export function buildIssueAnalysisComment(
   analysis: GradedIssueAnalysis,
   related: readonly RelatedIssueRow[] = [],

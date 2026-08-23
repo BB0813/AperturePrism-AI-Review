@@ -113,6 +113,9 @@ function makeServices(overrides: Partial<IssueAnalysisServices> = {}): {
     publishFinal: async () => {
       calls.push("publishFinal");
     },
+    publishFailure: async () => {
+      calls.push("publishFailure");
+    },
     recordUsage: async () => {
       calls.push("recordUsage");
     },
@@ -313,5 +316,61 @@ describe("issue analysis handler", () => {
     expect(result).toEqual({ outcome: "completed" });
     expect(handled).toEqual(["handleSpam"]);
     expect(calls()).not.toContain("analyze");
+  });
+
+  it("契约校验失败时收尾占位评论", async () => {
+    // 不收尾的话，占位会永远停在「正在分析」，用户看到一条误导性评论。
+    const { services, calls } = makeServices({
+      analyze: async () => ({
+        outcome: "invalid",
+        usage: { inputTokens: 1, outputTokens: 1 },
+        attempts: [],
+        durationMs: 1,
+      }),
+    });
+    const handler = createIssueAnalysisHandler(services);
+
+    const result = await handler(leasedTask(), neverAbort);
+
+    expect(result).toEqual({
+      outcome: "failed",
+      errorCategory: "invalid_output",
+    });
+    expect(calls()).toContain("publishFailure");
+    expect(calls()).not.toContain("publishFinal");
+  });
+
+  it("模型异常时也收尾占位评论", async () => {
+    const { services, calls } = makeServices({
+      analyze: async () => {
+        throw new Error("model gateway 5xx");
+      },
+    });
+    const handler = createIssueAnalysisHandler(services);
+
+    await expect(handler(leasedTask(), neverAbort)).rejects.toThrow(
+      "model gateway 5xx",
+    );
+    expect(calls()).toContain("publishFailure");
+  });
+
+  it("收尾占位自身失败不改变任务的失败原因", async () => {
+    const { services } = makeServices({
+      analyze: async () => ({
+        outcome: "invalid",
+        usage: { inputTokens: 1, outputTokens: 1 },
+        attempts: [],
+        durationMs: 1,
+      }),
+      publishFailure: async () => {
+        throw new Error("github down");
+      },
+    });
+    const handler = createIssueAnalysisHandler(services);
+
+    expect(await handler(leasedTask(), neverAbort)).toEqual({
+      outcome: "failed",
+      errorCategory: "invalid_output",
+    });
   });
 });
