@@ -78,7 +78,7 @@ const FIELD_META: Record<string, FieldMeta> = {
   },
   issue_deep_analysis: {
     label: "Issue 深度分析（读取源码）",
-    hint: "开启后分析会读取仓库源码来定位问题，给出到文件的修复建议；会明显增加用时与 token 消耗。关闭时不会给出带行号的建议，避免凭空猜测",
+    hint: "开启后分析会读取仓库源码来定位问题，给出到文件的修复建议；会明显增加用时与 token 消耗。注意：需要模型网关支持 tools/function calling，当前 newapi 网关实测返回 server_error，开启后任务会失败重试。关闭时不会给出带行号的建议，避免凭空猜测",
     secret: false,
     kind: "boolean",
     defaultOn: false,

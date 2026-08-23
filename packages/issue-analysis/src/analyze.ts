@@ -38,6 +38,10 @@ export type IssueAnalyzerOptions = {
    * 开启后主分析先做一轮工具探索，让模型读取仓库源码再作答。不开启时模型只能
    * 看到 Issue 文本，无法给出定位到文件与位置的修复建议。默认关闭：探索会显著
    * 增加 token 消耗与单任务耗时。
+   *
+   * 前提：模型网关必须支持 tools / function calling。NAS 上的 newapi 网关实测
+   * 对携带 tools 的请求返回 5xx（与它对 response_format 的已知问题同类，见
+   * model-router/src/openai-compatible.ts 中的注释），此时任务会重试直至失败。
    */
   tools?: {
     context: ToolExecutionContext;
