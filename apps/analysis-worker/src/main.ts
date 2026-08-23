@@ -121,12 +121,13 @@ const engine: TaskEngineOperations = {
   beginPublishing: (task) =>
     beginPublishing(database.db, { taskId: task.id, workerId }),
   complete: (task) => completeTask(database.db, { taskId: task.id, workerId }),
-  fail: async (task, errorCategory) => {
+  fail: async (task, errorCategory, errorMessage) => {
     await failTask(database.db, {
       taskId: task.id,
       workerId,
       errorCategory,
       retryDelayMs,
+      ...(errorMessage === undefined ? {} : { errorMessage }),
     });
   },
 };
@@ -374,17 +375,35 @@ async function main(): Promise<void> {
       });
     },
 
-    analyze: (context: IssueContext, signal) =>
-      analyzeIssue(
+    analyze: async (context: IssueContext, signal) => {
+      // 深度分析（读取仓库源码）默认关闭：会显著增加 token 消耗与耗时。
+      const deep = await issueDeepAnalysisEnabled();
+      return analyzeIssue(
         {
           adapters,
           candidates: issueCandidates,
           deadlineMs: analysisDeadlineMs,
           retryPolicy: analysisRetryPolicy,
           signal,
+          ...(deep
+            ? {
+                tools: {
+                  context: {
+                    client: assertGithub(github),
+                    installationId: context.installationId,
+                    owner: context.repository.owner,
+                    name: context.repository.name,
+                    // 默认分支：Issue 不像 PR 那样绑定某个 commit。
+                    ref: "HEAD",
+                  },
+                  maxRounds: 4,
+                },
+              }
+            : {}),
         },
         context,
-      ),
+      );
+    },
 
     recallRelated: async (context) => {
       try {
@@ -1045,6 +1064,23 @@ async function applyConfiguredLabels(input: {
 }
 
 /** Issue 增强开关（运行时设置，可在 WebUI「系统配置」热更新）。 */
+/**
+ * 是否允许 Issue 分析读取仓库源码。默认关闭：探索会显著增加 token 消耗与
+ * 单任务耗时，需用户显式开启。读取失败时按关闭处理，不因设置不可用而改变行为。
+ */
+async function issueDeepAnalysisEnabled(): Promise<boolean> {
+  try {
+    const rows = await database.db
+      .select({ value: systemSettings.value })
+      .from(systemSettings)
+      .where(eq(systemSettings.key, "issue_deep_analysis"))
+      .limit(1);
+    return rows[0]?.value === "true";
+  } catch {
+    return false;
+  }
+}
+
 async function issueEnhancementConfig(): Promise<{
   autoAssign: boolean;
   assignee: string;

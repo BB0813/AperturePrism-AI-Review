@@ -1,7 +1,13 @@
 import type { LeasedTask } from "../../../packages/domain/src/index.js";
 
 export type WorkerTaskOutcome =
-  { outcome: "completed" } | { outcome: "failed"; errorCategory: string };
+  | { outcome: "completed" }
+  | {
+      outcome: "failed";
+      errorCategory: string;
+      /** 可选的失败细节（如契约校验失败的字段），会写入 task_events。 */
+      errorMessage?: string;
+    };
 
 /**
  * Everything the loop needs from the task engine. Keeping these as injected
@@ -13,7 +19,11 @@ export type TaskEngineOperations = {
   heartbeat: (task: LeasedTask) => Promise<boolean>;
   beginPublishing: (task: LeasedTask) => Promise<boolean>;
   complete: (task: LeasedTask) => Promise<boolean>;
-  fail: (task: LeasedTask, errorCategory: string) => Promise<void>;
+  fail: (
+    task: LeasedTask,
+    errorCategory: string,
+    errorMessage?: string,
+  ) => Promise<void>;
 };
 
 export type TaskHandler = (
@@ -134,11 +144,14 @@ export async function runOnce(options: WorkerLoopOptions): Promise<boolean> {
     }
 
     if (result.outcome === "failed") {
-      await engine.fail(task, result.errorCategory);
+      await engine.fail(task, result.errorCategory, result.errorMessage);
       onEvent?.({
         type: "failed",
         taskId: task.id,
         errorCategory: result.errorCategory,
+        ...(result.errorMessage === undefined
+          ? {}
+          : { error: result.errorMessage }),
       });
       return true;
     }
@@ -161,8 +174,10 @@ export async function runOnce(options: WorkerLoopOptions): Promise<boolean> {
         : error instanceof Error && error.name === "AbortError"
           ? "canceled"
           : "handler_error";
-    if (!leaseLost) await engine.fail(task, errorCategory);
     const errorText = describeError(error);
+    // 错误文本必须一并交给任务引擎：否则它只存在于进程日志里，
+    // task_events 只剩分类码，事后无法判断失败原因。
+    if (!leaseLost) await engine.fail(task, errorCategory, errorText);
     onEvent?.({
       type: "failed",
       taskId: task.id,

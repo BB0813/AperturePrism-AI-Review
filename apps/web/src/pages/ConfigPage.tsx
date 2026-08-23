@@ -76,6 +76,13 @@ const FIELD_META: Record<string, FieldMeta> = {
     kind: "boolean",
     defaultOn: false,
   },
+  issue_deep_analysis: {
+    label: "Issue 深度分析（读取源码）",
+    hint: "开启后分析会读取仓库源码来定位问题，给出到文件的修复建议；会明显增加用时与 token 消耗。关闭时不会给出带行号的建议，避免凭空猜测",
+    secret: false,
+    kind: "boolean",
+    defaultOn: false,
+  },
   pr_check_run: {
     label: "PR Check Run 可视化",
     hint: "在 PR 页面显示 AI 审查的 Check（进行中→完成，需 GitHub App 授予 checks: write 权限；无权限时自动跳过不影响审查）",

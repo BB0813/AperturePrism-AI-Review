@@ -81,4 +81,38 @@ describe("issue comment templates", () => {
     expect(comment).toContain("仅供参考，不自动关联");
     expect(comment).not.toContain("close");
   });
+
+  it("渲染原因与修复方案，而不只是索要信息", () => {
+    // issue #6：用户反馈「跟没分析一样」，因为结论里只有缺失信息。
+    const graded = applyGradingRules(
+      {
+        ...result,
+        probableCause: "日志中间件在脱敏前写入了原始请求头",
+        troubleshooting: ["确认 LOG_LEVEL 是否为 debug"],
+        proposedChanges: [
+          {
+            path: "packages/observability/src/index.ts",
+            locator: "sensitivePaths",
+            change: "把 authorization 加入脱敏字段",
+          },
+        ],
+      },
+      { exploredCode: true },
+    );
+    const comment = buildIssueAnalysisComment(graded);
+
+    expect(comment).toContain("可能原因");
+    expect(comment).toContain("日志中间件在脱敏前写入了原始请求头");
+    expect(comment).toContain("建议修改");
+    expect(comment).toContain("packages/observability/src/index.ts");
+    expect(comment).toContain("sensitivePaths");
+    expect(comment).toContain("可以先试试");
+  });
+
+  it("没有方案字段时不渲染空标题", () => {
+    const comment = buildIssueAnalysisComment(applyGradingRules(result));
+    expect(comment).not.toContain("可能原因");
+    expect(comment).not.toContain("建议修改");
+    expect(comment).not.toContain("可以先试试");
+  });
 });

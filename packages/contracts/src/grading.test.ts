@@ -20,6 +20,8 @@ function analysis(
     missingInformation: [],
     suggestedLabels: [],
     suggestedActions: [],
+    troubleshooting: [],
+    proposedChanges: [],
     confidence: { severity: 0.6, rootCause: 0.5, suggestion: 0.5 },
     ...overrides,
   };
@@ -117,6 +119,92 @@ describe("low quality reports cannot carry confident grades", () => {
     );
     expect(result.severity).toBe("unknown");
     expect(adjustments.some((a) => a.field === "severity")).toBe(true);
+  });
+});
+
+describe("解决方案字段的服务端校验", () => {
+  it("根因置信度不足时移除 probableCause", () => {
+    const { result, adjustments } = applyGradingRules(
+      analysis({
+        probableCause: "SSE 连接被反向代理缓冲",
+        confidence: { severity: 0.6, rootCause: 0.3, suggestion: 0.5 },
+      }),
+    );
+    expect(result.probableCause).toBeUndefined();
+    expect(adjustments.some((a) => a.field === "probableCause")).toBe(true);
+  });
+
+  it("置信度足够时保留 probableCause", () => {
+    const { result } = applyGradingRules(
+      analysis({
+        probableCause: "SSE 连接被反向代理缓冲",
+        confidence: { severity: 0.6, rootCause: 0.8, suggestion: 0.5 },
+      }),
+    );
+    expect(result.probableCause).toBe("SSE 连接被反向代理缓冲");
+  });
+
+  it("未读取源码时剥离行号定位但保留文字建议", () => {
+    // 没读过代码却给出行号必然是编造，比不给建议更有害。
+    const { result, adjustments } = applyGradingRules(
+      analysis({
+        proposedChanges: [
+          { path: "apps/web/src/lib/api.ts", locator: "L42", change: "关闭缓冲" },
+        ],
+      }),
+      { exploredCode: false },
+    );
+    expect(result.proposedChanges[0]?.locator).toBeUndefined();
+    expect(result.proposedChanges[0]?.path).toBe("apps/web/src/lib/api.ts");
+    expect(result.proposedChanges[0]?.change).toBe("关闭缓冲");
+    expect(adjustments.some((a) => a.field === "proposedChanges")).toBe(true);
+  });
+
+  it("读取过源码时保留行号定位", () => {
+    const { result, adjustments } = applyGradingRules(
+      analysis({
+        proposedChanges: [
+          { path: "apps/web/src/lib/api.ts", locator: "L42", change: "关闭缓冲" },
+        ],
+      }),
+      { exploredCode: true },
+    );
+    expect(result.proposedChanges[0]?.locator).toBe("L42");
+    expect(adjustments.some((a) => a.field === "proposedChanges")).toBe(false);
+  });
+
+  it("troubleshooting 不受置信度影响", () => {
+    // 排查步骤即使不确定也有价值：它引导用户取证，而不是断言结论。
+    const { result } = applyGradingRules(
+      analysis({
+        troubleshooting: ["打开开发者工具查看 /events 请求状态"],
+        confidence: { severity: 0.1, rootCause: 0.1, suggestion: 0.1 },
+      }),
+    );
+    expect(result.troubleshooting).toEqual([
+      "打开开发者工具查看 /events 请求状态",
+    ]);
+  });
+
+  it("不含新字段的旧结果仍然通过校验", () => {
+    const legacy = {
+      contractVersion: "issue-analysis/v1",
+      category: "bug",
+      summary: "旧版本产出的结果",
+      severity: "S2",
+      priority: "P2",
+      quality: "actionable",
+      evidence: [],
+      missingInformation: [],
+      suggestedLabels: [],
+      suggestedActions: [],
+      confidence: { severity: 0.5, rootCause: 0.5, suggestion: 0.5 },
+    };
+    const validation = validateIssueAnalysis(legacy);
+    expect(validation.outcome).toBe("valid");
+    if (validation.outcome !== "valid") return;
+    expect(validation.analysis.result.proposedChanges).toEqual([]);
+    expect(validation.analysis.result.troubleshooting).toEqual([]);
   });
 });
 

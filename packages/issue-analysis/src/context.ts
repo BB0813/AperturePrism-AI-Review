@@ -20,6 +20,8 @@ export type IssueDocument = GitHubIssue;
 
 export type IssueContext = {
   repository: { owner: string; name: string };
+  /** 供代码探索使用：读取仓库文件需要 installation 授权。 */
+  installationId: string;
   issue: IssueDocument;
   comments: readonly IssueCommentDocument[];
   /** Why the context was reduced below the full source, for the prompt. */
@@ -117,6 +119,7 @@ export async function buildIssueContext(
 
   return {
     repository: { owner: input.owner, name: input.name },
+    installationId: input.installationId,
     issue: { ...issue, body },
     comments,
     degraded,

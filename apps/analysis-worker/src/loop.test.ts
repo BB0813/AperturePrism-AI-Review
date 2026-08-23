@@ -138,9 +138,11 @@ describe("worker task processing", () => {
 
   it("converts an unexpected handler throw into a failure", async () => {
     const failures: string[] = [];
+    const messages: (string | undefined)[] = [];
     const target = engine({
-      fail: async (_task, category) => {
+      fail: async (_task, category, message) => {
         failures.push(category);
+        messages.push(message);
       },
     });
 
@@ -155,6 +157,31 @@ describe("worker task processing", () => {
     });
 
     expect(failures).toEqual(["handler_error"]);
+    // 错误文本必须交给任务引擎，否则 task_events 只剩分类码，事后无法排查。
+    expect(messages).toEqual(["boom"]);
+  });
+
+  it("forwards the failure detail a handler reports", async () => {
+    const messages: (string | undefined)[] = [];
+    const target = engine({
+      fail: async (_task, _category, message) => {
+        messages.push(message);
+      },
+    });
+
+    await runOnce({
+      engine: target.operations,
+      handler: async () => ({
+        outcome: "failed",
+        errorCategory: "invalid_output",
+        errorMessage: "summary: 缺少必填字段",
+      }),
+      heartbeatIntervalMs: 60_000,
+      idleDelayMs: 0,
+      shutdownSignal: neverAbort,
+    });
+
+    expect(messages).toEqual(["summary: 缺少必填字段"]);
   });
 });
 

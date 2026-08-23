@@ -213,6 +213,7 @@ const ALLOWED_SETTING_KEYS = new Set([
   "issue_auto_assign",
   "issue_assignee",
   "issue_rewrite_title",
+  "issue_deep_analysis",
 ]);
 
 const runtimeSettings = new Map<string, string>();
@@ -2535,6 +2536,7 @@ async function handleSettings(
     "issue_auto_assign",
     "issue_assignee",
     "issue_rewrite_title",
+    "issue_deep_analysis",
     "pr_check_run",
     "pr_auto_review",
   ];

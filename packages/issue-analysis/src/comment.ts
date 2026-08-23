@@ -63,6 +63,24 @@ export function buildIssueAnalysisComment(
     lines.push("", `### 建议标题`, suggestedTitle);
   }
 
+  // 原因与修复方向（issue #6）：只在模型给出且通过服务端校验时展示。
+  if (result.probableCause) {
+    lines.push("", "### 可能原因", result.probableCause);
+  }
+
+  if ((result.proposedChanges ?? []).length > 0) {
+    lines.push("", "### 建议修改", "");
+    for (const item of result.proposedChanges ?? []) {
+      const where = item.locator ? ` \`${item.locator}\`` : "";
+      lines.push(`- \`${item.path}\`${where}：${item.change}`);
+    }
+  }
+
+  if ((result.troubleshooting ?? []).length > 0) {
+    lines.push("", "### 可以先试试", "");
+    for (const step of result.troubleshooting ?? []) lines.push(`- ${step}`);
+  }
+
   if (result.evidence.length > 0) {
     lines.push("", "### 证据", "");
     for (const item of result.evidence) {

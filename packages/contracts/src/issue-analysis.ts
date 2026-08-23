@@ -47,6 +47,16 @@ export const highPriorityLevels: readonly string[] = ["P0", "P1"];
 
 const confidenceSchema = z.number().min(0).max(1);
 
+/** 一条具体的修改建议：定位到文件，尽量给出位置与改法。 */
+export const proposedChangeSchema = z
+  .object({
+    path: z.string().min(1).max(300),
+    /** 行号或符号名等定位信息；未读过代码时必须省略，不允许编造。 */
+    locator: z.string().min(1).max(120).optional(),
+    change: z.string().min(1).max(800),
+  })
+  .strict();
+
 export const issueAnalysisResultSchema = z
   .object({
     contractVersion: z.literal("issue-analysis/v1"),
@@ -57,6 +67,12 @@ export const issueAnalysisResultSchema = z
     quality: z.enum(qualityLevels),
     /** 当原标题含糊/冗长时给出更清晰的标题；标题已清晰时省略。 */
     suggestedTitle: z.string().min(1).max(120).optional(),
+    /** 最可能的原因；无把握时省略，绝不猜测。 */
+    probableCause: z.string().min(1).max(1_000).optional(),
+    /** 用户可自行执行的排查步骤，按先后顺序。 */
+    troubleshooting: z.array(z.string().min(1).max(500)).max(6).default([]),
+    /** 具体修改建议；只有读过代码时才应给出 locator。 */
+    proposedChanges: z.array(proposedChangeSchema).max(6).default([]),
     evidence: z.array(evidenceSchema).max(10).default([]),
     /** Facts the issue does not provide. Never invented by the analyzer. */
     missingInformation: z.array(z.string().min(1).max(500)).max(10).default([]),
@@ -72,6 +88,7 @@ export const issueAnalysisResultSchema = z
 
 export type IssueAnalysisResult = z.infer<typeof issueAnalysisResultSchema>;
 export type IssueEvidence = z.infer<typeof evidenceSchema>;
+export type ProposedChange = z.infer<typeof proposedChangeSchema>;
 
 export const duplicateDecisions = [
   "duplicate",

@@ -6,10 +6,18 @@ import {
 } from "./issue-analysis.js";
 
 export type GradingAdjustment = {
-  field: "severity" | "priority";
+  field: "severity" | "priority" | "probableCause" | "proposedChanges";
   from: string;
   to: string;
   reason: string;
+};
+
+export type GradingOptions = {
+  /**
+   * 本次分析是否真的读取过仓库源码。为 false 时会剥离 proposedChanges 里的
+   * locator：没读过代码却给出行号必然是编造，比不给建议更有害。
+   */
+  exploredCode?: boolean;
 };
 
 export type GradedIssueAnalysis = {
@@ -42,6 +50,7 @@ function hasSubstantiveEvidence(result: IssueAnalysisResult): boolean {
  */
 export function applyGradingRules(
   result: IssueAnalysisResult,
+  options: GradingOptions = {},
 ): GradedIssueAnalysis {
   const adjustments: GradingAdjustment[] = [];
   let severity = result.severity;
@@ -94,8 +103,40 @@ export function applyGradingRules(
     severity = "unknown";
   }
 
+  // 低置信度的「原因」比不给更糟：用户会照着错方向排查。
+  let probableCause = result.probableCause;
+  if (probableCause && result.confidence.rootCause < 0.5) {
+    adjustments.push({
+      field: "probableCause",
+      from: "present",
+      to: "removed",
+      reason: "根因置信度不足 0.5，不足以给出原因判断",
+    });
+    probableCause = undefined;
+  }
+
+  // 没读过代码就给出行号必然是编造。剥离 locator 但保留 change 文字建议。
+  // 兼容直接传入手写对象（未过 zod 默认值填充）的调用方。
+  let proposedChanges = result.proposedChanges ?? [];
+  if (!options.exploredCode && proposedChanges.some((item) => item.locator)) {
+    adjustments.push({
+      field: "proposedChanges",
+      from: "with-locator",
+      to: "path-only",
+      reason: "未读取源码，无法确认具体位置，已移除行号/符号定位",
+    });
+    proposedChanges = proposedChanges.map(({ locator: _drop, ...rest }) => rest);
+  }
+
+  const { probableCause: _originalCause, ...rest } = result;
   return {
-    result: { ...result, severity, priority },
+    result: {
+      ...rest,
+      severity,
+      priority,
+      ...(probableCause === undefined ? {} : { probableCause }),
+      proposedChanges,
+    },
     adjustments,
   };
 }
@@ -108,7 +149,10 @@ export type ContractValidation =
  * Parses and grades a model response. Returning structured issues lets the
  * router attempt exactly one bounded repair instead of retrying blindly.
  */
-export function validateIssueAnalysis(raw: unknown): ContractValidation {
+export function validateIssueAnalysis(
+  raw: unknown,
+  options: GradingOptions = {},
+): ContractValidation {
   const parsed = issueAnalysisResultSchema.safeParse(raw);
   if (!parsed.success) {
     return {
@@ -118,13 +162,19 @@ export function validateIssueAnalysis(raw: unknown): ContractValidation {
       ),
     };
   }
-  return { outcome: "valid", analysis: applyGradingRules(parsed.data) };
+  return {
+    outcome: "valid",
+    analysis: applyGradingRules(parsed.data, options),
+  };
 }
 
 /** Parses a JSON model response without letting syntax errors escape. */
-export function parseIssueAnalysisJson(text: string): ContractValidation {
+export function parseIssueAnalysisJson(
+  text: string,
+  options: GradingOptions = {},
+): ContractValidation {
   try {
-    return validateIssueAnalysis(JSON.parse(text));
+    return validateIssueAnalysis(JSON.parse(text), options);
   } catch {
     return {
       outcome: "invalid",

@@ -484,6 +484,10 @@ export async function failTask(
         workerId: input.workerId,
         errorCategory: input.errorCategory,
         attemptNumber: task.attemptCount,
+        // 二次截断：事件是排查失败的唯一持久记录，不能因调用方疏忽而写入长文本。
+        ...(input.errorMessage
+          ? { errorMessage: input.errorMessage.slice(0, 500) }
+          : {}),
         ...(nextAttemptAt
           ? { nextAttemptAt: nextAttemptAt.toISOString() }
           : {}),

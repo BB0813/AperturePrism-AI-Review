@@ -82,6 +82,11 @@ export type OwnedTaskInput = {
 export type FailTaskInput = OwnedTaskInput & {
   errorCategory: string;
   retryDelayMs: number;
+  /**
+   * 面向排查的错误摘要，会写入 task_events。调用方负责截断，且只能包含异常
+   * 消息与类型，禁止携带 prompt、仓库源码或任何凭据。
+   */
+  errorMessage?: string;
 };
 
 export type FailureResult = {
