@@ -9,6 +9,7 @@ import {
 import { navigate } from "../hooks/useHash";
 import { ChevronRightIcon, RefreshIcon, SearchIcon } from "../components/icons";
 import { Empty, ErrorPanel, LoadingRows, StatusPill, TypeChip, timeAgo } from "../components/ui";
+import { explainUnknown } from "../lib/errors";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 import { useToast } from "../components/Toast";
 
@@ -130,9 +131,12 @@ export function TasksPage() {
         const fresh = more.items.filter((t) => !seen.has(t.id));
         setList({ items: [...list.items, ...fresh], nextOffset: more.nextOffset });
       })
-      .catch(() => undefined)
+      // 翻页失败要让用户知道，否则滚到底没反应会以为没有更多数据。
+      .catch((err: unknown) =>
+        toast.error(`加载更多任务失败：${explainUnknown(err)}`),
+      )
       .finally(() => setLoadingMore(false));
-  }, [list, loadingMore]);
+  }, [list, loadingMore, toast]);
 
   const hasMore = list?.nextOffset !== undefined;
   const sentinelRef = useInfiniteScroll({

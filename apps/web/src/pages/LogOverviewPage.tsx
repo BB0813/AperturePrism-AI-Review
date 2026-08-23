@@ -16,7 +16,8 @@ import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 import { eventsUrl } from "../lib/auth";
 import { navigate } from "../hooks/useHash";
 import { ActivityIcon, ArrowPathIcon, DatabaseIcon, RefreshIcon } from "../components/icons";
-import { Empty, LoadingRows, fmtTime } from "../components/ui";
+import { Empty, ErrorPanel, LoadingRows, fmtTime } from "../components/ui";
+import { explainUnknown } from "../lib/errors";
 
 const BOOKMARK_KEY = "ap.logview.bookmark";
 const PROBLEM_EVENTS = new Set(["task.failed", "task.retry_scheduled", "task.lease_recovered"]);
@@ -52,6 +53,8 @@ export function LogOverviewPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [filter, setFilter] = useState<string>("task");
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [moreError, setMoreError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [resumed, setResumed] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -61,6 +64,7 @@ export function LogOverviewPage() {
 
   const loadInitial = useCallback(() => {
     setLoading(true);
+    setError(null);
     Promise.all([
       fetchLogHistory(0),
       fetchLogs(),
@@ -74,7 +78,8 @@ export function LogOverviewPage() {
         setCfg(c);
         setSummary(s);
       })
-      .catch(() => undefined)
+      // 这是诊断页：静默失败会显示「暂无日志」，反而掩盖了真正的故障。
+      .catch((err: unknown) => setError(explainUnknown(err)))
       .finally(() => setLoading(false));
   }, []);
 
@@ -138,12 +143,14 @@ export function LogOverviewPage() {
   const loadEarlier = useCallback(() => {
     if (nextOffset === undefined || loadingMore) return;
     setLoadingMore(true);
+    setMoreError(null);
     fetchLogHistory(nextOffset)
       .then((page) => {
         setHistory((prev) => dedupeMerge(prev, page.events));
         setNextOffset(page.nextOffset);
       })
-      .catch(() => undefined)
+      // 翻页失败不该无声无息：否则用户滚到底看不到新内容，也不知道原因。
+      .catch((err: unknown) => setMoreError(explainUnknown(err)))
       .finally(() => setLoadingMore(false));
   }, [nextOffset, loadingMore]);
 
@@ -238,6 +245,8 @@ export function LogOverviewPage() {
 
         {loading ? (
           <LoadingRows />
+        ) : error ? (
+          <ErrorPanel error={error} onRetry={loadInitial} />
         ) : visible.length === 0 ? (
           <Empty icon={<ActivityIcon size={34} />} title="暂无日志" hint="发送 Webhook 或运行 Worker 后，任务事件将出现在这里" />
         ) : (
@@ -264,7 +273,11 @@ export function LogOverviewPage() {
 
         {hasMore || loadingMore ? (
           <div ref={sentinelRef} className="load-more-hint">
-            {loadingMore ? "加载中…" : "向下滚动加载更早日志"}
+            {loadingMore
+              ? "加载中…"
+              : moreError
+                ? `加载更早日志失败：${moreError}`
+                : "向下滚动加载更早日志"}
           </div>
         ) : null}
       </section>

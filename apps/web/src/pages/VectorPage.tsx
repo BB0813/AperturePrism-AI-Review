@@ -10,6 +10,7 @@ import {
 } from "../lib/api";
 import { RefreshIcon } from "../components/icons";
 import { ErrorPanel, LoadingRows, fmtTime } from "../components/ui";
+import { explainUnknown } from "../lib/errors";
 import { useToast } from "../components/Toast";
 
 export function VectorPage() {
@@ -30,7 +31,7 @@ export function VectorPage() {
         setIndex(indexData?.lastPass ?? null);
       })
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : "failed to load vector stats");
+        setError(explainUnknown(err));
         setStats(null);
       })
       .finally(() => setLoading(false));
@@ -43,9 +44,11 @@ export function VectorPage() {
     try {
       await triggerIndexRun();
       toast.success("已触发索引，index-worker 将尽快开始一轮扫描。");
+      // GET 有 5 秒缓存，不失效的话延迟刷新会读到旧状态，用户以为没生效。
+      bumpCache();
       setTimeout(load, 4000);
     } catch (err) {
-      toast.error(`触发失败：${err instanceof Error ? err.message : err}`);
+      toast.error(`触发失败：${explainUnknown(err)}`);
     } finally {
       setTriggering(false);
     }
@@ -57,9 +60,10 @@ export function VectorPage() {
     try {
       await rebuildIndex();
       toast.success("已清空索引并触发重建，index-worker 将重新扫描全部仓库。");
+      bumpCache();
       setTimeout(load, 4000);
     } catch (err) {
-      toast.error(`重建失败：${err instanceof Error ? err.message : err}`);
+      toast.error(`重建失败：${explainUnknown(err)}`);
     } finally {
       setRebuilding(false);
     }

@@ -7,6 +7,8 @@ import {
 } from "../lib/api";
 import { useToast } from "../components/Toast";
 import { GearIcon, XCircleIcon } from "../components/icons";
+import { ErrorPanel, LoadingRows } from "../components/ui";
+import { explainUnknown } from "../lib/errors";
 
 const RULE_PREFIXES = ["category", "severity", "priority", "quality"] as const;
 
@@ -41,14 +43,21 @@ export function LabelsPage() {
     enabled: true,
   });
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
+    setLoading(true);
+    setError(null);
     fetchLabelRules()
       .then((result) => {
         setItems(result.items);
         setPrefixes(result.prefixes);
       })
-      .catch(() => undefined);
+      // 不能静默失败：否则加载出错时页面显示「尚未配置标签规则」，
+      // 用户无法区分真的没配还是加载失败，也没有重试入口。
+      .catch((err: unknown) => setError(explainUnknown(err)))
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => load(), [load]);
@@ -125,7 +134,11 @@ export function LabelsPage() {
           </p>
 
           <div className="stack" style={{ gap: 8 }}>
-            {items.length === 0 ? (
+            {loading ? (
+              <LoadingRows />
+            ) : error ? (
+              <ErrorPanel error={error} onRetry={load} />
+            ) : items.length === 0 ? (
               <p className="faint" style={{ margin: 0, fontSize: 12 }}>
                 尚未配置标签规则。Issue 分析完成后，命中规则会由 worker 自动给 GitHub Issue 打标签。
               </p>

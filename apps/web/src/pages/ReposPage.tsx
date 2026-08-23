@@ -10,6 +10,7 @@ import {
 } from "../lib/api";
 import { ArrowPathIcon, FolderIcon, RefreshIcon } from "../components/icons";
 import { Empty, ErrorPanel, LoadingRows } from "../components/ui";
+import { explainError, explainUnknown } from "../lib/errors";
 import { useToast } from "../components/Toast";
 
 export function ReposPage() {
@@ -23,6 +24,7 @@ export function ReposPage() {
   const [triggerBusy, setTriggerBusy] = useState(false);
   const [subjects, setSubjects] = useState<RepoSubjectItem[]>([]);
   const [subjectsBusy, setSubjectsBusy] = useState(false);
+  const [subjectsError, setSubjectsError] = useState<string | null>(null);
   const [syncBusy, setSyncBusy] = useState(false);
   const toast = useToast();
 
@@ -30,22 +32,26 @@ export function ReposPage() {
     setSyncBusy(true);
     try {
       const result = await syncRepositories();
-      const base = `已同步 ${result.synced} 个仓库（${result.installations} 个安装，${result.errors} 个失败）`;
-      const detail =
-        result.details && result.details.length > 0
-          ? `：${result.details
-              .map(
-                (d) =>
-                  `安装 ${d.installationId.slice(0, 8)} → ${d.reason}`,
-              )
-              .join("；")}`
-          : "";
-      if (result.errors > 0) toast.error(base + detail);
-      else toast.success(base);
+      if (result.errors > 0) {
+        // 失败时把原因讲清楚：原先直接显示 github_not_configured 这类机器码，
+        // 用户无法据此知道该去哪里配置什么。
+        const reasons = [
+          ...new Set((result.details ?? []).map((d) => d.reason)),
+        ];
+        const explained = reasons.map(explainError).join("；");
+        toast.error(
+          explained ||
+            `同步失败：${result.errors} 个安装未能同步，且未返回具体原因。`,
+        );
+      } else {
+        toast.success(
+          `已同步 ${result.synced} 个仓库（${result.installations} 个安装）`,
+        );
+      }
       bumpCache();
       load();
     } catch (err) {
-      toast.error(`同步失败：${err instanceof Error ? err.message : err}`);
+      toast.error(explainUnknown(err));
     } finally {
       setSyncBusy(false);
     }
@@ -57,7 +63,7 @@ export function ReposPage() {
     fetchRepositories()
       .then((data) => setRepos(data.items))
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : "failed to load repos");
+        setError(explainUnknown(err));
         setRepos(null);
       })
       .finally(() => setLoading(false));
@@ -69,10 +75,12 @@ export function ReposPage() {
   useEffect(() => {
     if (!triggerRepo) {
       setSubjects([]);
+      setSubjectsError(null);
       return;
     }
     let cancelled = false;
     setSubjectsBusy(true);
+    setSubjectsError(null);
     fetchRepoSubjects(triggerRepo, triggerType)
       .then((items) => {
         if (!cancelled) {
@@ -81,8 +89,13 @@ export function ReposPage() {
           setTriggerNumber(items[0] ? String(items[0].number) : "");
         }
       })
-      .catch(() => {
-        if (!cancelled) setSubjects([]);
+      .catch((err: unknown) => {
+        // 不能把加载失败伪装成「暂无条目」：用户会以为仓库真的没有 open 项，
+        // 从而排查错方向。手动输入编号仍然可用。
+        if (!cancelled) {
+          setSubjects([]);
+          setSubjectsError(explainUnknown(err));
+        }
       })
       .finally(() => {
         if (!cancelled) setSubjectsBusy(false);
@@ -111,7 +124,7 @@ export function ReposPage() {
           : `已创建任务，taskId：${result.taskId}`,
       );
     } catch (err) {
-      toast.error(`触发失败：${err instanceof Error ? err.message : err}`);
+      toast.error(`触发失败：${explainUnknown(err)}`);
     } finally {
       setTriggerBusy(false);
     }
@@ -196,9 +209,11 @@ export function ReposPage() {
                 ? "先选择仓库…"
                 : subjectsBusy
                   ? "加载中…"
-                  : subjects.length === 0
-                    ? "该仓库暂无 open 条目（可手动输入编号）"
-                    : "选择最近的 Issue / PR…"}
+                  : subjectsError
+                    ? "列表加载失败（可手动输入编号）"
+                    : subjects.length === 0
+                      ? "该仓库暂无 open 条目（可手动输入编号）"
+                      : "选择最近的 Issue / PR…"}
             </option>
             {subjects.map((subject) => (
               <option key={subject.number} value={String(subject.number)}>
@@ -221,6 +236,11 @@ export function ReposPage() {
             {triggerBusy ? "触发中…" : "触发分析"}
           </button>
         </div>
+        {subjectsError ? (
+          <p className="faint" style={{ margin: "8px 0 0", fontSize: 12 }}>
+            无法加载 Issue / PR 列表：{subjectsError} 仍可手动输入编号后触发。
+          </p>
+        ) : null}
       </section>
 
       <section className="panel">

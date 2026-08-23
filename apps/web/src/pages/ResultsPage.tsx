@@ -9,6 +9,7 @@ import {
 } from "../lib/api";
 import { ChevronDownIcon, ChevronRightIcon, RefreshIcon, SearchIcon, XCircleIcon } from "../components/icons";
 import { Empty, ErrorPanel, JsonBlock, LoadingRows, fmtTime, shortText } from "../components/ui";
+import { explainUnknown } from "../lib/errors";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 import { useToast } from "../components/Toast";
 
@@ -87,9 +88,12 @@ export function ResultsPage(props: { type: "issue" | "pr"; label: string }) {
         // Append, never replace: an empty page must not wipe the loaded list.
         setList({ items: [...list.items, ...fresh], nextOffset: more.nextOffset });
       })
-      .catch(() => undefined)
+      // 翻页失败要让用户知道，否则滚到底没反应会以为没有更多数据。
+      .catch((err: unknown) =>
+        toast.error(`加载更多结果失败：${explainUnknown(err)}`),
+      )
       .finally(() => setLoadingMore(false));
-  }, [list, loadingMore, props.type]);
+  }, [list, loadingMore, props.type, toast]);
 
   const filtered = useMemo(() => {
     if (!list) return [];
@@ -148,7 +152,7 @@ export function ResultsPage(props: { type: "issue" | "pr"; label: string }) {
       return;
     setBulkRevoking(true);
     let ok = 0;
-    let failed = 0;
+    const failures: string[] = [];
     for (const item of targets) {
       try {
         await revokeSubject({
@@ -157,11 +161,21 @@ export function ResultsPage(props: { type: "issue" | "pr"; label: string }) {
           type: item.subjectType,
         });
         ok += 1;
-      } catch {
-        failed += 1;
+      } catch (err) {
+        // 保留失败原因：原先整个 catch 丢弃异常，用户只看到一个计数。
+        failures.push(`#${item.subjectNumber} ${explainUnknown(err)}`);
       }
     }
-    toast.success(`批量撤回完成：成功 ${ok} 个${failed > 0 ? `，失败 ${failed} 个` : ""}`);
+    if (failures.length === 0) {
+      toast.success(`批量撤回完成：成功 ${ok} 个`);
+    } else {
+      // 全部失败时用成功样式会让用户以为已经撤回。
+      const detail = failures.slice(0, 3).join("；");
+      const more = failures.length > 3 ? ` 等 ${failures.length} 项` : "";
+      toast.error(
+        `批量撤回：成功 ${ok} 个，失败 ${failures.length} 个 — ${detail}${more}`,
+      );
+    }
     setSelected(new Set());
     bumpCache();
     refresh();

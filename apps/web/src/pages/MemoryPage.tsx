@@ -12,6 +12,7 @@ import {
 } from "../lib/api";
 import { RefreshIcon, SparkleIcon } from "../components/icons";
 import { ErrorPanel, LoadingRows, fmtTime } from "../components/ui";
+import { explainUnknown } from "../lib/errors";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 import { useToast } from "../components/Toast";
 
@@ -45,6 +46,7 @@ export function MemoryPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -74,24 +76,33 @@ export function MemoryPage() {
   useEffect(() => load(), [load]);
 
   const loadMore = async () => {
-    if (nextOffset === undefined) return;
+    // 没有在飞标志时，IntersectionObserver 会用同一个 offset 重复发起请求，
+    // 结果被重复追加。
+    if (nextOffset === undefined || loadingMore) return;
+    setLoadingMore(true);
     try {
       const list = await fetchRepoMemory({
         repositoryId: repoFilter || undefined,
         kind: (kindFilter || undefined) as RepoMemoryKind | undefined,
         offset: nextOffset,
       });
-      setItems((prev) => [...prev, ...list.items]);
+      // 按 id 去重，避免服务端分页边界或重复触发导致同一条出现两次。
+      setItems((prev) => {
+        const seen = new Set(prev.map((item) => item.id));
+        return [...prev, ...list.items.filter((item) => !seen.has(item.id))];
+      });
       setNextOffset(list.nextOffset);
     } catch (err) {
-      toast.error(`加载失败：${err instanceof Error ? err.message : err}`);
+      toast.error(`加载失败：${explainUnknown(err)}`);
+    } finally {
+      setLoadingMore(false);
     }
   };
 
   const hasMore = nextOffset !== undefined;
   const sentinelRef = useInfiniteScroll({
     hasMore,
-    loading: false,
+    loading: loadingMore,
     onLoadMore: () => {
       void loadMore();
     },

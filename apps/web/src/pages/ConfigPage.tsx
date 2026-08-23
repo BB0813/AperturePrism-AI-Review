@@ -11,6 +11,7 @@ import {
 } from "../lib/api";
 import { DownloadIcon, GearIcon, RefreshIcon, UploadIcon } from "../components/icons";
 import { ErrorPanel, LoadingRows } from "../components/ui";
+import { explainUnknown } from "../lib/errors";
 import { UpdatePanel } from "../components/UpdatePanel";
 import { useToast } from "../components/Toast";
 
@@ -114,31 +115,8 @@ const FIELD_META: Record<string, FieldMeta> = {
     hint: "留空则用 EMBEDDING_MODEL（默认 nvidia/nv-embed-v1）",
     secret: false,
   },
-  qq_bot_protocols: {
-    label: "NTQQ 网关协议配置",
-    hint: 'JSON，如 {"onebot11":{"baseUrl":"...","accessToken":"...","gatewayUrl":"..."}}；qq-bot 重启后生效',
-    secret: false,
-  },
-  qq_official_app_id: {
-    label: "QQ 官方 AppID",
-    hint: "官方开放平台 api-v2 AppID；留空则用环境变量，qq-bot 重启后生效",
-    secret: false,
-  },
-  qq_official_app_secret: {
-    label: "QQ 官方 AppSecret",
-    hint: "留空则用环境变量；qq-bot 重启后生效",
-    secret: true,
-  },
-  qq_official_gateway_url: {
-    label: "QQ 官方网关地址",
-    hint: "默认 wss://api.sgroup.qq.com/websocket；沙箱/企业环境可覆盖",
-    secret: false,
-  },
-  qq_official_intents: {
-    label: "QQ 官方 Intents",
-    hint: "订阅事件位掩码（默认 33554432 = C2C + 群 @）",
-    secret: false,
-  },
+  // QQ 机器人配置改在「数据与运维 → 机器人」页维护：那里有分协议的表单与
+  // 接入状态，比在这里手写 JSON 更清楚。后端设置键保持不变。
 };
 
 function Row({ it, drafts, setDrafts, save, busyKey }: {
@@ -225,7 +203,7 @@ export function ConfigPage() {
         setDrafts({});
       })
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : "failed to load config");
+        setError(explainUnknown(err));
       })
       .finally(() => setLoading(false));
   }, []);
@@ -242,7 +220,7 @@ export function ConfigPage() {
       setItems(fresh.items);
       setDrafts((prev) => ({ ...prev, [key]: "" }));
     } catch (err) {
-      toast.error(`保存失败：${err instanceof Error ? err.message : err}`);
+      toast.error(`保存失败：${explainUnknown(err)}`);
     } finally {
       setBusyKey(null);
     }
@@ -270,7 +248,7 @@ export function ConfigPage() {
         `已导出：设置 ${snapshot.settings.length} 项（密钥值已脱敏）、策略 ${snapshot.policies.length} 条、Provider ${snapshot.providers.length} 个。`,
       );
     } catch (err) {
-      toast.error(`导出失败：${err instanceof Error ? err.message : err}`);
+      toast.error(`导出失败：${explainUnknown(err)}`);
     } finally {
       setBackupBusy(false);
     }
@@ -286,8 +264,11 @@ export function ConfigPage() {
       toast.success(
         `导入完成：设置 ${result.settings} 项、策略 ${result.policies} 条；跳过密钥 ${result.skippedSecrets.join("/") || "无"}，Provider 账户需手工确认 ${result.skippedProviders.join("/") || "无"}。`,
       );
+      // 导入改的是当前页正在展示的数据，不刷新会让用户基于旧值继续编辑。
+      bumpCache();
+      load();
     } catch (err) {
-      toast.error(`导入失败：${err instanceof Error ? err.message : err}`);
+      toast.error(`导入失败：${explainUnknown(err)}`);
     } finally {
       setBackupBusy(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -364,7 +345,7 @@ export function ConfigPage() {
               <div className="dist" style={{ marginTop: 6 }}>
                 <StatusItem label="官方 QQ 机器人">
                   <BoolBadge ok={cfg.qqOfficialConfigured} yes="已配置" no="未配置" />
-                  <span className="faint" style={{ fontSize: 12 }}>QQ_OFFICIAL_APP_ID / SECRET</span>
+                  <span className="faint" style={{ fontSize: 12 }}>在「机器人」页配置</span>
                 </StatusItem>
                 <StatusItem label="NTQQ 第三方协议">
                   {cfg.qqBotProtocols.length > 0 ? (
@@ -372,7 +353,7 @@ export function ConfigPage() {
                       {cfg.qqBotProtocols.map((p) => <span key={p} className="tag">{p}</span>)}
                     </span>
                   ) : (
-                    <span className="faint" style={{ fontSize: 12 }}>未配置（QQ_BOT_PROTOCOLS）</span>
+                    <span className="faint" style={{ fontSize: 12 }}>未配置（在「机器人」页配置）</span>
                   )}
                 </StatusItem>
                 <StatusItem label="GitHub OAuth 登录">
@@ -386,7 +367,9 @@ export function ConfigPage() {
               </div>
             )}
             <p className="faint" style={{ marginTop: 12, fontSize: 12 }}>
-              OAuth 凭据在「热更新设置」保存后无需重启即生效；QQ 凭据保存后需重启 qq-bot 容器（docker restart docker-qq-bot-1）才会按新配置连接网关。
+              OAuth 凭据在「热更新设置」保存后无需重启即生效。QQ 机器人的
+              AppID / AppSecret 与第三方协议请在「数据与运维 → 机器人」页配置；
+              保存后需重启 qq-bot 容器才会按新配置连接网关。
             </p>
           </section>
 
