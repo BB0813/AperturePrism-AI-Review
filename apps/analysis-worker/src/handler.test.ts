@@ -25,6 +25,8 @@ const analysisResult: IssueAnalysisResult = {
   missingInformation: [],
   suggestedLabels: [],
   suggestedActions: [],
+  troubleshooting: [],
+  proposedChanges: [],
   confidence: { severity: 0.6, rootCause: 0.6, suggestion: 0.6 },
 };
 
@@ -69,6 +71,7 @@ function leasedTask(overrides: Partial<LeasedTask> = {}): LeasedTask {
 function context(): IssueContext {
   return {
     repository: { owner: "owner", name: "repo" },
+    installationId: "42",
     issue: {
       number: 7,
       title: "Crash",

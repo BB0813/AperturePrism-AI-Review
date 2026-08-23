@@ -39,6 +39,7 @@ const validIssueJson = JSON.stringify({
 
 const context: IssueContext = {
   repository: { owner: "o", name: "r" },
+  installationId: "42",
   issue: {
     number: 7,
     title: "Crash",

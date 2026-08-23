@@ -19,6 +19,7 @@ const candidate: ModelCandidate = {
 
 const context: IssueContext = {
   repository: { owner: "o", name: "r" },
+  installationId: "42",
   issue: {
     number: 7,
     title: "买会员，加微信 xxx 领优惠券",

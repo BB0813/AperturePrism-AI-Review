@@ -21,6 +21,8 @@ const result: IssueAnalysisResult = {
   missingInformation: ["Deployment version"],
   suggestedLabels: ["security"],
   suggestedActions: ["Redact tokens before logging"],
+  troubleshooting: [],
+  proposedChanges: [],
   confidence: { severity: 0.9, rootCause: 0.8, suggestion: 0.7 },
 };
 
