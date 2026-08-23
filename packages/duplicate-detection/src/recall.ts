@@ -1,4 +1,5 @@
 import type { IssueSignals } from "./types.js";
+import { cjkNgrams } from "./normalize.js";
 
 /**
  * A minimal SQL executor so this module avoids coupling to a specific driver.
@@ -227,6 +228,13 @@ export async function recallCandidatesWithRepos(
 ): Promise<RelatedIssueRow[]> {
   const topK = input.topK ?? 5;
   const leadText = `${input.title} ${input.body}`.trim();
+  // CJK n-grams from the lead text. `simple` FTS tokenizes a whole Chinese run
+  // as one token, and the previous `ilike '%title%'` fallback required one title
+  // to literally contain the other — verified on the live database that
+  // 「一直连接失败」and「连接bug 仪表盘一直显示连接中断」matched by neither,
+  // which is why issues #8 and #9 never recalled each other.
+  const grams = cjkNgrams(leadText);
+  const gramPattern = grams.length > 0 ? `(${grams.join("|")})` : null;
   const rows = await sql`
     select d.id, d.repository_id::text as "repositoryId",
       r.owner || '/' || r.name as "repositoryFullName",
@@ -235,16 +243,22 @@ export async function recallCandidatesWithRepos(
       array_length(array_cat(
         (select array_agg(x) from unnest(d.error_codes) x where x = any(${input.signals.errorCodes})),
         (select array_agg(x) from unnest(d.paths) x where x = any(${input.signals.paths}))
-      ), 1) as "signalRank"
+      ), 1) as "signalRank",
+      ${
+        gramPattern === null
+          ? sql`0`
+          : sql`(select count(*) from regexp_matches(d.title || ' ' || d.body, ${gramPattern}, 'g'))`
+      } as "gramRank"
     from issue_documents d
     left join repositories r on r.id = d.repository_id
     where (to_tsvector('simple', d.body || ' ' || d.title) @@ websearch_to_tsquery('simple', ${leadText})
        or d.error_codes && ${input.signals.errorCodes}
        or d.paths && ${input.signals.paths}
-       -- The 'simple' FTS config treats CJK text as a single token, so Chinese
-       -- titles never match. A title-substring hit is a valid recall signal.
-       or (${input.title} <> '' and (d.title ilike '%' || ${input.title} || '%'
-            or d.body ilike '%' || ${input.title} || '%')))
+       ${
+         gramPattern === null
+           ? sql``
+           : sql`or (d.title || ' ' || d.body) ~ ${gramPattern}`
+       })
        ${input.repository ? sql`and r.owner = ${input.repository.owner} and r.name = ${input.repository.name}` : sql``}
        ${
          input.excludeIssueNumber === undefined ||
@@ -252,13 +266,15 @@ export async function recallCandidatesWithRepos(
            ? sql``
            : sql`and d.issue_number <> ${input.excludeIssueNumber}`
        }
-    order by "ftsRank" desc, "signalRank" desc
+    order by "ftsRank" desc, "signalRank" desc, "gramRank" desc
     limit ${topK}`;
   return rows.map((row) => {
     const ftsRank = Number(row.ftsRank ?? 0);
     const signalRank = row.signalRank === null ? 0 : Number(row.signalRank);
+    const gramRank = row.gramRank === null ? 0 : Number(row.gramRank);
     const reasons: ("text" | "signal")[] = [];
-    if (ftsRank > 0) reasons.push("text");
+    // n-gram 命中属于文本证据，和全文命中同一类。
+    if (ftsRank > 0 || gramRank > 0) reasons.push("text");
     if (signalRank > 0) reasons.push("signal");
     return {
       id: String(row.id ?? ""),
@@ -266,7 +282,9 @@ export async function recallCandidatesWithRepos(
       repositoryFullName:
         row.repositoryFullName === null ? null : String(row.repositoryFullName),
       issueNumber: Number(row.issueNumber ?? 0),
-      score: Math.round((ftsRank * 100 + signalRank * 10) * 100) / 100,
+      // n-gram 权重最低：它只是召回信号，判定重复仍由证据比较和模型完成。
+      score:
+        Math.round((ftsRank * 100 + signalRank * 10 + gramRank) * 100) / 100,
       reasons,
     };
   });
