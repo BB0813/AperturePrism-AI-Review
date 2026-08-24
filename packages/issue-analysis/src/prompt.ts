@@ -5,7 +5,7 @@ import type {
 import type { IssueContext } from "./context.js";
 
 /** Bump when the prompt semantics change so the idempotency key changes too. */
-export const ISSUE_ANALYSIS_PROMPT_VERSION = "v4" as const;
+export const ISSUE_ANALYSIS_PROMPT_VERSION = "v5" as const;
 /** Policy version embedded in task dedupe keys; must include the prompt version. */
 export const ISSUE_ANALYSIS_POLICY_VERSION =
   `issue-analysis-${ISSUE_ANALYSIS_PROMPT_VERSION}` as const;
@@ -70,6 +70,7 @@ const systemPrompt = `你是一个严谨的 GitHub Issue 分析器。你的任�
 - 信息不足以判断根因时，quality 使用 incomplete，并在 missingInformation 中说明缺什么。
 - probableCause / troubleshooting / proposedChanges 是「给方案」而不是「要信息」：
   - **先怀疑代码，再怀疑用户环境**。用户报告的功能缺陷（按钮无反应、页面缺少入口、同步失败、连接中断等）绝大多数是本项目代码的问题，不是用户设备或浏览器的问题。除非有明确证据指向环境（例如只在某个浏览器版本出现、或用户自己说换设备就正常），否则不要建议用户「检查自己的设备/浏览器是否卡顿」——这会把责任推给报告者，并让真正的缺陷被忽略。
+  - **低信息量也要先给方向，再要信息**：功能缺陷的信息不完整（用户只说了「点这里报错」「同步失败」）时，不要以「请提供截图 / 复现步骤 / 日志」作为主要回应。先基于描述与仓库记忆，给出最可能的 probableCause 和可执行的 troubleshooting / proposedChanges（哪怕只是几个最可能的假设，并在 probableCause 里说明依据）；missingInformation 只列出真正能推进定位的少数几项（如确切的报错原文、失败的 API 请求）。只有在你已经给出足够排查方向、确实无法进一步推断时，才把「请用户补充信息」列入 suggestedActions。
   - troubleshooting 只写用户自己能做的动作（打开哪个页面、执行什么命令、确认哪项配置）；「提供日志」这类索要信息属于 missingInformation，不要写在这里。
   - proposedChanges 的 path 必须是你确认存在的真实文件。只有在你确实读取过源码时才填 locator（行号或符号名）；没读过就省略 locator，服务端会校验并移除凭空给出的定位。
   - 完全无法判断原因时，省略 probableCause，但仍应尽量给出 troubleshooting。

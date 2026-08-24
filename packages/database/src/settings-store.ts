@@ -32,19 +32,6 @@ export async function loadSettings(
   return new Map(rows.map((row) => [row.key, row.value]));
 }
 
-/** 读取全部设置行（api 的运行时缓存与备份导出需要全量）。 */
-export async function loadAllSettings(
-  db: Database,
-): Promise<Map<string, string>> {
-  const rows = await db
-    .select({
-      key: schema.systemSettings.key,
-      value: schema.systemSettings.value,
-    })
-    .from(schema.systemSettings);
-  return new Map(rows.map((row) => [row.key, row.value]));
-}
-
 /** 写入或更新一个设置键。 */
 export async function putSetting(
   db: Database,
@@ -70,45 +57,3 @@ export async function deleteSetting(
     .where(inArray(schema.systemSettings.key, [key]));
 }
 
-export type SettingsCache = {
-  /** 最近一次成功读取的全量设置。 */
-  get: (key: string) => string | undefined;
-  /** 立即重新读取一次；失败时保留上一次的快照。 */
-  refresh: () => Promise<void>;
-  /** 停止周期刷新。 */
-  stop: () => void;
-};
-
-/**
- * 周期刷新的设置缓存，替代各进程自建的轮询。
- *
- * 读失败时**保留**上一次快照而不是清空：一次数据库抖动不该让整个进程突然以为
- * 所有设置都没配（api 原有实现也是这个语义，这里保持）。
- */
-export function createSettingsCache(
-  db: Database,
-  options: {
-    intervalMs: number;
-    onError?: (error: unknown) => void;
-    onRefresh?: (settings: Map<string, string>) => void;
-  },
-): SettingsCache {
-  let snapshot = new Map<string, string>();
-  const refresh = async (): Promise<void> => {
-    try {
-      const next = await loadAllSettings(db);
-      snapshot = next;
-      options.onRefresh?.(next);
-    } catch (error) {
-      options.onError?.(error);
-    }
-  };
-  const timer = setInterval(() => void refresh(), options.intervalMs);
-  // 别让刷新定时器把进程钉住不退出。
-  timer.unref?.();
-  return {
-    get: (key) => snapshot.get(key),
-    refresh,
-    stop: () => clearInterval(timer),
-  };
-}
