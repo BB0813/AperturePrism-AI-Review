@@ -19,6 +19,12 @@ services:
   postgres:
     image: pgvector/pgvector:pg16
     restart: unless-stopped
+    # 兜住异常暴涨：小 VPS 上任一进程吃满内存会挤占整机，表现为 SSH 时断时续。
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: "1.0"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-apertureprism}
       POSTGRES_USER: ${POSTGRES_USER:-apertureprism}
@@ -34,6 +40,12 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    # 兜住异常暴涨：小 VPS 上任一进程吃满内存会挤占整机，表现为 SSH 时断时续。
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+          cpus: "0.5"
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - apertureprism-redis:/data
@@ -46,6 +58,12 @@ services:
   api:
     image: ghcr.io/bb0813/apertureprism-ai-review/api:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    # 兜住异常暴涨：小 VPS 上任一进程吃满内存会挤占整机，表现为 SSH 时断时续。
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
     env_file: .env.production
     environment:
       HOST: 0.0.0.0
@@ -73,6 +91,12 @@ services:
   analysis-worker:
     image: ghcr.io/bb0813/apertureprism-ai-review/analysis-worker:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    # 兜住异常暴涨：小 VPS 上任一进程吃满内存会挤占整机，表现为 SSH 时断时续。
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: "1.0"
     env_file: .env.production
     environment:
       DATABASE_URL: ${DATABASE_URL}
@@ -86,6 +110,12 @@ services:
   index-worker:
     image: ghcr.io/bb0813/apertureprism-ai-review/index-worker:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    # 兜住异常暴涨：小 VPS 上任一进程吃满内存会挤占整机，表现为 SSH 时断时续。
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: "1.0"
     env_file: .env.production
     environment:
       DATABASE_URL: ${DATABASE_URL}
@@ -100,6 +130,12 @@ services:
   scheduler:
     image: ghcr.io/bb0813/apertureprism-ai-review/scheduler:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    # 兜住异常暴涨：小 VPS 上任一进程吃满内存会挤占整机，表现为 SSH 时断时续。
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
     env_file: .env.production
     environment:
       DATABASE_URL: ${DATABASE_URL}
@@ -111,6 +147,12 @@ services:
   scan-worker:
     image: ghcr.io/bb0813/apertureprism-ai-review/scan-worker:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    # 兜住异常暴涨：小 VPS 上任一进程吃满内存会挤占整机，表现为 SSH 时断时续。
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: "0.5"
     env_file: .env.production
     environment:
       DATABASE_URL: ${DATABASE_URL}
@@ -126,6 +168,12 @@ services:
   migrate:
     image: ghcr.io/bb0813/apertureprism-ai-review/migrate:${IMAGE_TAG:-latest}
     restart: "no"
+    # 兜住异常暴涨：小 VPS 上任一进程吃满内存会挤占整机，表现为 SSH 时断时续。
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
     env_file: .env.production
     environment:
       DATABASE_URL: ${DATABASE_URL}
@@ -137,6 +185,12 @@ services:
   web:
     image: ghcr.io/bb0813/apertureprism-ai-review/web:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    # 兜住异常暴涨：小 VPS 上任一进程吃满内存会挤占整机，表现为 SSH 时断时续。
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.5"
     ports:
       - "${WEB_PORT:-80}:80"
     depends_on:
@@ -146,6 +200,12 @@ services:
   qq-bot:
     image: ghcr.io/bb0813/apertureprism-ai-review/qq-bot:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    # 兜住异常暴涨：小 VPS 上任一进程吃满内存会挤占整机，表现为 SSH 时断时续。
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
     profiles: ["qq"]
     env_file: .env.production
     environment:

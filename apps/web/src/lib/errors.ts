@@ -66,12 +66,16 @@ const explanations: Record<string, Explanation> = {
     action: "请检查服务器网络与镜像加速配置。",
   },
   models_fetch_failed: {
-    message: "获取模型列表失败。",
-    action: "请确认 Provider 的地址与密钥正确，且服务器能访问该地址。",
+    message: "无法连接模型服务，获取模型列表失败。",
+    action: "请确认地址可从服务器访问（注意内网/防火墙），以及地址拼写正确。",
+  },
+  models_fetch_timeout: {
+    message: "获取模型列表超时（15 秒）。",
+    action: "该地址响应过慢或不可达，请确认服务可用后重试。",
   },
   models_request_failed: {
     message: "模型服务返回错误。",
-    action: "请检查 Provider 密钥是否有效、额度是否用尽。",
+    action: "常见原因：API Key 无效或已过期、额度用尽、该站点不支持 /v1/models 接口。具体状态码与返回内容见下方详情。",
   },
   pr_fetch_failed: {
     message: "拉取 Pull Request 内容失败。",
@@ -166,13 +170,20 @@ export function explainError(reason: string): string {
   const trimmed = reason.trim();
   if (trimmed.length === 0) return "操作失败，且未返回具体原因。";
 
-  const found = lookupError(trimmed);
+  // 后端可能在错误码后附加诊断信息（上游状态码、端点、返回正文）。整串查表
+  // 会失配，所以按首个 token 匹配错误码，并保留其后的诊断内容。
+  const match = /^([a-z][a-z0-9_]*)\b([\s\S]*)$/.exec(trimmed);
+  const code = match?.[1] ?? trimmed;
+  const rest = (match?.[2] ?? "").trim();
+
+  const found = lookupError(code);
   if (!found) return trimmed;
 
   const parts = [found.message];
   if (found.action) parts.push(found.action);
   // 保留原始码，便于用户反馈时提供准确信息。
-  return `${parts.join(" ")}（${trimmed}）`;
+  const explained = `${parts.join(" ")}（${code}）`;
+  return rest ? `${explained} ${rest}` : explained;
 }
 
 /** 把任意异常转成可展示文案，同时对已知错误码做翻译。 */

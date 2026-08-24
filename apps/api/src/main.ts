@@ -3087,6 +3087,33 @@ async function parseJsonBody(
  * POST /setup/models — proxies an OpenAI-compatible `/models` listing so the
  * wizard can offer a model dropdown. No state is persisted.
  */
+/**
+ * 把用户填写的 Base URL 归一化为 OpenAI 兼容的 API 根（形如 `.../v1`）。
+ *
+ * 用户从供应商站点复制的地址形式很多：带或不带 `/v1`、带尾斜杠、甚至直接
+ * 复制了完整的 chat/completions 端点。原先只做字符串拼接，后两种都会 404
+ * （issue #13）。
+ */
+export function openAiApiRoot(rawBaseUrl: string): string {
+  let base = rawBaseUrl.trim().replace(/\/+$/, "");
+  // 用户误填完整端点时，回退到其所在的 API 根。
+  base = base.replace(/\/(?:chat\/)?completions$/i, "");
+  base = base.replace(/\/models$/i, "");
+  base = base.replace(/\/+$/, "");
+  // 绝大多数 OpenAI 兼容网关都在 /v1 下；缺失时补上。
+  if (!/\/v\d+$/i.test(base)) base = `${base}/v1`;
+  return base;
+}
+
+export function openAiModelsEndpoint(rawBaseUrl: string): string {
+  return `${openAiApiRoot(rawBaseUrl)}/models`;
+}
+
+/** 运行时保存的 provider 基址键，与环境变量同名 provider 合并使用。 */
+export function providerBaseUrlSettingKey(provider: string): string {
+  return `model_provider_base_url:${provider}`;
+}
+
 async function handleSetupModels(
   request: IncomingMessage,
   response: ServerResponse,
@@ -3108,14 +3135,36 @@ async function handleSetupModels(
     return;
   }
   try {
-    const res = await fetch(`${baseUrl}/models`, {
-      headers: { authorization: `Bearer ${apiKey}`, accept: "application/json" },
-    });
+    const endpoint = openAiModelsEndpoint(baseUrl);
+    // 公益站/自建网关可能很慢或无响应，没有超时会让请求一直挂着。
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
+    let res: Response;
+    try {
+      res = await fetch(endpoint, {
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          accept: "application/json",
+        },
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
     if (!res.ok) {
+      // 上游的错误正文才是用户能据以行动的信息（密钥无效 / 余额不足 /
+      // 路径不对）。只回 httpStatus 会让用户完全无从判断。
+      const detail = (await res.text().catch(() => "")).slice(0, 300);
       json(
         response,
         502,
-        { status: "error", reason: "models_request_failed", httpStatus: res.status },
+        {
+          status: "error",
+          reason: "models_request_failed",
+          httpStatus: res.status,
+          endpoint,
+          ...(detail ? { detail } : {}),
+        },
         requestId,
       );
       return;
@@ -3128,7 +3177,19 @@ async function handleSetupModels(
     json(response, 200, { status: "ok", models }, requestId);
   } catch (error) {
     logger.warn({ err: error }, "setup models fetch failed");
-    json(response, 502, { status: "error", reason: "models_fetch_failed" }, requestId);
+    const aborted = error instanceof Error && error.name === "AbortError";
+    json(
+      response,
+      502,
+      {
+        status: "error",
+        reason: aborted ? "models_fetch_timeout" : "models_fetch_failed",
+        ...(error instanceof Error && !aborted
+          ? { detail: error.message.slice(0, 200) }
+          : {}),
+      },
+      requestId,
+    );
   }
 }
 
@@ -3189,6 +3250,18 @@ async function handleSetupProvider(
       .onConflictDoUpdate({
         target: [providerAccounts.provider, providerAccounts.name],
         set: { encryptedCredential: sealed, updatedAt: new Date() },
+      });
+
+    // 持久化 baseUrl：此前它只被校验、从未保存，worker 的 adapter 仅按环境变量
+    // MODEL_PROVIDER_BASE_URLS 构造，因此界面新增的 provider 没有对应 adapter，
+    // 模型路由会直接判为 model_not_found（issue #13 / #2 的根因之一）。
+    const apiRoot = openAiApiRoot(baseUrl);
+    await database.db
+      .insert(systemSettings)
+      .values({ key: providerBaseUrlSettingKey(provider), value: apiRoot })
+      .onConflictDoUpdate({
+        target: systemSettings.key,
+        set: { value: apiRoot, updatedAt: new Date() },
       });
 
     const newCandidate = { provider, model, accountName };

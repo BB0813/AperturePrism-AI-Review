@@ -48,3 +48,21 @@ describe("explainUnknown", () => {
     expect(explainUnknown({ weird: true })).toContain("未返回具体原因");
   });
 });
+
+describe("获取模型列表的诊断信息", () => {
+  it("翻译错误码时保留后附的诊断内容", () => {
+    // 后端会在错误码后附上上游状态码、端点与返回正文；整串查表会失配，
+    // 导致用户只看到英文码（issue #13 的排查体验问题）。
+    const text = explainError(
+      "models_request_failed （上游状态 404；请求 https://api.ex.com/v1/models）",
+    );
+    expect(text).toContain("模型服务返回错误");
+    expect(text).toContain("上游状态 404");
+    expect(text).toContain("https://api.ex.com/v1/models");
+  });
+
+  it("区分超时与无法连接", () => {
+    expect(explainError("models_fetch_timeout")).toContain("超时");
+    expect(explainError("models_fetch_failed")).toContain("无法连接");
+  });
+});

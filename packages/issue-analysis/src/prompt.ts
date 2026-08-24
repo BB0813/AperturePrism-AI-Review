@@ -5,7 +5,7 @@ import type {
 import type { IssueContext } from "./context.js";
 
 /** Bump when the prompt semantics change so the idempotency key changes too. */
-export const ISSUE_ANALYSIS_PROMPT_VERSION = "v3" as const;
+export const ISSUE_ANALYSIS_PROMPT_VERSION = "v4" as const;
 /** Policy version embedded in task dedupe keys; must include the prompt version. */
 export const ISSUE_ANALYSIS_POLICY_VERSION =
   `issue-analysis-${ISSUE_ANALYSIS_PROMPT_VERSION}` as const;
@@ -69,6 +69,7 @@ const systemPrompt = `你是一个严谨的 GitHub Issue 分析器。你的任�
 - 用户可能无法提供日志（例如故障出现在 WebUI 内部或第三方插件中）。这种情况下不要把「提供日志」作为唯一动作，应基于现有描述给出可执行的排查或修复方向。
 - 信息不足以判断根因时，quality 使用 incomplete，并在 missingInformation 中说明缺什么。
 - probableCause / troubleshooting / proposedChanges 是「给方案」而不是「要信息」：
+  - **先怀疑代码，再怀疑用户环境**。用户报告的功能缺陷（按钮无反应、页面缺少入口、同步失败、连接中断等）绝大多数是本项目代码的问题，不是用户设备或浏览器的问题。除非有明确证据指向环境（例如只在某个浏览器版本出现、或用户自己说换设备就正常），否则不要建议用户「检查自己的设备/浏览器是否卡顿」——这会把责任推给报告者，并让真正的缺陷被忽略。
   - troubleshooting 只写用户自己能做的动作（打开哪个页面、执行什么命令、确认哪项配置）；「提供日志」这类索要信息属于 missingInformation，不要写在这里。
   - proposedChanges 的 path 必须是你确认存在的真实文件。只有在你确实读取过源码时才填 locator（行号或符号名）；没读过就省略 locator，服务端会校验并移除凭空给出的定位。
   - 完全无法判断原因时，省略 probableCause，但仍应尽量给出 troubleshooting。

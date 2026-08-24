@@ -700,11 +700,22 @@ async function postSetup(url: string, body: unknown): Promise<unknown> {
   const data = (await response.json().catch(() => ({}))) as {
     reason?: string;
     hint?: string;
+    httpStatus?: number;
+    endpoint?: string;
+    detail?: string;
   };
   if (!response.ok) {
-    throw new Error(
-      data.reason ? `${data.reason}${data.hint ? ` — ${data.hint}` : ""}` : `request failed with ${response.status}`,
-    );
+    if (!data.reason) throw new Error(`request failed with ${response.status}`);
+    // 带上上游状态码、实际请求的端点与返回正文：这些才是用户判断
+    // 「密钥无效 / 余额不足 / 地址不对」的依据，丢掉就只剩一个错误码。
+    const parts = [data.reason];
+    if (data.hint) parts.push(`— ${data.hint}`);
+    const extras: string[] = [];
+    if (data.httpStatus) extras.push(`上游状态 ${data.httpStatus}`);
+    if (data.endpoint) extras.push(`请求 ${data.endpoint}`);
+    if (data.detail) extras.push(`返回 ${data.detail}`);
+    if (extras.length > 0) parts.push(`（${extras.join("；")}）`);
+    throw new Error(parts.join(" "));
   }
   return data;
 }

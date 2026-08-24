@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { hostname } from "node:os";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, like } from "drizzle-orm";
 import {
   createCredentialCipher,
   loadConfig,
@@ -311,9 +311,27 @@ async function main(): Promise<void> {
   };
 
   const adapters = new Map<string, ModelProviderAdapter>();
-  for (const [provider, baseUrl] of Object.entries(
-    config.modelProviderBaseUrls,
-  )) {
+  // 环境变量提供初始基址，WebUI 里保存的 provider 基址覆盖同名项 ——
+  // 否则界面新增的 provider 没有 adapter，路由会判为 model_not_found。
+  const baseUrls = new Map<string, string>(
+    Object.entries(config.modelProviderBaseUrls),
+  );
+  try {
+    const rows = await database.db
+      .select({ key: systemSettings.key, value: systemSettings.value })
+      .from(systemSettings)
+      .where(like(systemSettings.key, "model_provider_base_url:%"));
+    for (const row of rows) {
+      const provider = row.key.slice("model_provider_base_url:".length);
+      if (provider && row.value.trim()) baseUrls.set(provider, row.value.trim());
+    }
+  } catch (error) {
+    logger.warn(
+      { err: error },
+      "runtime provider base urls unavailable; using environment only",
+    );
+  }
+  for (const [provider, baseUrl] of baseUrls) {
     adapters.set(
       provider,
       createOpenAICompatibleAdapter({ provider, baseUrl, resolveApiKey }),
