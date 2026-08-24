@@ -81,7 +81,7 @@ describe("已安装仓库页（#15 收尾）", () => {
     fetchRepositories.mockResolvedValue({ items: [REPO], githubConfigured: true });
     renderPage();
     expect(await screen.findByText("widget")).toBeTruthy();
-    expect(screen.getByText(/acme/)).toBeTruthy();
+    expect(screen.getByText("· acme")).toBeTruthy();
     expect(screen.getByText("3 任务")).toBeTruthy();
     expect(screen.getByText("5 结果")).toBeTruthy();
   });
