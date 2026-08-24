@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AperturePrism — GitHub Issue 分析与 PR 审查平台</title>
+  <meta name="description" content="AperturePrism 把 AI 代码审查做成一条可落地的产品链路：多模型路由驱动 Issue 结构化分级与 PR 多专家审查，附带 Web 控制台、重复检测、仓库记忆与 QQ 机器人。Docker 一键部署。" />
+  <meta property="og:title" content="AperturePrism — AI 代码审查平台" />
+  <meta property="og:description" content="把 AI 代码审查做成一条可落地的产品链路，而不是单个模型调用。" />
+  <meta property="og:type" content="website" />
+  <link rel="preload" href="assets/fonts/cabinet-800.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="assets/fonts/geist.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="assets/fonts/geist-mono.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+
+  <!-- ============ 顶部导航 ============ -->
+  <header class="nav" id="nav">
+    <div class="container nav__inner">
+      <a class="brand" href="#top" aria-label="AperturePrism 首页">
+        <img class="brand__mark" src="assets/logo.png" alt="AperturePrism" />
+      </a>
+
+      <nav class="nav__links" aria-label="主导航">
+        <a href="#capabilities">核心能力</a>
+        <a href="#pipeline">工作链路</a>
+        <a href="#architecture">系统架构</a>
+        <a href="#console">控制台</a>
+        <a href="#quickstart">快速开始</a>
+      </nav>
+
+      <div class="nav__actions">
+        <a class="btn btn--ghost" href="https://github.com/BB0813/AperturePrism-AI-Review" target="_blank" rel="noreferrer">GitHub</a>
+        <a class="btn btn--primary" href="#quickstart">开始部署</a>
+        <button class="nav__toggle" id="navToggle" aria-label="打开菜单" aria-expanded="false">
+          <span></span><span></span><span></span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 移动端抽屉菜单 -->
+  <div class="drawer" id="drawer" aria-hidden="true">
+    <nav class="drawer__links" aria-label="移动端导航">
+      <a href="#capabilities">核心能力</a>
+      <a href="#pipeline">工作链路</a>
+      <a href="#architecture">系统架构</a>
+      <a href="#console">控制台</a>
+      <a href="#quickstart">快速开始</a>
+      <a href="https://github.com/BB0813/AperturePrism-AI-Review" target="_blank" rel="noreferrer">GitHub ↗</a>
+    </nav>
+  </div>
+
+  <main id="main">
+    <!-- ============ Hero ============ -->
+    <section class="hero" id="top">
+      <div class="hero__prism" aria-hidden="true">
+        <svg viewBox="0 0 1200 700" preserveAspectRatio="xMidYMid slice">
+          <defs>
+            <linearGradient id="beam" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#5eead4" stop-opacity=".55"/>
+              <stop offset=".5" stop-color="#22d3ee" stop-opacity=".35"/>
+              <stop offset="1" stop-color="#818cf8" stop-opacity=".55"/>
+            </linearGradient>
+            <linearGradient id="beamB" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#a78bfa" stop-opacity="0"/>
+              <stop offset="1" stop-color="#22d3ee" stop-opacity=".5"/>
+            </linearGradient>
+          </defs>
+          <g class="hero__rays">
+            <rect x="300" y="0" width="2" height="700" fill="url(#beam)" opacity=".6"/>
+            <rect x="438" y="0" width="2" height="700" fill="url(#beam)" opacity=".4"/>
+            <rect x="600" y="0" width="2" height="700" fill="url(#beam)" opacity=".5"/>
+            <rect x="720" y="0" width="2" height="700" fill="url(#beam)" opacity=".3"/>
+            <rect x="190" y="0" width="2" height="700" fill="url(#beamB)" opacity=".5"/>
+            <rect x="900" y="0" width="2" height="700" fill="url(#beamB)" opacity=".7"/>
+          </g>
+        </svg>
+      </div>
+
+      <div class="container hero__inner">
+        <img class="hero__mark" src="assets/logo.png" alt="AperturePrism — 光圈与三棱镜组合 Logo" />
+
+        <p class="hero__eyebrow mono">GITHUB ISSUE ANALYSIS · PR REVIEW · AI</p>
+        <h1 class="hero__title">把「AI 代码审查」<br />做成一条<span class="accent">可落地的产品链路</span></h1>
+        <p class="hero__lead">
+          不是单个模型调用，而是一整套生产级链路：<strong>多模型路由</strong>驱动 Issue 结构化分级与 PR
+          多专家审查，幂等发布评论 · 重复检测 · 仓库记忆 · 深色 Web 控制台 · QQ 机器人 · Docker 一键部署。
+        </p>
+
+        <div class="hero__cta">
+          <a class="btn btn--primary btn--lg" href="#quickstart">
+            <span>Docker 一键部署</span>
+            <svg class="btn__arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+          </a>
+          <a class="btn btn--ghost btn--lg" href="#capabilities">探索核心能力</a>
+        </div>
+
+        <div class="hero__meta mono">
+          <span>TypeScript</span><i></i>
+          <span>PostgreSQL + pgvector</span><i></i>
+          <span>Redis</span><i></i>
+          <span>Docker</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 一句话价值 ============ -->
+    <section class="manifesto">
+      <div class="container">
+        <h2 class="manifesto__line">
+          入口 → 调度 → 分析 → 增强 → 发布 → 运营，
+          <span class="accent">一条完整闭环</span>
+        </h2>
+        <p class="manifesto__sub">
+          从 GitHub Webhook / OAuth 接入，到持久任务引擎、多模型路由与增强能力（重复检测 · 仓库记忆 ·
+          专家团队），再到幂等发布与运维——AperturePrism 让每次审查都稳定、可追溯、可运营。
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 核心能力 ============ -->
+    <section class="section" id="capabilities">
+      <div class="container">
+        <header class="section__head reveal">
+          <h2 class="section__title">核心能力</h2>
+          <p class="section__desc">围绕审查全生命周期编排，能力可整合、可独立开关。</p>
+        </header>
+
+        <div class="grid grid--3">
+          <article class="card reveal">
+            <div class="card__icon" data-c="issue">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="8" r="1.1" fill="currentColor"/><path d="M12 11.5v4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+            </div>
+            <h3>Issue 结构化分析</h3>
+            <p>Webhook 幂等入库 → 上下文预算化 → 结构化分级（S0–S3 / P0–P3 / 完整度），自动识别广告垃圾，幂等评论 + 自动打标。</p>
+          </article>
+
+          <article class="card reveal">
+            <div class="card__icon" data-c="pr">
+              <svg viewBox="0 0 24 24"><path d="M6 3v12M6 15a3 3 0 100 6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M17 21V9a4 4 0 00-4-4H6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+            </div>
+            <h3>PR 多专家审查</h3>
+            <p>diff 解析与行映射、大小 / 预算降级、行级 finding + 服务端严重度策略，编制 Check Runs，幂等发布 Review。</p>
+          </article>
+
+          <article class="card reveal">
+            <div class="card__icon" data-c="dup">
+              <svg viewBox="0 0 24 24"><path d="M4 20v-9c0-1 1-2 2-2h9" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M7 4H5v2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+            </div>
+            <h3>重复 Issue 检测</h3>
+            <p>模板清洗 + 信号抽取（错误码 / 路径 / 堆栈）+ 全文 GIN + pgvector 向量召回 → 服务端模型裁决，精准识别重复。</p>
+          </article>
+
+          <article class="card reveal">
+            <div class="card__icon" data-c="mem">
+              <svg viewBox="0 0 24 24"><path d="M12 3l2.4 1.8 3-.4 1 2.9 2.7 1.4-.8 2.9 1.6 2.6-2.4 1.8v3L15.7 21l-2.7-.4L12 22l-1-1.4L8.3 21 6.5 19.6v-3L4.1 14.8l1.6-2.6-.8-2.9 2.7-1.4 1-2.9 3 .4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="11" r="2.4" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>
+            </div>
+            <h3>仓库记忆</h3>
+            <p>每次分析 / 审查自动沉淀「反思」，Scheduler 定期用模型合并为规则 / 知识，下次分析时上下文热回灌。</p>
+          </article>
+
+          <article class="card reveal">
+            <div class="card__icon" data-c="agents">
+              <svg viewBox="0 0 24 24"><circle cx="8" cy="8" r="2.4" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="17" cy="10" r="2.4" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="11" cy="17" r="2.4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8.6 9.3l1.8 5.3M15.6 11.2l-2.8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            </div>
+            <h3>Agent Skills / 专家团队</h3>
+            <p>6 个内置技能（triage / security / dependency / performance / docs / test）+ 多专家并行审查 + 主编合并。</p>
+          </article>
+
+          <article class="card reveal">
+            <div class="card__icon" data-c="qq">
+              <svg viewBox="0 0 24 24"><rect x="3" y="5.5" width="18" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M7 9h.01M11 9h.01M7 13h8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+            </div>
+            <h3>QQ 机器人渠道</h3>
+            <p>NTQQ 第三方协议（OneBot 11 / Satori / Milky）与官方开放平台 api-v2，把审查能力带到 IM 触手可及之处。</p>
+          </article>
+
+          <article class="card reveal">
+            <div class="card__icon" data-c="console">
+              <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M6 9l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 15h4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+            </div>
+            <h3>深色 Web 控制台</h3>
+            <p>概览 / 日志 / Issue / PR / 队列 / 仓库 / 向量存储 / 记忆 / 配置 …… 实时 SSE 事件流 + 断线回放，单页全覆盖。</p>
+          </article>
+
+          <article class="card reveal">
+            <div class="card__icon" data-c="multi">
+              <svg viewBox="0 0 24 24"><circle cx="6" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="18" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="10" cy="17" r="2.2" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="16" cy="17" r="2.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8 9h8M6.5 11l3.2 3.8M17.5 11L14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            </div>
+            <h3>多模型路由</h3>
+            <p>OpenAI 兼容 Provider，密钥 AES-GCM 加密；统一 deadline、重试与故障转移，角色级策略按需路由。</p>
+          </article>
+
+          <article class="card reveal">
+            <div class="card__icon" data-c="deploy">
+              <svg viewBox="0 0 24 24"><path d="M5 12a7 7 0 0114 0" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M6 16l-1.8 2M18 16l1.8 2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M12 12l-2.4 4M12 12l2.4 4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+            </div>
+            <h3>Docker 一键部署 + 在线更新</h3>
+            <p>api / 各 worker / web 全栈打包，迁移备份脚本齐全；WebUI 一键检查更新，失败自动回滚。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 工作链路 ============ -->
+    <section class="section section--alt" id="pipeline">
+      <div class="container">
+        <header class="section__head reveal">
+          <h2 class="section__title">一条完整的工作链路</h2>
+          <p class="section__desc">审查不止是一个「生成回复」的模型调用，而是六个清晰阶段。</p>
+        </header>
+
+        <ol class="pipe">
+          <li class="pipe__item reveal">
+            <span class="pipe__num mono">01</span>
+            <h3>入口</h3>
+            <p>GitHub Webhook（验签 + 幂等入库）、WebUI 手动触发、QQ 机器人指令。</p>
+          </li>
+          <li class="pipe__item reveal">
+            <span class="pipe__num mono">02</span>
+            <h3>调度</h3>
+            <p>持久化任务引擎（状态机 / 租约 / 重试 / 幂等），Scheduler 回收租约与到期重试。</p>
+          </li>
+          <li class="pipe__item reveal">
+            <span class="pipe__num mono">03</span>
+            <h3>分析</h3>
+            <p>多模型路由在统一 deadline 下调用：Issue 输出结构化分级，PR 输出行级 finding。</p>
+          </li>
+          <li class="pipe__item reveal">
+            <span class="pipe__num mono">04</span>
+            <h3>增强</h3>
+            <p>重复检测、仓库记忆、Agent Skills + 多专家并行审查，让结论更聪明。</p>
+          </li>
+          <li class="pipe__item reveal">
+            <span class="pipe__num mono">05</span>
+            <h3>发布</h3>
+            <p>幂等发布 GitHub 评论 / Review（head SHA 绑定），标签规则自动打标。</p>
+          </li>
+          <li class="pipe__item reveal">
+            <span class="pipe__num mono">06</span>
+            <h3>运营</h3>
+            <p>SSE 实时事件 + 断线回放、审计、备份、速率限制、在线更新，全程可运维。</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ============ 系统架构 ============ -->
+    <section class="section" id="architecture">
+      <div class="container">
+        <header class="section__head reveal">
+          <h2 class="section__title">系统架构</h2>
+          <p class="section__desc">事件入口与 API 统一接入，任务被有韧性地调度到各 worker 并行执行。</p>
+        </header>
+
+        <div class="arch reveal">
+          <div class="arch__row arch__row--entry">
+            <span class="chip">GitHub App / Webhook</span>
+            <span class="chip">GitHub OAuth 登录</span>
+            <span class="chip">QQ 机器人 (NTQQ / 官方)</span>
+            <span class="chip">WebUI (React + nginx)</span>
+            <span class="chip chip--core">apps/api · Webhook / 认证 / 任务 / 结果 / SSE / 配置 / 审计</span>
+          </div>
+
+          <div class="arch__vert"><span class="mono">任务入队 / 结果回写</span></div>
+
+          <div class="arch__row arch__row--store">
+            <span class="chip chip--store">PostgreSQL (pgvector)</span>
+            <span class="chip chip--store">Redis</span>
+          </div>
+
+          <div class="arch__vert"><span class="mono">领取 / 心跳 / 完成</span></div>
+
+          <div class="arch__row arch__row--workers">
+            <span class="chip chip--w">analysis-worker<br /><small>Issue / PR 分析 · 多模型路由 · 专家团队</small></span>
+            <span class="chip chip--w">index-worker<br /><small>索引 + RAG embedding</small></span>
+            <span class="chip chip--w">scheduler<br /><small>租约回收 · 重试 · 记忆合并</small></span>
+            <span class="chip chip--w">scan-worker<br /><small>仓库定期扫描</small></span>
+            <span class="chip chip--w">qq-bot<br /><small>QQ 渠道适配</small></span>
+          </div>
+        </div>
+
+        <div class="stackrow reveal">
+          <div class="stack">
+            <span class="stack__label mono">模型</span>
+            <strong>OpenAI 兼容多模型路由</strong>
+            <p>AES-GCM 加密密钥 · 角色级策略 · 统一 deadline / 故障转移</p>
+          </div>
+          <div class="stack">
+            <span class="stack__label mono">向量</span>
+            <strong>nv-embed-v1 · 4096 维</strong>
+            <p>pgvector 召回 + 全文 GIN，召回与裁决分离</p>
+          </div>
+          <div class="stack">
+            <span class="stack__label mono">真实时</span>
+            <strong>SSE 事件流</strong>
+            <p>实时增量 + 断线回放，审查进度尽在掌握</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 控制台截图 ============ -->
+    <section class="section section--alt" id="console">
+      <div class="container">
+        <header class="section__head reveal">
+          <h2 class="section__title">深色 Web 控制台</h2>
+          <p class="section__desc">浅色 / 深色双主题，同一源码。概览、日志、任务队列一目了然。</p>
+        </header>
+
+        <div class="shots">
+          <figure class="shot reveal">
+            <div class="shot__frame">
+              <img src="assets/screenshots/overview-dark.png" alt="AperturePrism 概览仪表盘（深色主题）" loading="lazy" />
+            </div>
+            <figcaption>概览仪表盘 · 深色</figcaption>
+          </figure>
+          <figure class="shot reveal">
+            <div class="shot__frame">
+              <img src="assets/screenshots/overview-light.png" alt="AperturePrism 概览仪表盘（浅色主题）" loading="lazy" />
+            </div>
+            <figcaption>概览仪表盘 · 浅色</figcaption>
+          </figure>
+          <figure class="shot reveal">
+            <div class="shot__frame">
+              <img src="assets/screenshots/tasks.png" alt="AperturePrism 任务队列" loading="lazy" />
+            </div>
+            <figcaption>任务队列 · 分段筛选</figcaption>
+          </figure>
+          <figure class="shot reveal">
+            <div class="shot__frame">
+              <img src="assets/screenshots/logs.png" alt="AperturePrism 日志总览" loading="lazy" />
+            </div>
+            <figcaption>日志总览 · 断点续传</figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 快速开始 ============ -->
+    <section class="section" id="quickstart">
+      <div class="container">
+        <header class="section__head reveal">
+          <h2 class="section__title">快速开始</h2>
+          <p class="section__desc">一行命令，Docker 全栈拉起；也可以用源码方式在本地开发。</p>
+        </header>
+
+        <div class="quick reveal">
+          <div class="quick__block">
+            <h3 class="quick__title">方式 A · Docker 一键部署</h3>
+            <div class="code" data-cmd>curl -fsSL https://raw.githubusercontent.com/BB0813/AperturePrism-AI-Review/main/scripts/bootstrap.sh | bash</div>
+          </div>
+          <div class="quick__block">
+            <h3 class="quick__title">方式 B · 本地开发</h3>
+            <div class="code" data-cmd>npm install && npm run build && node scripts/migrate.mjs</div>
+          </div>
+          <div class="quick__block">
+            <h3 class="quick__title">验证就绪</h3>
+            <div class="code" data-cmd>curl http://&lt;host&gt;/health/ready   # 200 = DB + Redis 均就绪</div>
+          </div>
+          <p class="quick__hint mono">WebUI 内提供一键在线更新 · 失败自动回滚 · 参考 <a href="docs" download>环境变量模板</a></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 社区 / CTA ============ -->
+    <section class="section cta">
+      <div class="container">
+        <div class="cta__panel reveal">
+          <h2 class="cta__title">现在就把 AI 代码审查接入你的仓库</h2>
+          <p class="cta__sub">开源 · 自托管 · 模型自由配置。开始探索 AperturePrism。</p>
+          <div class="cta__actions">
+            <a class="btn btn--primary btn--lg" href="https://github.com/BB0813/AperturePrism-AI-Review" target="_blank" rel="noreferrer">
+              GitHub 仓库 <span aria-hidden="true">↗</span>
+            </a>
+            <a class="btn btn--ghost btn--lg" href="#quickstart">返回部署指引</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ 页脚 ============ -->
+  <footer class="footer">
+    <div class="container footer__inner">
+      <div class="footer__brand">
+        <img class="footer__mark" src="assets/logo.png" alt="AperturePrism" />
+        <p>把 AI 代码审查做成一条可落地的产品链路。</p>
+      </div>
+      <div class="footer__links">
+        <a href="#capabilities">核心能力</a>
+        <a href="#pipeline">工作链路</a>
+        <a href="#architecture">系统架构</a>
+        <a href="#quickstart">快速开始</a>
+      </div>
+      <div class="footer__links">
+        <a href="https://github.com/BB0813/AperturePrism-AI-Review" target="_blank" rel="noreferrer">GitHub 仓库 ↗</a>
+        <a href="https://www.aprism.top" target="_blank" rel="noreferrer">aprism.top ↗</a>
+        <a href="https://linux.do" target="_blank" rel="noreferrer">技术社区 · Linux.do ↗</a>
+      </div>
+      <p class="footer__copy mono">APERTUREPRISM © <span id="year"></span> · 开源 · MIT License</p>
+    </div>
+  </footer>
+
+  <script src="assets/app.js"></script>
+</body>
+</html>
