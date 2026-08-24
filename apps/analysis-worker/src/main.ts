@@ -74,8 +74,10 @@ import {
 import {
   extractIssueSignals,
   getIndexedIssueText,
+  judgeDuplicates,
   normalizedIndexText,
   recallCandidatesWithRepos,
+  type RelatedIssueRow,
   type SqlTag,
 } from "../../../packages/duplicate-detection/src/index.js";
 import {
@@ -470,8 +472,9 @@ async function main(): Promise<void> {
     },
 
     recallRelated: async (context) => {
+      let recalled: RelatedIssueRow[] = [];
       try {
-        return await recallCandidatesWithRepos(
+        recalled = await recallCandidatesWithRepos(
           database.sql as unknown as SqlTag,
           {
             title: context.issue.title,
@@ -490,6 +493,47 @@ async function main(): Promise<void> {
         );
       } catch (error) {
         logger.warn({ err: error }, "related-issue recall skipped");
+        return [];
+      }
+      if (recalled.length === 0) return [];
+
+      // 让模型裁决召回候选，只保留确认相关/重复的，避免「文本相似但实际无关」
+      // 的误关联（曾把提示词注入测试与获取模型失败这两个无关 issue 列在一起）。
+      // 裁决失败或模型判定无关时一律不列出，而不是退回原始召回。
+      try {
+        const outcome = await judgeDuplicates(
+          {
+            adapters,
+            candidates: issueCandidates,
+            deadlineMs: analysisDeadlineMs,
+            retryPolicy: analysisRetryPolicy,
+          },
+          {
+            lead: {
+              issueNumber: context.issue.number,
+              title: context.issue.title,
+              body: context.issue.body,
+            },
+            candidates: recalled.map((row) => ({
+              issueNumber: row.issueNumber,
+              title: row.title,
+              body: row.body,
+            })),
+          },
+        );
+        if (outcome.outcome !== "valid") return [];
+        if (
+          outcome.judgment.decision === "not_duplicate" ||
+          outcome.judgment.decision === "insufficient_evidence"
+        )
+          return [];
+        const confirmed = new Set(outcome.judgment.relatedIssues);
+        return recalled.filter((row) => confirmed.has(row.issueNumber));
+      } catch (error) {
+        logger.warn(
+          { err: error },
+          "related-issue adjudication failed; listing none",
+        );
         return [];
       }
     },

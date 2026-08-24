@@ -74,6 +74,8 @@ describe("issue comment templates", () => {
         issueNumber: 42,
         score: 12.5,
         reasons: ["text", "signal"] as const,
+        title: "同仓库的历史 issue",
+        body: "正文",
       },
     ];
     const comment = buildIssueAnalysisComment(graded, related);

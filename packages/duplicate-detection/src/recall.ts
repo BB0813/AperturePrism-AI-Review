@@ -225,6 +225,9 @@ export type RelatedIssueRow = {
   /** Combined recall score: full-text rank (0..1) plus signal hits. */
   score: number;
   reasons: readonly ("text" | "signal")[];
+  /** 索引时的标题/正文，供下游裁决（如 judge 模型）使用，不参与排序。 */
+  title: string;
+  body: string;
 };
 
 /**
@@ -265,6 +268,8 @@ export async function recallCandidatesWithRepos(
     select d.id, d.repository_id::text as "repositoryId",
       r.owner || '/' || r.name as "repositoryFullName",
       d.issue_number as "issueNumber",
+      d.title as "title",
+      d.body as "body",
       ts_rank(to_tsvector('simple', d.body || ' ' || d.title), websearch_to_tsquery('simple', ${leadText})) as "ftsRank",
       array_length(array_cat(
         (select array_agg(x) from unnest(d.error_codes) x where x = any(${input.signals.errorCodes})),
@@ -312,6 +317,8 @@ export async function recallCandidatesWithRepos(
       score:
         Math.round((ftsRank * 100 + signalRank * 10 + gramRank) * 100) / 100,
       reasons,
+      title: String(row.title ?? ""),
+      body: String(row.body ?? ""),
     };
   });
 }
