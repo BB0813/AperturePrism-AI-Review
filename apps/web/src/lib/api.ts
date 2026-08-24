@@ -391,6 +391,12 @@ export type SettingItem = {
   /** 数据库里是否有覆盖。 */
   hasValue: boolean;
   updatedAt: string | null;
+  /** 密钥轮换：旧值在回滚窗口内（换错了可回滚）。仅 secret 且有轮换时存在。 */
+  rotation?: {
+    hasPrevious: boolean;
+    rotatedAt: string | null;
+    previousExpiresAt: string | null;
+  };
 };
 export type SettingsList = { items: SettingItem[] };
 
@@ -768,6 +774,8 @@ export type UserRow = {
   login: string;
   displayName: string;
   isAdmin: boolean;
+  /** 只读操作员：可查看，禁止写操作。 */
+  isReadOnly: boolean;
 };
 
 /** Lists known users (admin only). */
@@ -776,14 +784,17 @@ export async function fetchUsers(): Promise<UserRow[]> {
   return result.items;
 }
 
-/** Promotes/demotes a user's admin flag (admin only). */
-export async function setUserAdmin(login: string, isAdmin: boolean): Promise<UserRow> {
+/** 更新用户角色位（管理员 / 只读操作员）。 */
+export async function setUserRoles(
+  login: string,
+  roles: { isAdmin?: boolean; isReadOnly?: boolean },
+): Promise<UserRow> {
   const response = await fetch(`/users/${encodeURIComponent(login)}`, {
     method: "PUT",
     headers: { "content-type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ isAdmin }),
+    body: JSON.stringify(roles),
   });
-  if (!response.ok) throw new Error(`set admin ${response.status}`);
+  if (!response.ok) throw new Error(`set user roles ${response.status}`);
   return (await response.json()) as UserRow;
 }
 

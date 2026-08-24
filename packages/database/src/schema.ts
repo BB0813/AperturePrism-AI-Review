@@ -386,6 +386,8 @@ export const users = pgTable(
     login: text("login").notNull(),
     displayName: text("display_name").default("").notNull(),
     isAdmin: boolean("is_admin").default(false).notNull(),
+    /** 只读操作员：可登录查看，禁止一切写操作（OAuth 用户）。 */
+    isReadOnly: boolean("is_read_only").default(false).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

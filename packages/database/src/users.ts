@@ -8,7 +8,30 @@ export type UserRow = {
   login: string;
   displayName: string;
   isAdmin: boolean;
+  /** 只读操作员：可查看，禁止写操作。 */
+  isReadOnly: boolean;
 };
+
+const USER_COLUMNS = {
+  login: schema.users.login,
+  displayName: schema.users.displayName,
+  isAdmin: schema.users.isAdmin,
+  isReadOnly: schema.users.isReadOnly,
+} as const;
+
+function toRow(row: {
+  login: string;
+  displayName: string;
+  isAdmin: boolean;
+  isReadOnly: boolean;
+}): UserRow {
+  return {
+    login: row.login,
+    displayName: row.displayName,
+    isAdmin: row.isAdmin,
+    isReadOnly: row.isReadOnly,
+  };
+}
 
 /**
  * Creates the user on first OAuth login; otherwise a no-op. The very first
@@ -41,17 +64,12 @@ export async function getUser(
   login: string,
 ): Promise<UserRow | null> {
   const rows = await db
-    .select({
-      login: schema.users.login,
-      displayName: schema.users.displayName,
-      isAdmin: schema.users.isAdmin,
-    })
+    .select(USER_COLUMNS)
     .from(schema.users)
     .where(eq(schema.users.login, login))
     .limit(1);
   const row = rows[0];
-  if (!row) return null;
-  return { login: row.login, displayName: row.displayName, isAdmin: row.isAdmin };
+  return row ? toRow(row) : null;
 }
 
 export async function updateDisplayName(
@@ -63,45 +81,43 @@ export async function updateDisplayName(
     .update(schema.users)
     .set({ displayName: displayName.trim(), updatedAt: new Date() })
     .where(eq(schema.users.login, login))
-    .returning({
-      login: schema.users.login,
-      displayName: schema.users.displayName,
-      isAdmin: schema.users.isAdmin,
-    });
+    .returning(USER_COLUMNS);
   const row = updated[0];
-  if (!row) return null;
-  return { login: row.login, displayName: row.displayName, isAdmin: row.isAdmin };
+  return row ? toRow(row) : null;
 }
 
-/** Promotes or demotes a user; returns the updated row or null. */
+/**
+ * 更新用户的角色位：管理员 / 只读操作员。两者正交（只读且管理员 = 管理员，
+ * 但仍建议 UI 上互斥）。未提供的字段保持不变。
+ */
+export async function setUserRoles(
+  db: Database,
+  login: string,
+  roles: { isAdmin?: boolean; isReadOnly?: boolean },
+): Promise<UserRow | null> {
+  const updated = await db
+    .update(schema.users)
+    .set({ ...roles, updatedAt: new Date() })
+    .where(eq(schema.users.login, login))
+    .returning(USER_COLUMNS);
+  const row = updated[0];
+  return row ? toRow(row) : null;
+}
+
+/** 兼容旧调用：单独升降管理员位。 */
 export async function setAdmin(
   db: Database,
   login: string,
   isAdmin: boolean,
 ): Promise<UserRow | null> {
-  const updated = await db
-    .update(schema.users)
-    .set({ isAdmin, updatedAt: new Date() })
-    .where(eq(schema.users.login, login))
-    .returning({
-      login: schema.users.login,
-      displayName: schema.users.displayName,
-      isAdmin: schema.users.isAdmin,
-    });
-  const row = updated[0];
-  if (!row) return null;
-  return { login: row.login, displayName: row.displayName, isAdmin: row.isAdmin };
+  return setUserRoles(db, login, { isAdmin });
 }
 
 /** Lists known users. */
 export async function listUsers(db: Database): Promise<UserRow[]> {
   const rows = await db
-    .select({
-      login: schema.users.login,
-      displayName: schema.users.displayName,
-      isAdmin: schema.users.isAdmin,
-    })
+    .select(USER_COLUMNS)
     .from(schema.users)
     .orderBy(asc(schema.users.login));
-  return rows;
+  return rows.map(toRow);
 }

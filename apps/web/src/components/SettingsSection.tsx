@@ -5,7 +5,7 @@ import {
   saveSetting,
   type SettingItem,
 } from "../lib/api";
-import { ErrorPanel, LoadingRows } from "./ui";
+import { ErrorPanel, LoadingRows, fmtTime } from "./ui";
 import { explainUnknown } from "../lib/errors";
 import { useToast } from "./Toast";
 
@@ -141,12 +141,21 @@ export function SettingField({
           </button>
           {canRevert ? (
             <button className="btn" style={{ fontSize: 12 }} disabled={busy} onClick={() => clear(item.key)}>
-              {item.envConfigured ? "回落环境变量" : "回落默认"}
+              {item.secret && item.rotation?.hasPrevious
+                ? "回滚旧值"
+                : item.envConfigured
+                  ? "回落环境变量"
+                  : "回落默认"}
             </button>
           ) : null}
         </div>
       )}
 
+      {item.secret && item.rotation?.hasPrevious ? (
+        <p className="faint" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--warn)" }}>
+          已轮换：旧值保留至 {fmtTime(item.rotation.previousExpiresAt ?? "")}，点「回滚旧值」可恢复。
+        </p>
+      ) : null}
       <p className="faint" style={{ margin: "8px 0 0", fontSize: 12 }}>{item.hint}</p>
     </div>
   );

@@ -1,8 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
-import { bumpCache, fetchMe, fetchUsers, setUserAdmin, type UserRow } from "../lib/api";
+import { bumpCache, fetchMe, fetchUsers, setUserRoles, type UserRow } from "../lib/api";
 import { RefreshIcon, ShieldIcon } from "../components/icons";
 import { ErrorPanel, LoadingRows } from "../components/ui";
 import { useToast } from "../components/Toast";
+
+/**
+ * 角色三态：管理员（全权）/ 只读操作员（可看不可改）/ 普通用户（基础查看）。
+ * 管理员与只读互斥：设为管理员即清除只读，设为只读即清除管理员。
+ */
+function roleLabel(user: UserRow): string {
+  if (user.isAdmin) return "管理员";
+  if (user.isReadOnly) return "只读操作员";
+  return "普通用户";
+}
 
 export function UsersPage() {
   const toast = useToast();
@@ -34,12 +44,15 @@ export function UsersPage() {
 
   useEffect(() => load(), [load]);
 
-  const toggle = async (login: string, next: boolean) => {
-    if (!next && !window.confirm(`确定要移除 ${login} 的管理员权限吗？`)) return;
+  /** 更新角色位；管理员与只读互斥由调用方保证。 */
+  const setRole = async (
+    login: string,
+    roles: { isAdmin?: boolean; isReadOnly?: boolean },
+  ) => {
     setBusy(login);
     try {
-      await setUserAdmin(login, next);
-      toast.success(`已${next ? "授予" : "移除"} ${login} 的管理员权限。`);
+      await setUserRoles(login, roles);
+      toast.success(`已更新 ${login} 的角色。`);
       load();
     } catch (err) {
       toast.error(`操作失败：${err instanceof Error ? err.message : err}`);
@@ -48,12 +61,31 @@ export function UsersPage() {
     }
   };
 
+  const toggleAdmin = (user: UserRow) => {
+    if (user.isAdmin) {
+      if (!window.confirm(`确定要移除 ${user.login} 的管理员权限吗？`)) return;
+      void setRole(user.login, { isAdmin: false });
+    } else {
+      void setRole(user.login, { isAdmin: true, isReadOnly: false });
+    }
+  };
+
+  const toggleReadOnly = (user: UserRow) => {
+    if (user.isReadOnly) {
+      if (!window.confirm(`确定要让 ${user.login} 恢复可写权限吗？`)) return;
+      void setRole(user.login, { isReadOnly: false });
+    } else {
+      if (!window.confirm(`确定要把 ${user.login} 设为只读操作员吗？将无法执行任何写操作。`)) return;
+      void setRole(user.login, { isAdmin: false, isReadOnly: true });
+    }
+  };
+
   return (
     <div className="stack">
       <div className="page-head">
         <div>
           <h1 className="page-title">用户管理</h1>
-          <p className="page-desc">GitHub OAuth 登录用户与管理员角色</p>
+          <p className="page-desc">GitHub OAuth 登录用户与角色（管理员 / 只读操作员）</p>
         </div>
         <div className="actions">
           <button className="btn" onClick={() => { bumpCache(); load(); }} disabled={loading}>
@@ -77,48 +109,50 @@ export function UsersPage() {
               </p>
             ) : (
               <div className="stack">
-                {users.map((user) => (
-                  <div
-                    key={user.login}
-                    className="result-card"
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 12,
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <div style={{ minWidth: 0, flex: "1 1 180px" }}>
-                      <div className="result-title" style={{ fontSize: 14 }}>
-                        {user.login}
-                      </div>
-                      {user.displayName ? (
-                        <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>
-                          {user.displayName}
-                        </div>
-                      ) : null}
-                    </div>
-                    <span className={`pill ${user.isAdmin ? "pill-ok" : "pill-dim"}`}>
-                      {user.isAdmin ? "管理员" : "普通用户"}
-                    </span>
-                    <button
-                      className="btn"
-                      disabled={busy === user.login}
-                      onClick={() => toggle(user.login, !user.isAdmin)}
+                {users.map((user) => {
+                  const busyUser = busy === user.login;
+                  return (
+                    <div
+                      key={user.login}
+                      className="result-card"
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 12,
+                        flexWrap: "wrap",
+                      }}
                     >
-                      {busy === user.login
-                        ? "保存中…"
-                        : user.isAdmin
-                          ? "移除管理员"
-                          : "设为管理员"}
-                    </button>
-                  </div>
-                ))}
+                      <div style={{ minWidth: 0, flex: "1 1 180px" }}>
+                        <div className="result-title" style={{ fontSize: 14 }}>
+                          {user.login}
+                        </div>
+                        {user.displayName ? (
+                          <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>
+                            {user.displayName}
+                          </div>
+                        ) : null}
+                      </div>
+                      <span
+                        className={`pill ${user.isAdmin ? "pill-ok" : user.isReadOnly ? "pill-warn" : "pill-dim"}`}
+                      >
+                        {roleLabel(user)}
+                      </span>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <button className="btn" disabled={busyUser} onClick={() => toggleAdmin(user)}>
+                          {busyUser ? "保存中…" : user.isAdmin ? "移除管理员" : "设为管理员"}
+                        </button>
+                        <button className="btn" disabled={busyUser} onClick={() => toggleReadOnly(user)}>
+                          {user.isReadOnly ? "恢复可写" : "设为只读"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
             <p className="faint" style={{ marginTop: 12, fontSize: 12 }}>
               {isAdmin
-                ? "管理员可管理用户、导入配置备份并执行初始化；其他敏感操作（设置、标签规则、索引重建）对所有已认证用户开放。"
+                ? "管理员可管理用户、配置与维护；只读操作员仅可登录查看（后端对所有写请求统一 403）；普通用户可登录查看并修改自身显示名。"
                 : "当前账号无管理员权限，只能查看。首个 OAuth 登录用户自动成为管理员。"}
             </p>
           </section>

@@ -11,6 +11,7 @@ export * from "./repository-settings.js";
 export * from "./scan.js";
 export * from "./settings-source.js";
 export * from "./settings-store.js";
+export * from "./settings-rotation.js";
 export * from "./schema.js";
 export * from "./users.js";
 export * from "./webhooks.js";

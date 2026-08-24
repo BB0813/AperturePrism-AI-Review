@@ -127,6 +127,13 @@
       "when": 1788700000000,
       "tag": "0017_repository_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1788900000000,
+      "tag": "0018_users_readonly",
+      "breakpoints": true
     }
   ]
 }

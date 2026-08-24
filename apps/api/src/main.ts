@@ -43,6 +43,9 @@ import {
   listScanRuns,
   loadSettings,
   putSetting,
+  clearSettingWithRotation,
+  putSettingWithRotation,
+  rotationInfo,
   resolveSettingValue,
   resolveGithubAppCredentials,
   seedDefaultLabelRules,
@@ -55,6 +58,7 @@ import {
   REPOSITORY_SETTING_KEYS,
   setAdmin,
   setRepositorySetting,
+  setUserRoles,
   subjectResults,
   systemSettings,
   taskAttempts,
@@ -2760,10 +2764,22 @@ async function handleSettings(
     // value: null 表示删除覆盖、回落到 env / 应用默认。没有这个动作的话，一旦
     // 存过值就再也回不去，只能在库里留一份 env 值的副本。
     if (parsed.value === null) {
-      await deleteSetting(database.db, key);
+      const secret = SECRET_KEYS.has(key);
+      // 密钥走轮换语义：宽限期内「清空」会回滚到旧值，换错了新密钥不必回退部署。
+      const result = secret
+        ? await clearSettingWithRotation(database.db, key)
+        : (await deleteSetting(database.db, key), { rolledBack: false });
       await refreshRuntimeSettings();
-      audit(request, "settings.clear", key, { secret: SECRET_KEYS.has(key) });
-      json(response, 200, { status: "ok", key, cleared: true }, requestId);
+      audit(request, "settings.clear", key, {
+        secret,
+        rolledBack: result.rolledBack,
+      });
+      json(
+        response,
+        200,
+        { status: "ok", key, cleared: true, ...result },
+        requestId,
+      );
       return;
     }
 
@@ -2780,12 +2796,17 @@ async function handleSettings(
       return;
     }
 
-    await putSetting(database.db, key, value);
+    // 密钥覆盖走轮换语义：旧值暂存 24h，换错了可在窗口内回滚；非密钥照常写入。
+    const secret = SECRET_KEYS.has(key);
+    let rotated = false;
+    if (secret) {
+      ({ rotated } = await putSettingWithRotation(database.db, key, value));
+    } else {
+      await putSetting(database.db, key, value);
+    }
     await refreshRuntimeSettings();
-    audit(request, "settings.update", key, {
-      secret: SECRET_KEYS.has(key),
-    });
-    json(response, 200, { status: "ok", key }, requestId);
+    audit(request, "settings.update", key, { secret, rotated });
+    json(response, 200, { status: "ok", key, rotated }, requestId);
     return;
   }
 
@@ -2798,46 +2819,51 @@ async function handleSettings(
     .from(systemSettings)
     .orderBy(asc(systemSettings.key));
   const byKey = new Map(rows.map((row) => [row.key, row]));
-  const items = KNOWN_SETTING_KEYS.map((key) => {
-    const spec = getSettingSpec(key);
-    const row = byKey.get(key);
-    const envValue = settingEnvValue(key);
-    const resolved = resolveSettingValue({
-      dbValue: row?.value,
-      envValue,
-    });
-    const secret = SECRET_KEYS.has(key);
-    const hasValue = Boolean(row && row.value.trim().length > 0);
-    // 生效值：secret 一律不回显，只说明「已配置」。
-    const effective =
-      resolved.value === undefined
-        ? settingDefaultValue(key)
-        : secret
-          ? "••••••••"
-          : resolved.value;
-    return {
-      key,
-      group: spec?.group ?? "ops",
-      kind: spec?.kind ?? "string",
-      label: spec?.label ?? key,
-      hint: spec?.hint ?? "",
-      secret,
-      repoScoped: spec?.repoScoped ?? false,
-      hotReload: spec?.hotReload ?? "poll",
-      ...(spec?.options ? { options: spec.options } : {}),
-      // source 是这次交互改造的核心：用户终于能看出「我改的到底生效没、
-      // 现在这个值是谁给的」。
-      source: resolved.source,
-      value: effective,
-      /** env 是否提供了兜底值（secret 不回显内容）。 */
-      envConfigured: envValue !== undefined,
-      envVar: spec?.envVar ?? null,
-      defaultValue: settingDefaultValue(key),
-      // 兼容旧前端：hasValue 表示「数据库里有覆盖」。
-      hasValue,
-      updatedAt: row?.updatedAt ?? null,
-    };
-  });
+  const items = await Promise.all(
+    KNOWN_SETTING_KEYS.map(async (key) => {
+      const spec = getSettingSpec(key);
+      const row = byKey.get(key);
+      const envValue = settingEnvValue(key);
+      const resolved = resolveSettingValue({
+        dbValue: row?.value,
+        envValue,
+      });
+      const secret = SECRET_KEYS.has(key);
+      const hasValue = Boolean(row && row.value.trim().length > 0);
+      // 生效值：secret 一律不回显，只说明「已配置」。
+      const effective =
+        resolved.value === undefined
+          ? settingDefaultValue(key)
+          : secret
+            ? "••••••••"
+            : resolved.value;
+      const rotation = secret ? await rotationInfo(database.db, key) : null;
+      return {
+        key,
+        group: spec?.group ?? "ops",
+        kind: spec?.kind ?? "string",
+        label: spec?.label ?? key,
+        hint: spec?.hint ?? "",
+        secret,
+        repoScoped: spec?.repoScoped ?? false,
+        hotReload: spec?.hotReload ?? "poll",
+        ...(spec?.options ? { options: spec.options } : {}),
+        // source 是这次交互改造的核心：用户终于能看出「我改的到底生效没、
+        // 现在这个值是谁给的」。
+        source: resolved.source,
+        value: effective,
+        /** env 是否提供了兜底值（secret 不回显内容）。 */
+        envConfigured: envValue !== undefined,
+        envVar: spec?.envVar ?? null,
+        defaultValue: settingDefaultValue(key),
+        // 兼容旧前端：hasValue 表示「数据库里有覆盖」。
+        hasValue,
+        updatedAt: row?.updatedAt ?? null,
+        // 密钥轮换：旧值在回滚窗口内的过期时间（用于 UI 提示）。
+        ...(rotation && rotation.hasPrevious ? { rotation } : {}),
+      };
+    }),
+  );
   json(response, 200, { items }, requestId);
 }
 
@@ -3117,7 +3143,13 @@ async function handleAccount(
       json(
         response,
         200,
-        { login: null, displayName: null, isAdmin: false, authMethod: "bearer" },
+        {
+          login: null,
+          displayName: null,
+          isAdmin: false,
+          isReadOnly: false,
+          authMethod: "bearer",
+        },
         requestId,
       );
       return;
@@ -3130,6 +3162,7 @@ async function handleAccount(
         login,
         displayName: user?.displayName ?? "",
         isAdmin: user?.isAdmin === true,
+        isReadOnly: user?.isReadOnly === true,
         authMethod: "oauth",
       },
       requestId,
@@ -3180,6 +3213,17 @@ async function isAdminRequest(request: IncomingMessage): Promise<boolean> {
   if (!login) return true;
   const user = await getUser(database.db, login);
   return user?.isAdmin === true;
+}
+
+/**
+ * 只读操作员判定（OAuth 用户）。Bearer token 是管理员凭据，永不视为只读。
+ * 只读用户可登录查看，但一切写操作都会被全局拦截。
+ */
+async function isReadOnlyRequest(request: IncomingMessage): Promise<boolean> {
+  const login = sessionLogin(request);
+  if (!login) return false;
+  const user = await getUser(database.db, login);
+  return user?.isReadOnly === true;
 }
 
 /**
@@ -3247,21 +3291,27 @@ async function handleUsers(
       return;
     }
     const body = await readBody(request);
-    let parsed: { isAdmin?: unknown };
+    let parsed: { isAdmin?: unknown; isReadOnly?: unknown };
     try {
       parsed = JSON.parse(body.toString("utf8"));
     } catch {
       json(response, 400, { status: "error", reason: "invalid JSON" }, requestId);
       return;
     }
-    const user = await setAdmin(database.db, login, parsed.isAdmin === true);
+    // 角色位：管理员 / 只读操作员，各自独立、未提供则保持不变。
+    const roles: { isAdmin?: boolean; isReadOnly?: boolean } = {};
+    if (typeof parsed.isAdmin === "boolean") roles.isAdmin = parsed.isAdmin;
+    if (typeof parsed.isReadOnly === "boolean")
+      roles.isReadOnly = parsed.isReadOnly;
+    const user = await setUserRoles(database.db, login, roles);
     if (!user) {
       json(response, 404, { status: "error", reason: "user not found" }, requestId);
       return;
     }
     // 权限变更是高敏感操作，必须留痕。
-    audit(request, "users.set_admin", login, {
-      isAdmin: parsed.isAdmin === true,
+    audit(request, "users.update_role", login, {
+      isAdmin: roles.isAdmin ?? null,
+      isReadOnly: roles.isReadOnly ?? null,
     });
     json(response, 200, { status: "ok", ...user }, requestId);
     return;
@@ -4251,6 +4301,27 @@ async function handleRequest(
 
   if (requiresAuth(path) && !isAuthorized(request)) {
     json(response, 401, { status: "error", reason: "unauthorized" }, requestId);
+    return;
+  }
+
+  // 只读操作员（OAuth）：允许查看，禁止一切写操作；仅放行个人显示名更新。
+  // Bearer token 是管理员凭据，永不落入只读。
+  if (
+    request.method !== "GET" &&
+    request.method !== "HEAD" &&
+    path !== "/auth/me" &&
+    (await isReadOnlyRequest(request))
+  ) {
+    json(
+      response,
+      403,
+      { status: "error", reason: "read_only_operator" },
+      requestId,
+    );
+    requestLogger.warn(
+      { path, method: request.method },
+      "read-only operator write denied",
+    );
     return;
   }
 
