@@ -311,6 +311,7 @@ export async function handleUpdateApply(
   requestId: string,
   isAdmin: boolean,
   db: PostgresJsDatabase<typeof schema>,
+  onAudit?: (detail: Record<string, unknown>) => void,
 ): Promise<void> {
   if (!isAdmin) {
     json(response, 403, { status: "error", reason: "admin required" }, requestId);
@@ -330,6 +331,8 @@ export async function handleUpdateApply(
     return;
   }
   const backupBefore = parsed.backupBefore !== false;
+  // 在线更新是高敏感操作：目标版本与是否备份留痕（由 main.ts 注入审计回调）。
+  onAudit?.({ target, backupBefore });
   await runUpdate(request, response, requestId, target, backupBefore, (ok, reason) => {
     void writeHistory(db, {
       at: new Date().toISOString(),

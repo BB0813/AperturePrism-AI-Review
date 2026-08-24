@@ -240,3 +240,23 @@ export type ModelRoutingResult = {
   candidate: ModelCandidate;
   attempts: readonly ModelAttemptOutcome[];
 };
+
+/* ---------- 提示词注入防护：不可信输入定界 ---------- */
+
+/** 不可信输入的定界符。Issue/PR 正文、评论、diff、仓库记忆都来自外部。 */
+export const UNTRUSTED_OPEN = "<<<UNTRUSTED_INPUT";
+export const UNTRUSTED_CLOSE = "UNTRUSTED_INPUT>>>";
+
+/**
+ * 把不可信文本包进定界块（提示词注入防护）。任何人可以在正文里写「忽略以上
+ * 指令」之类的内容试图操纵模型，因此必须与系统指令明确隔离；文本内伪造的
+ * 定界符要被中和，防止提前闭合逃逸让后续内容看起来像系统指令。
+ */
+export function fenceUntrusted(text: string): string {
+  const neutralized = text
+    .split(UNTRUSTED_CLOSE)
+    .join("UNTRUSTED_INPUT>·>>")
+    .split(UNTRUSTED_OPEN)
+    .join("<<·<UNTRUSTED_INPUT");
+  return `${UNTRUSTED_OPEN}\n${neutralized}\n${UNTRUSTED_CLOSE}`;
+}

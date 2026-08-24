@@ -1,8 +1,15 @@
-import type {
-  ModelInvocationRequest,
-  ModelMessage,
+import {
+  fenceUntrusted,
+  UNTRUSTED_CLOSE,
+  UNTRUSTED_OPEN,
+  type ModelInvocationRequest,
+  type ModelMessage,
 } from "../../../packages/domain/src/index.js";
 import type { IssueContext } from "./context.js";
+
+// 定界逻辑已上移到 domain 包，供 issue-analysis 与 pr-review 共用；这里转发导出
+// 以保持现有消费方（含 prompt.test.ts）不受影响。
+export { fenceUntrusted, UNTRUSTED_CLOSE, UNTRUSTED_OPEN };
 
 /** Bump when the prompt semantics change so the idempotency key changes too. */
 export const ISSUE_ANALYSIS_PROMPT_VERSION = "v5" as const;
@@ -11,30 +18,6 @@ export const ISSUE_ANALYSIS_POLICY_VERSION =
   `issue-analysis-${ISSUE_ANALYSIS_PROMPT_VERSION}` as const;
 
 const CONTRACT_VERSION = "issue-analysis/v1";
-
-/**
- * 不可信输入的定界符。Issue 标题、正文、评论和仓库记忆都来自外部，任何人都
- * 可以在里面写「忽略以上指令」之类的文字试图操纵评级，因此必须与系统指令
- * 明确隔离。
- */
-const UNTRUSTED_OPEN = "<<<UNTRUSTED_INPUT";
-const UNTRUSTED_CLOSE = "UNTRUSTED_INPUT>>>";
-
-/**
- * 把不可信文本包进定界块。文本内出现的定界符会被中和，否则可以靠提前闭合
- * 逃出块外，让后续内容看起来像系统指令。
- *
- * 中和方式是在尖括号序列中间插入零宽度以外的可见分隔符：仅给定界符加前缀
- * 是不够的，`UNTRUSTED_INPUT>>>` 会残留在结果里依然构成完整闭合。
- */
-export function fenceUntrusted(text: string): string {
-  const neutralized = text
-    .split(UNTRUSTED_CLOSE)
-    .join("UNTRUSTED_INPUT>·>>")
-    .split(UNTRUSTED_OPEN)
-    .join("<<·<UNTRUSTED_INPUT");
-  return `${UNTRUSTED_OPEN}\n${neutralized}\n${UNTRUSTED_CLOSE}`;
-}
 
 const systemPrompt = `你是一个严谨的 GitHub Issue 分析器。你的任务是基于 Issue 正文和评论，输出一份结构化分析 JSON。
 

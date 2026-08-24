@@ -2540,11 +2540,13 @@ async function handleIndexRelated(
 
 /** Config backup: exports settings + policies (secrets masked, no keys). */
 async function handleBackupExport(
+  request: IncomingMessage,
   response: ServerResponse,
   requestId: string,
 ): Promise<void> {
   try {
     const snapshot = await buildBackupSnapshot(database.db);
+    audit(request, "backup.export");
     json(response, 200, snapshot, requestId);
   } catch (error) {
     logger.warn({ err: error }, "backup export failed");
@@ -2568,6 +2570,11 @@ async function handleBackupImport(
   }
   try {
     const result = await applyBackupSnapshot(database.db, snapshot);
+    // 导入会批量改写设置与策略，属敏感操作，留痕。
+    audit(request, "backup.import", undefined, {
+      settings: result.settings,
+      policies: result.policies,
+    });
     json(response, 200, { status: "ok", ...result }, requestId);
   } catch (error) {
     const reason =
@@ -3252,6 +3259,10 @@ async function handleUsers(
       json(response, 404, { status: "error", reason: "user not found" }, requestId);
       return;
     }
+    // 权限变更是高敏感操作，必须留痕。
+    audit(request, "users.set_admin", login, {
+      isAdmin: parsed.isAdmin === true,
+    });
     json(response, 200, { status: "ok", ...user }, requestId);
     return;
   }
@@ -4421,7 +4432,14 @@ async function handleRequest(
       return;
     }
     const isAdmin = await isAdminRequest(request);
-    await handleUpdateApply(request, response, requestId, isAdmin, database.db);
+    await handleUpdateApply(
+      request,
+      response,
+      requestId,
+      isAdmin,
+      database.db,
+      (detail) => audit(request, "update.apply", undefined, detail),
+    );
     return;
   }
 
@@ -4551,7 +4569,7 @@ async function handleRequest(
       );
       return;
     }
-    await handleBackupExport(response, requestId);
+    await handleBackupExport(request, response, requestId);
     return;
   }
 
