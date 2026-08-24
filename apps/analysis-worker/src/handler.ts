@@ -79,6 +79,19 @@ export type IssueAnalysisServices = {
     verdict: SpamVerdict,
     signal: AbortSignal,
   ) => Promise<void>;
+  /**
+   * Optional: 判断这次任务是否值得重新分析。返回 false 时任务直接完成，不发
+   * 占位、不调模型、不改评论 —— 用于「编辑 Issue 只改了个错别字」的场景。
+   *
+   * 放在 buildContext 之后：判定需要当前正文。放在 publishPlaceholder 之前：
+   * 跳过时不能留下一条永远停在「正在分析」的占位评论。
+   *
+   * 判定失败不该吞掉一次真实编辑，实现方内部降级为「分析」。
+   */
+  shouldReanalyze?: (
+    task: LeasedTask,
+    context: IssueContext,
+  ) => Promise<boolean>;
 };
 
 /**
@@ -97,6 +110,14 @@ export function createIssueAnalysisHandler(
         return { outcome: "failed", errorCategory: "unsupported_task_type" };
 
       const context = await services.buildContext(task, signal);
+
+      // 值不值得重新分析先判：它只查一次数据库，比广告识别（一次模型调用）
+      // 便宜得多。放在广告识别之前不会漏掉夹带广告的编辑 —— 塞进一段广告文本
+      // 本身就是「实质改动」，不会低于变化幅度阈值。
+      if (services.shouldReanalyze) {
+        if (!(await services.shouldReanalyze(task, context)))
+          return { outcome: "completed" };
+      }
 
       // Ad/spam detection runs before any normal analysis. A confirmed spam
       // verdict short-circuits the flow; failures or a null result degrade to

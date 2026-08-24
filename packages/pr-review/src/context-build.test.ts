@@ -24,6 +24,7 @@ function makeGithub(): GitHubClient {
     },
     listIssues: async () => [],
     listCollaborators: async () => [],
+    getAppMetadata: async () => ({ id: 1, slug: "app", name: "App" }),
     listIssueComments: async () => [],
     createIssueComment: async () => ({ id: 1, htmlUrl: "" }),
     closeIssue: async () => undefined,

@@ -2,16 +2,241 @@ import { useCallback, useEffect, useState } from "react";
 import {
   bumpCache,
   fetchRepositories,
+  fetchRepositorySettings,
   fetchRepoSubjects,
+  saveRepositorySetting,
   syncRepositories,
   triggerManualTask,
   type Repository,
+  type RepositorySettingItem,
   type RepoSubjectItem,
 } from "../lib/api";
-import { ArrowPathIcon, FolderIcon, RefreshIcon } from "../components/icons";
+import { ArrowPathIcon, FolderIcon, GearIcon, RefreshIcon } from "../components/icons";
 import { Empty, ErrorPanel, LoadingRows } from "../components/ui";
 import { explainError, explainUnknown } from "../lib/errors";
 import { useToast } from "../components/Toast";
+
+/**
+ * 仓库级可覆盖的分析开关。同一实例常同时接入个人项目与协作项目 —— 自动改标题
+ * 在后者未必受欢迎，所以这些行为要能按仓库分别控制（issue #54）。
+ *
+ * 与系统设置页的字段说明分开维护：这里要额外讲清「跟随全局」的含义，措辞不同。
+ */
+const REPO_SETTING_META: Record<
+  string,
+  { label: string; hint: string; kind: "boolean" | "text"; defaultOn?: boolean }
+> = {
+  issue_rewrite_title: {
+    label: "Issue 标题改写",
+    hint: "把含糊标题改写为 [标签][重要度]清晰标题；协作仓库里可单独关掉",
+    kind: "boolean",
+    defaultOn: true,
+  },
+  issue_auto_assign: {
+    label: "Issue 自动指派",
+    hint: "分析完成后自动指派；留空指派对象时默认仓库所有者与协作者",
+    kind: "boolean",
+    defaultOn: false,
+  },
+  issue_assignee: {
+    label: "Issue 指派对象",
+    hint: "GitHub 用户名；留空则回到默认（所有者与协作者）",
+    kind: "text",
+  },
+  issue_deep_analysis: {
+    label: "深度分析（读取源码）",
+    hint: "读取仓库源码定位问题，明显增加用时与 token；需模型网关支持 tools",
+    kind: "boolean",
+    defaultOn: false,
+  },
+  issue_reanalyze_min_change: {
+    label: "重新分析的最小变化幅度",
+    hint: "编辑 Issue 后正文变化低于该比例就不重跑（0-1，默认 0.1）",
+    kind: "text",
+  },
+};
+
+/** 未覆盖时的实际生效值：全局有值用全局，否则用应用默认。 */
+function effectiveBool(item: RepositorySettingItem, defaultOn: boolean): boolean {
+  const source = item.overridden ? item.value : item.globalValue;
+  if (source === "true") return true;
+  if (source === "false") return false;
+  return defaultOn;
+}
+
+/**
+ * 单个仓库的设置面板。默认折叠：大多数仓库跟随全局，展开才拉取覆盖值，避免为
+ * 每个卡片都发一次请求。
+ */
+function RepoSettings({ repo }: { repo: Repository }) {
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<RepositorySettingItem[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+
+  const load = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    fetchRepositorySettings(repo.id)
+      .then((data) => {
+        setItems(data.items);
+        setDrafts({});
+      })
+      .catch((err: unknown) => {
+        setError(explainUnknown(err));
+        setItems(null);
+      })
+      .finally(() => setLoading(false));
+  }, [repo.id]);
+
+  useEffect(() => {
+    if (open && items === null && !loading && !error) load();
+  }, [open, items, loading, error, load]);
+
+  const save = async (key: string, value: string | null) => {
+    setBusyKey(key);
+    try {
+      await saveRepositorySetting(repo.id, key, value);
+      toast.success(
+        value === null
+          ? `已改为跟随全局：${REPO_SETTING_META[key]?.label ?? key}`
+          : `已保存仓库覆盖：${REPO_SETTING_META[key]?.label ?? key}`,
+      );
+      const fresh = await fetchRepositorySettings(repo.id);
+      setItems(fresh.items);
+      setDrafts((prev) => ({ ...prev, [key]: "" }));
+    } catch (err) {
+      toast.error(`保存失败：${explainUnknown(err)}`);
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button
+        className="btn"
+        style={{ marginTop: 10, fontSize: 12 }}
+        onClick={() => setOpen(true)}
+      >
+        <GearIcon size={14} />
+        分析设置
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <span style={{ fontWeight: 700, fontSize: 12 }}>分析设置</span>
+        <button className="btn" style={{ fontSize: 12 }} onClick={() => setOpen(false)}>
+          收起
+        </button>
+      </div>
+      {error ? (
+        <ErrorPanel error={error} onRetry={load} />
+      ) : loading || items === null ? (
+        <LoadingRows />
+      ) : (
+        <div className="stack" style={{ gap: 10 }}>
+          {items.map((item) => {
+            const meta = REPO_SETTING_META[item.key];
+            if (!meta) return null;
+            const busy = busyKey === item.key;
+            const on = effectiveBool(item, meta.defaultOn ?? false);
+            return (
+              <div
+                key={item.key}
+                style={{ borderTop: "1px solid var(--border)", paddingTop: 8 }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 12, fontWeight: 600 }}>{meta.label}</span>
+                  {item.overridden ? (
+                    <span className="pill pill-info">本仓库覆盖</span>
+                  ) : (
+                    <span className="pill pill-dim">跟随全局</span>
+                  )}
+                </div>
+                {meta.kind === "boolean" ? (
+                  <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={on}
+                      aria-label={meta.label}
+                      className="switch"
+                      data-on={on ? "true" : "false"}
+                      disabled={busy}
+                      onClick={() => void save(item.key, on ? "false" : "true")}
+                    >
+                      <span className="switch-knob" />
+                    </button>
+                    <span className="faint" style={{ fontSize: 12 }}>
+                      {busy ? "保存中…" : on ? "已开启" : "已关闭"}
+                    </span>
+                    {item.overridden ? (
+                      <button
+                        className="btn"
+                        style={{ fontSize: 12 }}
+                        disabled={busy}
+                        onClick={() => void save(item.key, null)}
+                      >
+                        跟随全局
+                      </button>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 6, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <input
+                      className="input"
+                      style={{ flex: "1 1 160px", fontSize: 12 }}
+                      placeholder={
+                        item.overridden
+                          ? item.value
+                          : item.globalValue
+                            ? `跟随全局：${item.globalValue}`
+                            : "跟随全局（未设置）"
+                      }
+                      value={drafts[item.key] ?? ""}
+                      onChange={(event) =>
+                        setDrafts((prev) => ({ ...prev, [item.key]: event.target.value }))
+                      }
+                      data-lpignore="true"
+                    />
+                    <button
+                      className="btn btn-primary"
+                      style={{ fontSize: 12 }}
+                      disabled={busy}
+                      onClick={() => void save(item.key, (drafts[item.key] ?? "").trim())}
+                    >
+                      {busy ? "保存中…" : "保存"}
+                    </button>
+                    {item.overridden ? (
+                      <button
+                        className="btn"
+                        style={{ fontSize: 12 }}
+                        disabled={busy}
+                        onClick={() => void save(item.key, null)}
+                      >
+                        跟随全局
+                      </button>
+                    ) : null}
+                  </div>
+                )}
+                <p className="faint" style={{ margin: "6px 0 0", fontSize: 11 }}>
+                  {meta.hint}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function ReposPage() {
   const [repos, setRepos] = useState<Repository[] | null>(null);
@@ -264,6 +489,7 @@ export function ReposPage() {
                   <span className="pill pill-info">{repo.taskCount} 任务</span>
                   <span className="pill pill-ok">{repo.resultCount} 结果</span>
                 </div>
+                <RepoSettings repo={repo} />
               </div>
             ))}
           </div>

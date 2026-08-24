@@ -5,6 +5,7 @@ export * from "./health.js";
 export * from "./label-rules.js";
 export * from "./redis.js";
 export * from "./repo-memory.js";
+export * from "./repository-settings.js";
 export * from "./scan.js";
 export * from "./schema.js";
 export * from "./users.js";

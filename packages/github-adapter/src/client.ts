@@ -102,6 +102,13 @@ export type GitHubClient = {
     installationId: string,
     signal?: AbortSignal,
   ) => Promise<InstallationToken>;
+  /**
+   * 读取 App 自身信息（GET /app，用 App JWT 认证）。用于在保存凭据时验证
+   * appId 与私钥是否匹配 —— 不需要任何安装或仓库权限。
+   */
+  getAppMetadata: (
+    signal?: AbortSignal,
+  ) => Promise<{ id: number; slug: string; name: string }>;
   getIssue: (
     input: {
       installationId: string;
@@ -617,6 +624,24 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
       token: await getInstallationToken(installationId, signal),
       expiresAt: new Date(now() + 60_000).toISOString(),
     }),
+
+    getAppMetadata: async (signal) => {
+      // 用 App JWT（而非 installation token）直调 /app：这是验证 appId 与私钥
+      // 是否匹配的最轻量方式，不需要任何仓库或安装。
+      const app = await request<{ id?: unknown; slug?: unknown; name?: unknown }>(
+        "/app",
+        {
+          method: "GET",
+          token: signAppJwt(options.appId, options.privateKeyPem, now()),
+          ...(signal ? { signal } : {}),
+        },
+      );
+      return {
+        id: typeof app.id === "number" ? app.id : 0,
+        slug: typeof app.slug === "string" ? app.slug : "",
+        name: typeof app.name === "string" ? app.name : "",
+      };
+    },
 
     getIssue: async ({ installationId, owner, name, number }, signal) => {
       const issue = await authorized<Record<string, unknown>>(

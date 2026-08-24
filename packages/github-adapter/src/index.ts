@@ -183,6 +183,9 @@ export function mapGitHubEventToTask(
         subjectNumber: event.subjectNumber,
         subjectRevision: event.subjectRevision,
         sourceEvent: event.eventName,
+        // action 必须带进 payload：worker 要区分「新开 Issue」和「编辑 Issue」
+        // 才能对后者按变化幅度决定是否重新分析，而它只能看到 payload。
+        sourceAction: event.action,
         sourceRevision: policyRevision(event),
       },
     },

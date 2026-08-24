@@ -6,6 +6,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -522,5 +523,31 @@ export const scanTracking = pgTable(
       table.subjectType,
       table.subjectNumber,
     ),
+  ],
+);
+
+/**
+ * 仓库级设置覆盖。语义与 `system_settings` 一致：这里有行就覆盖全局值，没有行
+ * 就回落到全局设置（再回落到应用默认）。所以不为任何仓库预填记录 —— 没动过的
+ * 仓库自动跟随全局。
+ *
+ * 只接受「与单个仓库相关」的键（由 API 白名单约束）：标题改写、自动指派、深度
+ * 分析、重新分析阈值。日志级别、访问令牌、OAuth 这类全局项不得按仓库覆盖。
+ */
+export const repositorySettings = pgTable(
+  "repository_settings",
+  {
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    value: text("value").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.repositoryId, table.key] }),
+    index("repository_settings_repo_idx").on(table.repositoryId),
   ],
 );

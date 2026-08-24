@@ -372,6 +372,65 @@ export async function saveSetting(key: string, value: string): Promise<void> {
   await putJson("/settings", { key, value });
 }
 
+/** 仓库级设置项：`overridden` 为 false 时该仓库跟随全局值。 */
+export type RepositorySettingItem = {
+  key: string;
+  overridden: boolean;
+  value: string;
+  globalValue: string;
+};
+
+export type RepositorySettings = {
+  repository: { id: string; fullName: string };
+  items: RepositorySettingItem[];
+};
+
+export async function fetchRepositorySettings(
+  repositoryId: string,
+): Promise<RepositorySettings> {
+  return (await getJson(
+    `/repositories/${encodeURIComponent(repositoryId)}/settings`,
+  )) as RepositorySettings;
+}
+
+/**
+ * 写入或清除一个仓库级覆盖。`value: null` 表示删除覆盖、回到跟随全局。
+ *
+ * 不走 putJson：后者把 400 一律变成 "request failed with 400"，用户看不到
+ * unsupported_setting_key 这类真实原因。
+ */
+export async function saveRepositorySetting(
+  repositoryId: string,
+  key: string,
+  value: string | null,
+): Promise<void> {
+  const response = await fetch(
+    `/repositories/${encodeURIComponent(repositoryId)}/settings`,
+    {
+      method: "PUT",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        ...authHeaders(),
+      },
+      body: JSON.stringify({ key, value }),
+    },
+  );
+  if (response.status === 401) throw new Error("unauthorized");
+  if (!response.ok) {
+    const reason = await response
+      .json()
+      .then((body: unknown) =>
+        typeof body === "object" && body !== null && "reason" in body
+          ? String((body as { reason: unknown }).reason)
+          : "",
+      )
+      .catch(() => "");
+    throw new Error(reason || `request failed with ${response.status}`);
+  }
+  bumpCache();
+}
+
 export type CapabilitySkill = {
   id: string;
   name: string;
@@ -780,6 +839,21 @@ export async function saveOAuth(input: {
     clientId: string;
     clientSecret: string;
     callbackPath: string;
+  };
+}
+
+/**
+ * 保存 GitHub App 凭据。私钥加密存储，后端会先签 JWT 调 GitHub 验证再落库，
+ * 因此保存失败即说明凭据本身有问题。
+ */
+export async function saveGithubApp(input: {
+  appId: string;
+  privateKeyPem: string;
+}): Promise<{ status: string; appId: string; appSlug: string }> {
+  return (await postSetup("/setup/github-app", input)) as {
+    status: string;
+    appId: string;
+    appSlug: string;
   };
 }
 

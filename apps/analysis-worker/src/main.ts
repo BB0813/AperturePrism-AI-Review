@@ -10,6 +10,7 @@ import {
   createDatabaseClient,
   externalPublications,
   getRepoMemorySummary,
+  getRepositorySettingsFor,
   labelsForAnalysis,
   listLabelRules,
   modelRolePolicies,
@@ -39,9 +40,13 @@ import {
   buildIssueContext,
   buildFailureComment,
   buildPlaceholderComment,
+  decideReanalysis,
   detectSpamIssue,
+  DEFAULT_MIN_CHANGE_RATIO,
+  isIssueEditEvent,
   issueCommentIdempotencyKey,
   parseIssueTaskPayload,
+  parseMinChangeRatio,
   publishIssueComment,
   repositoryOwnerName,
   type IssueContext,
@@ -63,6 +68,8 @@ import {
 } from "../../../packages/agent-capabilities/src/index.js";
 import {
   extractIssueSignals,
+  getIndexedIssueText,
+  normalizedIndexText,
   recallCandidatesWithRepos,
   type SqlTag,
 } from "../../../packages/duplicate-detection/src/index.js";
@@ -376,6 +383,8 @@ async function main(): Promise<void> {
       return repoMemory ? { ...context, repoMemory } : context;
     },
 
+    shouldReanalyze: (task, context) => shouldReanalyzeIssue(task, context),
+
     publishPlaceholder: async (task) => {
       const { payload, identity } = issueIdentity(task);
       await publishIssueComment({
@@ -415,7 +424,9 @@ async function main(): Promise<void> {
 
     analyze: async (context: IssueContext, signal) => {
       // 深度分析（读取仓库源码）默认关闭：会显著增加 token 消耗与耗时。
-      const deep = await issueDeepAnalysisEnabled();
+      const deep = await issueDeepAnalysisEnabled(
+        `${context.repository.owner}/${context.repository.name}`,
+      );
       return analyzeIssue(
         {
           adapters,
@@ -1101,47 +1112,153 @@ async function applyConfiguredLabels(input: {
   });
 }
 
-/** Issue 增强开关（运行时设置，可在 WebUI「系统配置」热更新）。 */
+/**
+ * 分析行为设置的取值：仓库级覆盖优先，其次全局 `system_settings`，都没有时返回
+ * undefined 让调用方套用应用默认（不同开关的默认值不同，这一层不猜）。
+ *
+ * 同一实例常同时接入个人项目与协作项目 —— 自动改标题在后者未必受欢迎，所以这
+ * 些开关必须能按仓库分别控制（issue #54）。仓库未入库或读取失败时退回全局。
+ */
+async function resolveIssueSettings(
+  repositoryFullName: string | null,
+  keys: readonly string[],
+): Promise<Map<string, string>> {
+  const globals = new Map<string, string>();
+  try {
+    const rows = await database.db
+      .select({ key: systemSettings.key, value: systemSettings.value })
+      .from(systemSettings)
+      .where(inArray(systemSettings.key, [...keys]));
+    for (const row of rows) globals.set(row.key, row.value);
+  } catch (error) {
+    logger.warn({ err: error }, "global settings read failed");
+    throw error;
+  }
+
+  if (!repositoryFullName) return globals;
+  try {
+    const repositoryId = await resolveRepositoryId(repositoryFullName);
+    if (!repositoryId) return globals;
+    const overrides = await getRepositorySettingsFor(
+      database.db,
+      repositoryId,
+      keys,
+    );
+    // 覆盖优先：仓库级有值就盖掉全局，没有的键保持全局值。
+    for (const [key, value] of overrides) globals.set(key, value);
+    return globals;
+  } catch (error) {
+    // 仓库级覆盖不可读时退回全局，而不是让整次分析失败。
+    logger.warn(
+      { err: error, repo: repositoryFullName },
+      "repository settings read failed; using global settings",
+    );
+    return globals;
+  }
+}
+
 /**
  * 是否允许 Issue 分析读取仓库源码。默认关闭：探索会显著增加 token 消耗与
  * 单任务耗时，需用户显式开启。读取失败时按关闭处理，不因设置不可用而改变行为。
  */
-async function issueDeepAnalysisEnabled(): Promise<boolean> {
+async function issueDeepAnalysisEnabled(
+  repositoryFullName: string | null,
+): Promise<boolean> {
   try {
-    const rows = await database.db
-      .select({ value: systemSettings.value })
-      .from(systemSettings)
-      .where(eq(systemSettings.key, "issue_deep_analysis"))
-      .limit(1);
-    return rows[0]?.value === "true";
+    const settings = await resolveIssueSettings(repositoryFullName, [
+      "issue_deep_analysis",
+    ]);
+    return settings.get("issue_deep_analysis") === "true";
   } catch {
     return false;
   }
 }
 
-async function issueEnhancementConfig(): Promise<{
+/**
+ * 编辑 Issue 后是否重新分析。只有 webhook 的 `issues.edited` 受限制：改一个
+ * 错别字就重跑完整分析，既花掉一次模型调用，又会用新结论覆盖既有评论。
+ *
+ * 比较对象是索引任务写进 `issue_documents` 的归一化正文，所以当前正文必须用
+ * 同一套 `normalizedIndexText` 归一化 —— 只改图片或链接不会被算成改动。
+ *
+ * 任何一步失败都按「分析」处理：宁可多花一次调用，也不要静默吞掉真实修改。
+ */
+async function shouldReanalyzeIssue(
+  task: { payload: unknown },
+  context: IssueContext,
+): Promise<boolean> {
+  if (!isIssueEditEvent(task.payload)) return true;
+  try {
+    const { payload } = issueIdentity(task);
+    const repositoryId = await resolveRepositoryId(payload.repositoryFullName);
+    const snapshot = await getIndexedIssueText(
+      database.sql as unknown as SqlTag,
+      { repositoryId, issueNumber: payload.subjectNumber },
+    );
+    const revisionAt = new Date(payload.subjectRevision);
+    const decision = decideReanalysis({
+      gated: true,
+      snapshot,
+      revisionAt: Number.isNaN(revisionAt.getTime()) ? null : revisionAt,
+      currentText: normalizedIndexText({
+        title: context.issue.title,
+        body: context.issue.body,
+      }),
+      minChangeRatio: await issueMinChangeRatio(payload.repositoryFullName),
+    });
+    logger.info(
+      {
+        repo: payload.repositoryFullName,
+        issueNumber: payload.subjectNumber,
+        reanalyze: decision.reanalyze,
+        reason: decision.reason,
+        changeRatio: decision.changeRatio,
+      },
+      decision.reanalyze
+        ? "issue edit will be reanalyzed"
+        : "issue edit skipped as a minor change",
+    );
+    return decision.reanalyze;
+  } catch (error) {
+    logger.warn(
+      { err: error },
+      "reanalysis gate failed; analyzing the edit anyway",
+    );
+    return true;
+  }
+}
+
+/** 重新分析的最小变化比例（`issue_reanalyze_min_change`），可按仓库覆盖。 */
+async function issueMinChangeRatio(
+  repositoryFullName: string | null,
+): Promise<number> {
+  try {
+    const settings = await resolveIssueSettings(repositoryFullName, [
+      "issue_reanalyze_min_change",
+    ]);
+    return parseMinChangeRatio(settings.get("issue_reanalyze_min_change"));
+  } catch {
+    return DEFAULT_MIN_CHANGE_RATIO;
+  }
+}
+
+async function issueEnhancementConfig(repositoryFullName: string | null): Promise<{
   autoAssign: boolean;
   assignee: string;
   rewriteTitle: boolean;
 }> {
   try {
-    const rows = await database.db
-      .select({ key: systemSettings.key, value: systemSettings.value })
-      .from(systemSettings)
-      .where(
-        inArray(systemSettings.key, [
-          "issue_auto_assign",
-          "issue_assignee",
-          "issue_rewrite_title",
-        ]),
-      );
-    const map = new Map(rows.map((row) => [row.key, row.value]));
+    const map = await resolveIssueSettings(repositoryFullName, [
+      "issue_auto_assign",
+      "issue_assignee",
+      "issue_rewrite_title",
+    ]);
     return {
       autoAssign: map.get("issue_auto_assign") === "true",
       assignee: (map.get("issue_assignee") ?? "").trim(),
       // 默认开启：含糊的标题（如只写「bug」）让维护者在列表页无法判断内容，
       // 改写成 [标签][重要度]清晰标题 才是用户期望的默认行为。显式设为
-      // "false" 可关闭。
+      // "false" 可关闭（全局或按仓库）。
       rewriteTitle: (map.get("issue_rewrite_title") ?? "true") !== "false",
     };
   } catch {
@@ -1228,7 +1345,7 @@ async function applyIssueEnhancements(input: {
     "severity" | "priority" | "suggestedLabels" | "suggestedTitle"
   >;
 }): Promise<void> {
-  const cfg = await issueEnhancementConfig();
+  const cfg = await issueEnhancementConfig(`${input.owner}/${input.name}`);
   // 标题按 [标签][重要度]标题 格式拼装（issue #5），前缀由服务端生成。
   const suggested = formatSuggestedTitle(input.analysis) ?? "";
   if (!cfg.autoAssign && !(cfg.rewriteTitle && suggested)) return;

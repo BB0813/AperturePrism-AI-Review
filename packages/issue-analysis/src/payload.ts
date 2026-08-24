@@ -39,6 +39,19 @@ export function parseIssueTaskPayload(
   return { installationId, repositoryFullName, subjectNumber, subjectRevision };
 }
 
+/**
+ * True when the task came from a webhook `issues.edited` — the only path where
+ * a prior analysis may already exist and the change may be trivial.
+ *
+ * 手动触发、评论指令、仓库扫描、opened / reopened 都返回 false：那些要么没有
+ * 旧结论，要么是用户明确要求重跑，按变化幅度跳过它们才是错的。老任务的 payload
+ * 里没有 `sourceAction`，同样返回 false —— 宁可多分析一次。
+ */
+export function isIssueEditEvent(payload: unknown): boolean {
+  const root = objectValue(payload);
+  return root.sourceEvent === "issues" && root.sourceAction === "edited";
+}
+
 export function repositoryOwnerName(fullName: string): {
   owner: string;
   name: string;

@@ -5,6 +5,7 @@ import {
   fetchConfig,
   fetchSettings,
   importBackup,
+  saveGithubApp,
   saveSetting,
   type RuntimeConfig,
   type SettingItem,
@@ -82,6 +83,11 @@ const FIELD_META: Record<string, FieldMeta> = {
     secret: false,
     kind: "boolean",
     defaultOn: false,
+  },
+  issue_reanalyze_min_change: {
+    label: "重新分析的最小变化幅度",
+    hint: "编辑 Issue 后正文变化低于该比例就不重新分析（0-1，默认 0.1 即 10%）；只改错别字、图片或链接不会重跑模型。新开 / 重开 Issue 与手动触发不受此限制",
+    secret: false,
   },
   pr_check_run: {
     label: "PR Check Run 可视化",
@@ -179,6 +185,100 @@ function Row({ it, drafts, setDrafts, save, busyKey }: {
       )}
       <p className="faint" style={{ margin: "8px 0 0", fontSize: 12 }}>{meta.hint}</p>
     </div>
+  );
+}
+
+/**
+ * GitHub App 配置表单。此前 App ID 与私钥只能通过环境变量 + 私钥文件提供，
+ * WebUI 上没有任何输入项：用户看到 github_not_configured 却无处可填，还容易
+ * 误以为改「GitHub OAuth」就能修好（那两项只用于 WebUI 登录）。
+ */
+function GithubAppForm({ configured, onSaved }: { configured: boolean; onSaved: () => void }) {
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [appId, setAppId] = useState("");
+  const [privateKeyPem, setPrivateKeyPem] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    if (!appId.trim() || !privateKeyPem.trim()) {
+      toast.error("App ID 与私钥均为必填");
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await saveGithubApp({
+        appId: appId.trim(),
+        privateKeyPem: privateKeyPem.trim(),
+      });
+      toast.success(
+        `已保存并验证通过：${result.appSlug || result.appId}，无需重启即可生效`,
+      );
+      setAppId("");
+      setPrivateKeyPem("");
+      setOpen(false);
+      bumpCache();
+      onSaved();
+    } catch (err) {
+      toast.error(explainUnknown(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button className="btn" onClick={() => setOpen(true)}>
+        <GearIcon size={16} />
+        {configured ? "更换 GitHub App" : "配置 GitHub App"}
+      </button>
+    );
+  }
+
+  return (
+    <section className="panel">
+      <div className="panel-title">
+        <h2>配置 GitHub App</h2>
+        <span className="count">保存前会实际调用 GitHub 验证</span>
+      </div>
+      <div className="stack" style={{ gap: 10 }}>
+        <input
+          className="input"
+          placeholder="App ID（一串数字，在 App 设置页顶部；不是 Client ID）"
+          value={appId}
+          onChange={(e) => setAppId(e.target.value)}
+        />
+        <textarea
+          className="input"
+          style={{ minHeight: 120, fontFamily: "monospace", fontSize: 12 }}
+          placeholder={"粘贴 GitHub 下载的 .pem 私钥全文，包含：\n-----BEGIN RSA PRIVATE KEY-----\n…\n-----END RSA PRIVATE KEY-----"}
+          value={privateKeyPem}
+          onChange={(e) => setPrivateKeyPem(e.target.value)}
+          data-lpignore="true"
+        />
+        <div className="filters">
+          <button className="btn btn-primary" onClick={submit} disabled={saving}>
+            {saving ? "验证并保存中…" : "验证并保存"}
+          </button>
+          <button
+            className="btn"
+            onClick={() => {
+              setAppId("");
+              setPrivateKeyPem("");
+              setOpen(false);
+            }}
+            disabled={saving}
+          >
+            取消
+          </button>
+        </div>
+        <p className="faint" style={{ margin: 0, fontSize: 12 }}>
+          GitHub App 用于访问仓库、同步与分析，与「GitHub OAuth」不同 ——
+          后者只用于登录 WebUI，配置它无法修复同步仓库失败。私钥以 AES-GCM
+          加密存储，仅在进程内解密，界面不会回显。
+        </p>
+      </div>
+    </section>
   );
 }
 
@@ -290,6 +390,10 @@ export function ConfigPage() {
           <p className="page-desc">运行时配置（含可热更新项）与接入状态总览</p>
         </div>
         <div className="actions">
+          <GithubAppForm
+            configured={cfg?.githubAppConfigured ?? false}
+            onSaved={load}
+          />
           <button className="btn" onClick={() => { bumpCache(); load(); }} disabled={loading}>
             <RefreshIcon size={16} />
             刷新
@@ -337,8 +441,10 @@ export function ConfigPage() {
               {cfg && (
                 <dl className="kv">
                   <dt>GitHub Webhook</dt><dd><BoolBadge ok={cfg.githubWebhookConfigured} /></dd>
-                  <dt>GitHub App</dt><dd><BoolBadge ok={cfg.githubAppConfigured} /></dd>
-                  <dt>GitHub OAuth</dt><dd><BoolBadge ok={cfg.oauthConfigured} /></dd>
+                  <dt>GitHub App<br /><span className="faint" style={{ fontSize: 11 }}>仓库访问 / 分析</span></dt>
+                  <dd><BoolBadge ok={cfg.githubAppConfigured} /></dd>
+                  <dt>GitHub OAuth<br /><span className="faint" style={{ fontSize: 11 }}>仅用于 WebUI 登录</span></dt>
+                  <dd><BoolBadge ok={cfg.oauthConfigured} /></dd>
                   <dt>Embedding</dt><dd><BoolBadge ok={cfg.embeddingConfigured} /></dd>
                   <dt>Embedding 模型</dt><dd className="mono">{cfg.embeddingModel}</dd>
                 </dl>

@@ -23,6 +23,7 @@ import {
   deleteLabelRule,
   deleteRepoMemory,
   ensureUser,
+  getRepositorySettings,
   getScanConfig,
   getUser,
   ingestGitHubWebhook,
@@ -37,8 +38,11 @@ import {
   listUsers,
   modelRolePolicies,
   providerAccounts,
+  isRepositorySettingKey,
   repositories,
+  REPOSITORY_SETTING_KEYS,
   setAdmin,
+  setRepositorySetting,
   subjectResults,
   systemSettings,
   taskAttempts,
@@ -104,16 +108,64 @@ const redis = createRedisClient(config.redisUrl);
  * App is configured. Failures degrade to `null` so the API still starts and
  * the manual endpoint reports `github_not_configured` instead of crashing.
  */
-const githubClientPromise: Promise<GitHubClient | null> = (async () => {
-  try {
-    if (!config.githubAppId || !config.githubAppPrivateKeyPath) return null;
-    const privateKeyPem = await readFile(
-      config.githubAppPrivateKeyPath,
-      "utf8",
+/**
+ * GitHub App 凭据可以来自环境变量（GITHUB_APP_ID + 私钥文件），也可以在 WebUI
+ * 里保存到 system_settings（私钥用 AES-GCM 加密）。此前只支持前者，界面上没有
+ * 任何输入项，用户看到 github_not_configured 却无处可填。
+ *
+ * 运行时设置优先：它是用户刚在界面上填的，应当立即生效。
+ */
+async function loadGithubAppCredentials(): Promise<{
+  appId: string;
+  privateKeyPem: string;
+} | null> {
+  const rows = await database.db
+    .select({ key: systemSettings.key, value: systemSettings.value })
+    .from(systemSettings)
+    .where(
+      inArray(systemSettings.key, [
+        "github_app_id",
+        "github_app_private_key",
+      ]),
     );
-    return createGitHubClient({
+  const stored = new Map(rows.map((row) => [row.key, row.value]));
+  const storedAppId = (stored.get("github_app_id") ?? "").trim();
+  const sealedKey = stored.get("github_app_private_key") ?? "";
+
+  if (storedAppId && sealedKey && config.credentialMasterKey) {
+    try {
+      const cipher = createCredentialCipher(config.credentialMasterKey);
+      return { appId: storedAppId, privateKeyPem: cipher.open(sealedKey) };
+    } catch (error) {
+      // 主密钥换过或记录被篡改：不静默回退到环境变量，否则用户会以为界面里
+      // 保存的凭据在生效。
+      logger.error(
+        { err: error },
+        "stored GitHub App private key could not be decrypted",
+      );
+      return null;
+    }
+  }
+
+  if (config.githubAppId && config.githubAppPrivateKeyPath) {
+    return {
       appId: config.githubAppId,
-      privateKeyPem,
+      privateKeyPem: await readFile(config.githubAppPrivateKeyPath, "utf8"),
+    };
+  }
+  return null;
+}
+
+/** 当前 GitHub App 客户端；WebUI 保存新凭据后会被重建。 */
+let githubClientPromise: Promise<GitHubClient | null> = buildGithubClient();
+
+async function buildGithubClient(): Promise<GitHubClient | null> {
+  try {
+    const credentials = await loadGithubAppCredentials();
+    if (!credentials) return null;
+    return createGitHubClient({
+      appId: credentials.appId,
+      privateKeyPem: credentials.privateKeyPem,
       ...(config.githubApiBaseUrl
         ? { apiBaseUrl: config.githubApiBaseUrl }
         : {}),
@@ -122,7 +174,12 @@ const githubClientPromise: Promise<GitHubClient | null> = (async () => {
     logger.warn({ err: error }, "GitHub App client initialization failed");
     return null;
   }
-})();
+}
+
+/** 保存凭据后立即重建，无需重启容器。 */
+function reloadGithubClient(): void {
+  githubClientPromise = buildGithubClient();
+}
 
 /* ---------- GitHub OAuth (progressive; enabled when configured) ---------- */
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -214,6 +271,11 @@ const ALLOWED_SETTING_KEYS = new Set([
   "issue_assignee",
   "issue_rewrite_title",
   "issue_deep_analysis",
+  "issue_reanalyze_min_change",
+  // pr_check_run / pr_auto_review 此前只在 GET 的 known 列表里：界面画得出开关，
+  // 保存却一律 unsupported_setting_key。白名单是唯一的写入闸口，必须同时列出。
+  "pr_check_run",
+  "pr_auto_review",
 ]);
 
 const runtimeSettings = new Map<string, string>();
@@ -1829,6 +1891,134 @@ async function syncInstallations(): Promise<{
   }
 }
 
+/**
+ * GET/PUT /repositories/:id/settings — 仓库级分析行为覆盖。
+ *
+ * 同一实例常同时接入个人项目与协作项目：自动改标题在后者未必受欢迎，所以这些
+ * 开关要能按仓库分别控制（issue #54）。语义与全局设置一致 —— 有值则覆盖，
+ * 无值跟随全局，因此 PUT 接受 `value: null` 作为「删除覆盖」。
+ *
+ * 白名单只放与单仓库相关的键：日志级别、访问令牌、OAuth 这些是进程级或账户级
+ * 的，按仓库覆盖不会生效，只会给出「我改了却没用」的错觉。
+ */
+async function handleRepositorySettings(
+  request: IncomingMessage,
+  response: ServerResponse,
+  repositoryId: string,
+  requestId: string,
+): Promise<void> {
+  // 先确认仓库存在：否则 PUT 会因外键失败抛 500，而真实原因是 id 打错了。
+  const repoRows = await database.db
+    .select({
+      id: repositories.id,
+      owner: repositories.owner,
+      name: repositories.name,
+    })
+    .from(repositories)
+    .where(eq(repositories.id, repositoryId))
+    .limit(1);
+  const repo = repoRows[0];
+  if (!repo) {
+    json(
+      response,
+      404,
+      { status: "error", reason: "repository_not_found" },
+      requestId,
+    );
+    return;
+  }
+
+  if (request.method === "PUT") {
+    if (!(await isAdminRequest(request))) {
+      json(
+        response,
+        403,
+        { status: "error", reason: "admin required" },
+        requestId,
+      );
+      return;
+    }
+    const body = await readBody(request);
+    let parsed: { key?: unknown; value?: unknown };
+    try {
+      parsed = JSON.parse(body.toString("utf8"));
+    } catch {
+      json(
+        response,
+        400,
+        { status: "error", reason: "invalid JSON" },
+        requestId,
+      );
+      return;
+    }
+    const key = typeof parsed.key === "string" ? parsed.key : null;
+    if (!key || !isRepositorySettingKey(key)) {
+      json(
+        response,
+        400,
+        { status: "error", reason: "unsupported_setting_key" },
+        requestId,
+      );
+      return;
+    }
+    // null 表示删除覆盖、回到跟随全局；不接受这个动作的话，一旦设过值就再也
+    // 回不去了，只能在仓库上留一份全局值的副本。
+    const value =
+      parsed.value === null || parsed.value === undefined
+        ? null
+        : String(parsed.value);
+    await setRepositorySetting(database.db, {
+      repositoryId,
+      key,
+      value,
+    });
+    audit(request, "repository_settings.update", `${repo.owner}/${repo.name}`, {
+      key,
+      cleared: value === null,
+    });
+    json(response, 200, { status: "ok", key, cleared: value === null }, requestId);
+    return;
+  }
+
+  if (request.method !== "GET") {
+    json(
+      response,
+      405,
+      { status: "error", reason: "method not allowed" },
+      requestId,
+    );
+    return;
+  }
+
+  const [overrides, globalRows] = await Promise.all([
+    getRepositorySettings(database.db, repositoryId),
+    database.db
+      .select({ key: systemSettings.key, value: systemSettings.value })
+      .from(systemSettings)
+      .where(inArray(systemSettings.key, [...REPOSITORY_SETTING_KEYS])),
+  ]);
+  const globals = new Map(globalRows.map((row) => [row.key, row.value]));
+  json(
+    response,
+    200,
+    {
+      repository: {
+        id: repositoryId,
+        fullName: `${repo.owner}/${repo.name}`,
+      },
+      // globalValue 一并回给前端：界面要能显示「跟随全局（当前：已开启）」，
+      // 否则用户看不出不覆盖时到底是什么行为。
+      items: [...REPOSITORY_SETTING_KEYS].map((key) => ({
+        key,
+        overridden: overrides.has(key),
+        value: overrides.get(key) ?? "",
+        globalValue: globals.get(key) ?? "",
+      })),
+    },
+    requestId,
+  );
+}
+
 /** POST /repositories/sync — admin-triggered installation repository sync. */
 async function handleRepositorySync(
   request: IncomingMessage,
@@ -2537,6 +2727,7 @@ async function handleSettings(
     "issue_assignee",
     "issue_rewrite_title",
     "issue_deep_analysis",
+    "issue_reanalyze_min_change",
     "pr_check_run",
     "pr_auto_review",
   ];
@@ -3372,6 +3563,132 @@ async function handleSetupWebhookSecret(
  * POST /setup/oauth — persists a GitHub OAuth client id (when supplied) and
  * generates a fresh client secret; returns both plus the callback path.
  */
+/**
+ * POST /setup/github-app — 保存 GitHub App ID 与私钥（私钥 AES-GCM 加密）。
+ *
+ * 保存前先用该私钥签一个 App JWT 调 GET /app 验证：凭据错误必须当场告诉用户，
+ * 而不是等到同步仓库时才抛出 github_not_configured（用户此前就是这样卡住的）。
+ */
+async function handleSetupGithubApp(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const body = await parseJsonBody(request);
+  const appId = typeof body?.appId === "string" ? body.appId.trim() : "";
+  const privateKeyPem =
+    typeof body?.privateKeyPem === "string" ? body.privateKeyPem.trim() : "";
+
+  if (!appId || !privateKeyPem) {
+    json(
+      response,
+      400,
+      { status: "error", reason: "appId and privateKeyPem required" },
+      requestId,
+    );
+    return;
+  }
+  if (!/^\d+$/.test(appId)) {
+    json(
+      response,
+      400,
+      {
+        status: "error",
+        reason: "invalid_app_id",
+        hint: "App ID 是一串数字，可在 GitHub App 设置页顶部看到；不要填 Client ID",
+      },
+      requestId,
+    );
+    return;
+  }
+  if (!privateKeyPem.includes("PRIVATE KEY")) {
+    json(
+      response,
+      400,
+      {
+        status: "error",
+        reason: "invalid_private_key",
+        hint: "请粘贴 GitHub 下载的 .pem 文件全文，包含 BEGIN/END PRIVATE KEY 两行",
+      },
+      requestId,
+    );
+    return;
+  }
+  if (!config.credentialMasterKey) {
+    json(
+      response,
+      400,
+      {
+        status: "error",
+        reason: "master_key_missing",
+        hint: "Set CREDENTIAL_MASTER_KEY to store the GitHub App private key",
+      },
+      requestId,
+    );
+    return;
+  }
+
+  // 用候选凭据实际调一次 GitHub，确认 App ID 与私钥匹配且未被吊销。
+  let appSlug: string | null = null;
+  try {
+    const probe = createGitHubClient({
+      appId,
+      privateKeyPem,
+      ...(config.githubApiBaseUrl
+        ? { apiBaseUrl: config.githubApiBaseUrl }
+        : {}),
+    });
+    const app = await probe.getAppMetadata();
+    appSlug = app.slug;
+  } catch (error) {
+    logger.warn({ err: error }, "GitHub App credential probe failed");
+    const detail =
+      error instanceof Error ? error.message.slice(0, 200) : undefined;
+    json(
+      response,
+      400,
+      {
+        status: "error",
+        reason: "github_app_probe_failed",
+        hint: "GitHub 拒绝了这组凭据：请确认 App ID 与私钥来自同一个 GitHub App，且私钥未被吊销",
+        ...(detail ? { detail } : {}),
+      },
+      requestId,
+    );
+    return;
+  }
+
+  try {
+    const cipher = createCredentialCipher(config.credentialMasterKey);
+    const sealed = cipher.seal(privateKeyPem);
+    for (const [key, value] of [
+      ["github_app_id", appId],
+      ["github_app_private_key", sealed],
+    ] as const) {
+      await database.db
+        .insert(systemSettings)
+        .values({ key, value })
+        .onConflictDoUpdate({
+          target: systemSettings.key,
+          set: { value, updatedAt: new Date() },
+        });
+    }
+    // 立即重建客户端，用户不必重启容器。
+    reloadGithubClient();
+    await refreshRuntimeSettings();
+    audit(request, "setup.github_app", appId, { appSlug });
+    json(response, 200, { status: "ok", appId, appSlug }, requestId);
+  } catch (error) {
+    logger.warn({ err: error }, "GitHub App save failed");
+    json(
+      response,
+      500,
+      { status: "error", reason: "github_app_save_failed" },
+      requestId,
+    );
+  }
+}
+
 async function handleSetupOAuth(
   request: IncomingMessage,
   response: ServerResponse,
@@ -3829,6 +4146,7 @@ async function handleRequest(
     "/setup/provider": handleSetupProvider,
     "/setup/embedding": handleSetupEmbedding,
     "/setup/webhook-secret": handleSetupWebhookSecret,
+    "/setup/github-app": handleSetupGithubApp,
     "/setup/oauth": handleSetupOAuth,
   };
   const setupHandler = setupWriteRoutes[path];
@@ -4217,6 +4535,29 @@ async function handleRequest(
 
   if (path === "/repositories") {
     await handleRepositories(response, requestId);
+    return;
+  }
+
+  // /repositories/:id/settings —— 放在 /repositories/issues 之后即可：后者是
+  // 固定路径，不会撞上 uuid/settings 的形状。
+  if (
+    path.startsWith("/repositories/") &&
+    path.endsWith("/settings") &&
+    path !== "/repositories/settings"
+  ) {
+    const repositoryId = decodeURIComponent(
+      path.slice("/repositories/".length, path.length - "/settings".length),
+    ).trim();
+    if (!repositoryId) {
+      json(
+        response,
+        400,
+        { status: "error", reason: "repository id required" },
+        requestId,
+      );
+      return;
+    }
+    await handleRepositorySettings(request, response, repositoryId, requestId);
     return;
   }
 

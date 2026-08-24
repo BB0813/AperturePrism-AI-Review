@@ -263,6 +263,50 @@ describe("issue analysis handler", () => {
     expect(calls()).not.toContain("analyze");
   });
 
+  it("completes without analysis when the edit is not worth reanalyzing", async () => {
+    const { services, calls } = makeServices({
+      shouldReanalyze: async () => false,
+    });
+    const handler = createIssueAnalysisHandler(services);
+
+    const result = await handler(leasedTask(), neverAbort);
+
+    expect(result).toEqual({ outcome: "completed" });
+    // 关键点：跳过时不能发占位评论，否则它会永远停在「正在分析」。
+    expect(calls()).toEqual(["buildContext"]);
+    expect(calls()).not.toContain("publishPlaceholder");
+    expect(calls()).not.toContain("analyze");
+  });
+
+  it("skips before the spam detector so a trivial edit costs no model call", async () => {
+    const detected: string[] = [];
+    const { services } = makeServices({
+      shouldReanalyze: async () => false,
+      detectSpam: async () => {
+        detected.push("detectSpam");
+        return null;
+      },
+    });
+    const handler = createIssueAnalysisHandler(services);
+
+    await handler(leasedTask(), neverAbort);
+
+    expect(detected).toEqual([]);
+  });
+
+  it("runs the normal flow when the gate allows the reanalysis", async () => {
+    const { services, calls } = makeServices({
+      shouldReanalyze: async () => true,
+    });
+    const handler = createIssueAnalysisHandler(services);
+
+    const result = await handler(leasedTask(), neverAbort);
+
+    expect(result).toEqual({ outcome: "completed" });
+    expect(calls()).toContain("analyze");
+    expect(calls()).toContain("publishFinal");
+  });
+
   it("continues the normal flow when the spam detector throws", async () => {
     const { services, calls } = makeServices({
       detectSpam: async () => {

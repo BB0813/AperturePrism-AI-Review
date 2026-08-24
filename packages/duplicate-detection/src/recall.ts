@@ -116,6 +116,32 @@ export async function getDocumentHash(
   };
 }
 
+/**
+ * 上一次索引到的归一化正文（`body` 列存的就是 `normalizedIndexText` 的结果）。
+ * 供「编辑后是否值得重新分析」判定使用：拿它与当前正文比较变化幅度。
+ *
+ * 取 `updated_at` 而非 `indexed_at`：upsert 只刷新前者，后者停留在首次入库
+ * 时间，用它判断「快照是否早于本次编辑」会把旧快照误判成新的。
+ */
+export async function getIndexedIssueText(
+  sql: SqlTag,
+  input: { repositoryId: string | null; issueNumber: number },
+): Promise<{ text: string; updatedAt: Date } | null> {
+  const rows = await sql`
+    select body as "text", updated_at as "updatedAt"
+    from issue_documents
+    where issue_number = ${input.issueNumber}
+      and (repository_id = ${input.repositoryId}::uuid
+           or (${input.repositoryId}::uuid is null and repository_id is null))
+    limit 1`;
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    text: String(row.text ?? ""),
+    updatedAt: new Date(String(row.updatedAt)),
+  };
+}
+
 /** Empties the index (used by the rebuild operation). */
 export async function clearIssueDocuments(sql: SqlTag): Promise<void> {
   await sql`delete from issue_documents`;
