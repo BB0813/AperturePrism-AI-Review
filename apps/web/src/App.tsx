@@ -25,6 +25,8 @@ import { AgentPage } from "./pages/AgentPage";
 import { AboutPage } from "./pages/AboutPage";
 import { SetupPage } from "./pages/SetupPage";
 import { BotPage } from "./pages/BotPage";
+import { GitHubAccessPage } from "./pages/GitHubAccessPage";
+import { AnalysisSettingsPage } from "./pages/AnalysisSettingsPage";
 import {
   ActivityIcon,
   BotIcon,
@@ -33,6 +35,7 @@ import {
   DatabaseIcon,
   FolderIcon,
   GearIcon,
+  GitHubIcon,
   GridIcon,
   InfoIcon,
   LayersIcon,
@@ -43,6 +46,7 @@ import {
   PullRequestIcon,
   RadarIcon,
   ShieldIcon,
+  SlidersIcon,
   SparkleIcon,
   SunIcon,
   TagIcon,
@@ -75,16 +79,23 @@ export const NAV: NavGroup[] = [
     ],
   },
   {
+    title: "接入与身份",
+    items: [
+      { path: "/github-access", label: "GitHub 接入", icon: GitHubIcon },
+      { path: "/bot", label: "机器人", icon: BotIcon },
+      { path: "/provider", label: "模型路由", icon: CpuIcon },
+    ],
+  },
+  {
     title: "数据与运维",
     items: [
       { path: "/repos", label: "已安装仓库", icon: FolderIcon },
+      { path: "/analysis", label: "分析设置", icon: SlidersIcon },
       { path: "/vector", label: "向量存储", icon: DatabaseIcon },
       { path: "/scan", label: "仓库扫描", icon: RadarIcon },
       { path: "/memory", label: "记忆管理", icon: SparkleIcon },
       { path: "/labels", label: "标签配置", icon: TagIcon },
-      { path: "/provider", label: "模型路由", icon: CpuIcon },
       { path: "/agent", label: "Agent 能力", icon: LayersIcon },
-      { path: "/bot", label: "机器人", icon: BotIcon },
     ],
   },
   {
@@ -214,6 +225,8 @@ function AuthedConsole(props: { onLogout: () => void }) {
   else if (active === "/labels") page = <LabelsPage />;
   else if (active === "/agent") page = <AgentPage />;
   else if (active === "/bot") page = <BotPage />;
+  else if (active === "/github-access") page = <GitHubAccessPage />;
+  else if (active === "/analysis") page = <AnalysisSettingsPage />;
   else if (active === "/provider") page = <ProviderPage />;
   else if (active === "/config") page = <ConfigPage />;
   else if (active === "/security") page = <SecurityPage />;

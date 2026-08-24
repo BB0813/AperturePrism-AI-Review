@@ -1,7 +1,7 @@
 {
   "name": "@apertureprism/qq-bot",
   "private": true,
-  "version": "1.0.33",
+  "version": "1.0.34",
   "type": "module",
   "scripts": {
     "build": "tsc",

@@ -9,6 +9,7 @@ import {
 import { GearIcon, RefreshIcon } from "../components/icons";
 import { ErrorPanel, LoadingRows } from "../components/ui";
 import { explainUnknown } from "../lib/errors";
+import { SettingsSection } from "../components/SettingsSection";
 import { useToast } from "../components/Toast";
 
 /**
@@ -287,6 +288,12 @@ export function ProviderPage() {
           凭据以 AES-GCM 加密存储，仅 Worker 在进程内解密，绝不出现在此界面。
         </p>
       </section>
+
+      <SettingsSection
+        keys={["embedding_base_url", "embedding_api_key", "embedding_model"]}
+        title="Embedding（向量索引）"
+        desc="重复检测与相似 issue 召回所用的嵌入服务；留空则用环境变量"
+      />
     </div>
   );
 }

@@ -1,0 +1,277 @@
+import { useCallback, useEffect, useState } from "react";
+import {
+  clearSetting,
+  fetchSettings,
+  saveSetting,
+  type SettingItem,
+} from "../lib/api";
+import { ErrorPanel, LoadingRows } from "./ui";
+import { explainUnknown } from "../lib/errors";
+import { useToast } from "./Toast";
+
+/**
+ * 生效来源徽章：数据库覆盖 / 环境变量 / 应用默认。
+ * 系统配置去重后，各功能页（GitHub 接入、机器人、模型路由、分析设置）共用。
+ */
+export function SourceBadge({ item }: { item: SettingItem }) {
+  if (item.source === "database")
+    return <span className="pill pill-info">已覆盖 · 数据库</span>;
+  if (item.source === "env")
+    return (
+      <span className="pill pill-ok" title={item.envVar ?? undefined}>
+        来自环境变量{item.envVar ? ` · ${item.envVar}` : ""}
+      </span>
+    );
+  return (
+    <span className="pill pill-dim" title={`应用默认：${item.defaultValue || "空"}`}>
+      应用默认{item.defaultValue ? ` · ${item.defaultValue}` : ""}
+    </span>
+  );
+}
+
+/**
+ * 单个设置项的可编辑行：按 kind 渲染开关 / 下拉 / 文本框，保存即写数据库。
+ * 从原系统配置页抽取，供各功能页复用，避免每个页面各写一份字段控件。
+ */
+export function SettingField({
+  item,
+  draft,
+  setDraft,
+  save,
+  clear,
+  busyKey,
+}: {
+  item: SettingItem;
+  draft: string;
+  setDraft: (value: string) => void;
+  save: (key: string, value: string) => void;
+  clear: (key: string) => void;
+  busyKey: string | null;
+}) {
+  const busy = busyKey === item.key;
+  // 只有数据库覆盖才谈得上「回落」；env / 默认状态下没有可删除的东西。
+  const canRevert = item.source === "database";
+  const on = item.value === "true";
+
+  return (
+    <div className="result-card">
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontWeight: 700, fontSize: 13 }}>{item.label}</span>
+        <SourceBadge item={item} />
+        {item.repoScoped ? (
+          <span className="pill pill-dim" title="可在「已安装仓库」页为单个仓库覆盖">
+            可按仓库覆盖
+          </span>
+        ) : null}
+        {item.hotReload === "restart" ? (
+          <span className="pill pill-warn">需重启容器</span>
+        ) : null}
+      </div>
+
+      {item.kind === "boolean" ? (
+        <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={on}
+            aria-label={item.label}
+            className="switch"
+            data-on={on ? "true" : "false"}
+            disabled={busy}
+            onClick={() => save(item.key, on ? "false" : "true")}
+          >
+            <span className="switch-knob" />
+          </button>
+          <span className="faint" style={{ fontSize: 12 }}>
+            {busy ? "保存中…" : on ? "已开启" : "已关闭"}
+          </span>
+          {canRevert ? (
+            <button className="btn" style={{ fontSize: 12 }} disabled={busy} onClick={() => clear(item.key)}>
+              {item.envConfigured ? "回落环境变量" : "回落默认"}
+            </button>
+          ) : null}
+        </div>
+      ) : item.kind === "enum" ? (
+        <div style={{ marginTop: 10, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <select
+            className="input"
+            style={{ flex: "0 1 200px" }}
+            value={item.value}
+            disabled={busy}
+            onChange={(event) => save(item.key, event.target.value)}
+          >
+            {(item.options ?? []).map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+          {busy ? <span className="faint" style={{ fontSize: 12 }}>保存中…</span> : null}
+          {canRevert ? (
+            <button className="btn" style={{ fontSize: 12 }} disabled={busy} onClick={() => clear(item.key)}>
+              {item.envConfigured ? "回落环境变量" : "回落默认"}
+            </button>
+          ) : null}
+        </div>
+      ) : (
+        <div style={{ marginTop: 10, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <input
+            className="input"
+            style={{ flex: "1 1 260px" }}
+            type={item.secret ? "password" : "text"}
+            placeholder={
+              item.secret
+                ? item.hasValue
+                  ? "已配置（不回显），输入新值可替换"
+                  : "输入新值"
+                : item.value
+                  ? `当前：${item.value}`
+                  : "输入新值"
+            }
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            data-lpignore="true"
+          />
+          <button
+            className="btn btn-primary"
+            onClick={() => save(item.key, draft.trim())}
+            disabled={busy || draft.trim().length === 0}
+          >
+            {busy ? "保存中…" : "保存"}
+          </button>
+          {canRevert ? (
+            <button className="btn" style={{ fontSize: 12 }} disabled={busy} onClick={() => clear(item.key)}>
+              {item.envConfigured ? "回落环境变量" : "回落默认"}
+            </button>
+          ) : null}
+        </div>
+      )}
+
+      <p className="faint" style={{ margin: "8px 0 0", fontSize: 12 }}>{item.hint}</p>
+    </div>
+  );
+}
+
+/**
+ * 一个设置分区：按 key 白名单从注册表渲染设置项。每项自带来源徽章、保存/回落、
+ * 热更新提示。各功能页用它承载属于自己的设置，实现「每项单一归属」。
+ */
+export function SettingsSection({
+  keys,
+  title,
+  desc,
+  countLabel,
+  onSaved,
+}: {
+  keys: readonly string[];
+  title: string;
+  desc?: string;
+  /** 自定义计数文案（默认「N 项」）。 */
+  countLabel?: (count: number) => string;
+  onSaved?: () => void;
+}) {
+  const toast = useToast();
+  const [items, setItems] = useState<SettingItem[]>([]);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    fetchSettings()
+      .then((s) => {
+        const byKey = new Map(s.items.map((i) => [i.key, i]));
+        setItems(
+          keys
+            .map((k) => byKey.get(k))
+            .filter((x): x is SettingItem => Boolean(x)),
+        );
+        setDrafts({});
+      })
+      .catch((err: unknown) => {
+        setError(explainUnknown(err));
+      })
+      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keys.join(",")]);
+
+  useEffect(() => load(), [load]);
+
+  const refresh = async (key: string) => {
+    const fresh = await fetchSettings();
+    const byKey = new Map(fresh.items.map((i) => [i.key, i]));
+    setItems((prev) =>
+      prev.map((item) => byKey.get(item.key) ?? item),
+    );
+    setDrafts((prev) => ({ ...prev, [key]: "" }));
+  };
+
+  const labelOf = (key: string) =>
+    items.find((item) => item.key === key)?.label ?? key;
+
+  const save = async (key: string, value: string) => {
+    setBusyKey(key);
+    try {
+      await saveSetting(key, value);
+      toast.success(`已保存：${labelOf(key)}`);
+      await refresh(key);
+      onSaved?.();
+    } catch (err) {
+      toast.error(`保存失败：${explainUnknown(err)}`);
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const clear = async (key: string) => {
+    setBusyKey(key);
+    try {
+      const item = items.find((i) => i.key === key);
+      await clearSetting(key);
+      toast.success(
+        `已清除覆盖：${labelOf(key)}，${item?.envConfigured ? "回落到环境变量" : "回落到应用默认"}`,
+      );
+      await refresh(key);
+      onSaved?.();
+    } catch (err) {
+      toast.error(`清除失败：${explainUnknown(err)}`);
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  return (
+    <section className="panel">
+      <div className="panel-title">
+        <h2>{title}</h2>
+        <span className="count">{countLabel ? countLabel(items.length) : `${items.length} 项`}</span>
+      </div>
+      {desc ? (
+        <p className="faint" style={{ margin: "0 0 12px", fontSize: 12 }}>{desc}</p>
+      ) : null}
+      {error ? (
+        <ErrorPanel error={error} onRetry={load} />
+      ) : loading ? (
+        <LoadingRows />
+      ) : (
+        <div className="stack">
+          {items.map((item) => (
+            <SettingField
+              key={item.key}
+              item={item}
+              draft={drafts[item.key] ?? ""}
+              setDraft={(value) =>
+                setDrafts((prev) => ({ ...prev, [item.key]: value }))
+              }
+              save={save}
+              clear={clear}
+              busyKey={busyKey}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
