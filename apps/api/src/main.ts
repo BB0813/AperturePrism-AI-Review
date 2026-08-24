@@ -1,5 +1,4 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import {
   createServer,
   type IncomingMessage,
@@ -7,8 +6,16 @@ import {
 } from "node:http";
 import { and, asc, desc, eq, gt, inArray, isNotNull, or } from "drizzle-orm";
 import {
+  ALLOWED_SETTING_KEYS,
+  BOOLEAN_DEFAULTS,
   createCredentialCipher,
+  KNOWN_SETTING_KEYS,
+  getSettingSpec,
   loadConfig,
+  parseBool,
+  parseLogLevel,
+  SECRET_SETTING_KEYS,
+  validateSettingValue,
 } from "../../../packages/config/src/index.js";
 import { createSessionSigner } from "./session.js";
 import {
@@ -32,7 +39,12 @@ import {
   externalPublications,
   listAuditLogs,
   listLabelRules,
+  deleteSetting,
   listScanRuns,
+  loadSettings,
+  putSetting,
+  resolveSettingValue,
+  resolveGithubAppCredentials,
   seedDefaultLabelRules,
   listRepoMemory,
   listUsers,
@@ -71,6 +83,7 @@ import {
   WebhookSignatureError,
 } from "../../../packages/github-adapter/src/index.js";
 import {
+  DEFAULT_MIN_CHANGE_RATIO,
   ISSUE_ANALYSIS_POLICY_VERSION,
   repositoryOwnerName,
 } from "../../../packages/issue-analysis/src/index.js";
@@ -110,48 +123,31 @@ const redis = createRedisClient(config.redisUrl);
  */
 /**
  * GitHub App 凭据可以来自环境变量（GITHUB_APP_ID + 私钥文件），也可以在 WebUI
- * 里保存到 system_settings（私钥用 AES-GCM 加密）。此前只支持前者，界面上没有
- * 任何输入项，用户看到 github_not_configured 却无处可填。
- *
- * 运行时设置优先：它是用户刚在界面上填的，应当立即生效。
+ * 里保存到 system_settings（私钥用 AES-GCM 加密）。运行时设置优先：它是用户刚在
+ * 界面上填的，应当立即生效。凭据解析已下沉到 database 包的
+ * `resolveGithubAppCredentials`，api 与三个 worker 共用同一实现。
  */
 async function loadGithubAppCredentials(): Promise<{
   appId: string;
   privateKeyPem: string;
 } | null> {
-  const rows = await database.db
-    .select({ key: systemSettings.key, value: systemSettings.value })
-    .from(systemSettings)
-    .where(
-      inArray(systemSettings.key, [
-        "github_app_id",
-        "github_app_private_key",
-      ]),
-    );
-  const stored = new Map(rows.map((row) => [row.key, row.value]));
-  const storedAppId = (stored.get("github_app_id") ?? "").trim();
-  const sealedKey = stored.get("github_app_private_key") ?? "";
-
-  if (storedAppId && sealedKey && config.credentialMasterKey) {
-    try {
-      const cipher = createCredentialCipher(config.credentialMasterKey);
-      return { appId: storedAppId, privateKeyPem: cipher.open(sealedKey) };
-    } catch (error) {
-      // 主密钥换过或记录被篡改：不静默回退到环境变量，否则用户会以为界面里
-      // 保存的凭据在生效。
-      logger.error(
-        { err: error },
-        "stored GitHub App private key could not be decrypted",
-      );
-      return null;
-    }
-  }
-
-  if (config.githubAppId && config.githubAppPrivateKeyPath) {
-    return {
+  const resolution = await resolveGithubAppCredentials(database.db, {
+    opener: config.credentialMasterKey
+      ? createCredentialCipher(config.credentialMasterKey)
+      : null,
+    env: {
       appId: config.githubAppId,
-      privateKeyPem: await readFile(config.githubAppPrivateKeyPath, "utf8"),
-    };
+      privateKeyPath: config.githubAppPrivateKeyPath,
+    },
+  });
+  if (resolution.outcome === "ok") return resolution.credentials;
+  if (resolution.outcome === "decrypt_failed") {
+    // 主密钥换过、缺失，或记录被篡改：不静默回退到环境变量，否则用户会以为
+    // 界面里保存的凭据在生效。
+    logger.error(
+      { reason: resolution.reason },
+      "stored GitHub App private key could not be used",
+    );
   }
   return null;
 }
@@ -244,39 +240,10 @@ function parseSessionToken(token: string): string | null {
 
 /* ---------- runtime settings (hot-reload overrides) ---------- */
 const SETTINGS_POLL_MS = 8_000;
-const SECRET_SETTING_KEYS = new Set([
-  "webui_api_token",
-  "github_webhook_secret",
-  "oauth_client_secret",
-  "embedding_api_key",
-  "qq_official_app_secret",
-]);
-const ALLOWED_SETTING_KEYS = new Set([
-  "webui_api_token",
-  "github_webhook_secret",
-  "github_webhook_enabled",
-  "oauth_client_id",
-  "oauth_client_secret",
-  "embedding_base_url",
-  "embedding_api_key",
-  "embedding_model",
-  "qq_bot_protocols",
-  "qq_official_app_id",
-  "qq_official_app_secret",
-  "qq_official_gateway_url",
-  "qq_official_intents",
-  "log_level",
-  "spam_handling",
-  "issue_auto_assign",
-  "issue_assignee",
-  "issue_rewrite_title",
-  "issue_deep_analysis",
-  "issue_reanalyze_min_change",
-  // pr_check_run / pr_auto_review 此前只在 GET 的 known 列表里：界面画得出开关，
-  // 保存却一律 unsupported_setting_key。白名单是唯一的写入闸口，必须同时列出。
-  "pr_check_run",
-  "pr_auto_review",
-]);
+// 密钥集与写白名单都从注册表派生：此前它们在 api 里手写，且与 GET 列表分开维护、
+// 已经漂移（pr_check_run 曾能画开关却存不了）。注册表是唯一事实源。
+const SECRET_KEYS = SECRET_SETTING_KEYS;
+const WRITABLE_SETTING_KEYS = new Set<string>(ALLOWED_SETTING_KEYS);
 
 const runtimeSettings = new Map<string, string>();
 
@@ -288,7 +255,11 @@ async function refreshRuntimeSettings(): Promise<void> {
       .from(systemSettings);
     runtimeSettings.clear();
     for (const row of rows) runtimeSettings.set(row.key, row.value);
-    logger.level = runtimeSettings.get("log_level") ?? config.logLevel;
+    // 经注册表校验：DB 里存了非法值（比如手填 foo）时不该污染日志系统。
+    logger.level = parseLogLevel(
+      runtimeSettings.get("log_level"),
+      config.logLevel,
+    );
     logger.debug(
       { keys: rows.map((row) => row.key), count: rows.length },
       "runtime settings refreshed",
@@ -2008,12 +1979,23 @@ async function handleRepositorySettings(
       },
       // globalValue 一并回给前端：界面要能显示「跟随全局（当前：已开启）」，
       // 否则用户看不出不覆盖时到底是什么行为。
-      items: [...REPOSITORY_SETTING_KEYS].map((key) => ({
-        key,
-        overridden: overrides.has(key),
-        value: overrides.get(key) ?? "",
-        globalValue: globals.get(key) ?? "",
-      })),
+      // 元数据同样由注册表提供，前端不再维护第二份字段文案。
+      items: [...REPOSITORY_SETTING_KEYS].map((key) => {
+        const spec = getSettingSpec(key);
+        return {
+          key,
+          label: spec?.label ?? key,
+          hint: spec?.hint ?? "",
+          kind: spec?.kind ?? "string",
+          secret: spec?.secret ?? false,
+          ...(spec?.options ? { options: spec.options } : {}),
+          overridden: overrides.has(key),
+          value: overrides.get(key) ?? "",
+          globalValue: globals.get(key) ?? "",
+          /** 两边都没配时的应用默认，界面显示「跟随全局」时要用它。 */
+          defaultValue: settingDefaultValue(key),
+        };
+      }),
     },
     requestId,
   );
@@ -2044,12 +2026,11 @@ async function handleRepositorySync(
 /** Global scheduled-scan switch from `system_settings` (absent = enabled). */
 async function scanGloballyEnabled(): Promise<boolean> {
   try {
-    const rows = await database.db
-      .select({ value: systemSettings.value })
-      .from(systemSettings)
-      .where(eq(systemSettings.key, "scan_enabled"))
-      .limit(1);
-    return rows[0]?.value !== "false";
+    const settings = await loadSettings(database.db, ["scan_enabled"]);
+    return parseBool(
+      settings.get("scan_enabled"),
+      BOOLEAN_DEFAULTS.scan_enabled ?? true,
+    );
   } catch {
     return true;
   }
@@ -2652,6 +2633,47 @@ async function handleConfig(
   );
 }
 
+/**
+ * 某个设置键的 env 兜底值。
+ *
+ * 直接读 process.env 而不是 loadConfig 的结果：注册表里记的是 env 变量名，而
+ * config 已经把它们改过名、套过默认值（比如 EMBEDDING_MODEL 默认
+ * nvidia/nv-embed-v1）。界面要显示的是「env 里到底有没有配」，所以看原始值。
+ *
+ * `github_app_private_key` 的 env 形态是文件路径而非密钥内容，这里只用于判断
+ * 「env 有没有提供」，不回显值。
+ */
+function settingEnvValue(key: string): string | undefined {
+  const spec = getSettingSpec(key);
+  if (!spec?.envVar) return undefined;
+  const raw = process.env[spec.envVar];
+  return raw === undefined || raw.trim().length === 0 ? undefined : raw;
+}
+
+/**
+ * 某个设置键的应用默认值（没有 DB 覆盖也没有 env 时生效的那个），以字符串表示，
+ * 供界面显示「应用默认：…」。
+ *
+ * `github_webhook_enabled` 的默认是动态的 —— 跟随是否配了签名密钥，这也是它在
+ * 注册表里没有 envVar 的原因。
+ */
+function settingDefaultValue(key: string): string {
+  if (key === "github_webhook_enabled")
+    return config.githubWebhookSecret ? "true" : "false";
+  const spec = getSettingSpec(key);
+  if (spec?.kind === "boolean") {
+    const fallback = BOOLEAN_DEFAULTS[key];
+    return fallback === undefined ? "" : String(fallback);
+  }
+  if (key === "spam_handling") return "close";
+  if (key === "log_level") return config.logLevel;
+  if (key === "issue_reanalyze_min_change")
+    return String(DEFAULT_MIN_CHANGE_RATIO);
+  if (key === "embedding_model") return config.embedding.model;
+  if (key === "qq_official_intents") return String(config.qqOfficialIntents);
+  return "";
+}
+
 /** Runtime settings: GET lists (secret values masked); PUT upserts a key. */
 async function handleSettings(
   request: IncomingMessage,
@@ -2673,7 +2695,7 @@ async function handleSettings(
       return;
     }
     const key = typeof parsed.key === "string" ? parsed.key : null;
-    if (!key || !ALLOWED_SETTING_KEYS.has(key)) {
+    if (!key || !WRITABLE_SETTING_KEYS.has(key)) {
       json(
         response,
         400,
@@ -2682,17 +2704,34 @@ async function handleSettings(
       );
       return;
     }
+
+    // value: null 表示删除覆盖、回落到 env / 应用默认。没有这个动作的话，一旦
+    // 存过值就再也回不去，只能在库里留一份 env 值的副本。
+    if (parsed.value === null) {
+      await deleteSetting(database.db, key);
+      await refreshRuntimeSettings();
+      audit(request, "settings.clear", key, { secret: SECRET_KEYS.has(key) });
+      json(response, 200, { status: "ok", key, cleared: true }, requestId);
+      return;
+    }
+
     const value = typeof parsed.value === "string" ? parsed.value : "";
-    await database.db
-      .insert(systemSettings)
-      .values({ key, value })
-      .onConflictDoUpdate({
-        target: systemSettings.key,
-        set: { value, updatedAt: new Date() },
-      });
+    // 保存前校验：此前无校验直存，log_level 填 foo 会存进去并污染日志系统。
+    const invalid = validateSettingValue(key, value);
+    if (invalid) {
+      json(
+        response,
+        400,
+        { status: "error", reason: "invalid_setting_value", detail: invalid },
+        requestId,
+      );
+      return;
+    }
+
+    await putSetting(database.db, key, value);
     await refreshRuntimeSettings();
     audit(request, "settings.update", key, {
-      secret: SECRET_SETTING_KEYS.has(key),
+      secret: SECRET_KEYS.has(key),
     });
     json(response, 200, { status: "ok", key }, requestId);
     return;
@@ -2707,52 +2746,121 @@ async function handleSettings(
     .from(systemSettings)
     .orderBy(asc(systemSettings.key));
   const byKey = new Map(rows.map((row) => [row.key, row]));
-  const known = [
-    "webui_api_token",
-    "github_webhook_secret",
-    "github_webhook_enabled",
-    "oauth_client_id",
-    "oauth_client_secret",
-    "embedding_base_url",
-    "embedding_api_key",
-    "embedding_model",
-    "qq_bot_protocols",
-    "qq_official_app_id",
-    "qq_official_app_secret",
-    "qq_official_gateway_url",
-    "qq_official_intents",
-    "log_level",
-    "spam_handling",
-    "issue_auto_assign",
-    "issue_assignee",
-    "issue_rewrite_title",
-    "issue_deep_analysis",
-    "issue_reanalyze_min_change",
-    "pr_check_run",
-    "pr_auto_review",
-  ];
-  const items = known.map((key) => {
+  const items = KNOWN_SETTING_KEYS.map((key) => {
+    const spec = getSettingSpec(key);
     const row = byKey.get(key);
+    const envValue = settingEnvValue(key);
+    const resolved = resolveSettingValue({
+      dbValue: row?.value,
+      envValue,
+    });
+    const secret = SECRET_KEYS.has(key);
     const hasValue = Boolean(row && row.value.trim().length > 0);
-    const masked = SECRET_SETTING_KEYS.has(key) && hasValue;
+    // 生效值：secret 一律不回显，只说明「已配置」。
+    const effective =
+      resolved.value === undefined
+        ? settingDefaultValue(key)
+        : secret
+          ? "••••••••"
+          : resolved.value;
     return {
       key,
+      group: spec?.group ?? "ops",
+      kind: spec?.kind ?? "string",
+      label: spec?.label ?? key,
+      hint: spec?.hint ?? "",
+      secret,
+      repoScoped: spec?.repoScoped ?? false,
+      hotReload: spec?.hotReload ?? "poll",
+      ...(spec?.options ? { options: spec.options } : {}),
+      // source 是这次交互改造的核心：用户终于能看出「我改的到底生效没、
+      // 现在这个值是谁给的」。
+      source: resolved.source,
+      value: effective,
+      /** env 是否提供了兜底值（secret 不回显内容）。 */
+      envConfigured: envValue !== undefined,
+      envVar: spec?.envVar ?? null,
+      defaultValue: settingDefaultValue(key),
+      // 兼容旧前端：hasValue 表示「数据库里有覆盖」。
       hasValue,
-      value: masked ? "••••••••" : hasValue ? (row?.value ?? "") : "",
       updatedAt: row?.updatedAt ?? null,
     };
   });
   json(response, 200, { items }, requestId);
 }
 
+/**
+ * GET /settings/bootstrap — 引导层（只能来自环境变量的那几项）的健康度。
+ *
+ * 这几项无法下沉到数据库：DATABASE_URL / REDIS_URL 要先连上才能读库（鸡生蛋），
+ * HOST / PORT 在读库之前就要绑定，CREDENTIAL_MASTER_KEY 是解开库内所有密文的
+ * 钥匙 —— 放进库等于明文存钥匙，加密就失去意义。
+ *
+ * 单独暴露是因为 CREDENTIAL_MASTER_KEY 缺失时，provider 凭据与 GitHub App 私钥
+ * 都保存不了，而这件事此前只在保存失败时才暴露出来。
+ */
+function handleSettingsBootstrap(
+  response: ServerResponse,
+  requestId: string,
+): void {
+  const masterKeyConfigured = Boolean(config.credentialMasterKey);
+  json(
+    response,
+    200,
+    {
+      // 一律不回显值：这些要么是连接串（含口令），要么是主密钥本身。
+      items: [
+        {
+          key: "DATABASE_URL",
+          configured: true, // 能响应这个请求就说明它可用
+          required: true,
+          label: "数据库连接",
+          hint: "要先连上数据库才能读取设置，因此它无法保存在数据库里",
+        },
+        {
+          key: "REDIS_URL",
+          configured: Boolean(config.redisUrl),
+          required: true,
+          label: "Redis 连接",
+          hint: "事件流与限流依赖；同样属于启动前就要知道的连接信息",
+        },
+        {
+          key: "CREDENTIAL_MASTER_KEY",
+          configured: masterKeyConfigured,
+          required: true,
+          label: "凭据主密钥",
+          hint: masterKeyConfigured
+            ? "已配置：模型 Provider 凭据与 GitHub App 私钥可加密保存"
+            : "未配置：无法保存模型 Provider 凭据与 GitHub App 私钥（AES-GCM 加密需要它）。它是解开库内所有密文的钥匙，因此不能存进数据库",
+        },
+        {
+          key: "HOST/PORT",
+          configured: true,
+          required: true,
+          label: "监听地址",
+          hint: `${config.host}:${config.port}；端口绑定发生在读取数据库之前`,
+        },
+      ],
+      healthy: masterKeyConfigured,
+    },
+    requestId,
+  );
+}
+
 /** Reads the current expert-team enablement flag from `system_settings`. */
 async function agentTeamEnabled(): Promise<boolean> {
-  const rows = await database.db
-    .select({ value: systemSettings.value })
-    .from(systemSettings)
-    .where(eq(systemSettings.key, "agent_team_enabled"))
-    .limit(1);
-  return rows[0]?.value === "true";
+  try {
+    const settings = await loadSettings(database.db, ["agent_team_enabled"]);
+    return parseBool(
+      settings.get("agent_team_enabled"),
+      BOOLEAN_DEFAULTS.agent_team_enabled ?? false,
+    );
+  } catch (error) {
+    // 之前这里没有 catch：数据库抖一下就让整个 /capabilities 返回 500，
+    // 而这只是一个开关，读不到时按「未启用」处理即可。
+    logger.warn({ err: error }, "agent team flag read failed; treating as off");
+    return false;
+  }
 }
 
 /**
@@ -4198,6 +4306,20 @@ async function handleRequest(
       return;
     }
     handleSse(request, response);
+    return;
+  }
+
+  if (path === "/settings/bootstrap") {
+    if (request.method !== "GET") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    handleSettingsBootstrap(response, requestId);
     return;
   }
 

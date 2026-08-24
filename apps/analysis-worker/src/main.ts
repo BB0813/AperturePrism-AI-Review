@@ -1,21 +1,26 @@
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { and, desc, eq, inArray, like } from "drizzle-orm";
 import {
+  BOOLEAN_DEFAULTS,
   createCredentialCipher,
   loadConfig,
+  parseBool,
+  parseSpamHandling,
 } from "../../../packages/config/src/index.js";
 import {
   createDatabaseClient,
   externalPublications,
+  createGithubAppProvider,
   getRepoMemorySummary,
   getRepositorySettingsFor,
+  loadSettings,
   labelsForAnalysis,
   listLabelRules,
   modelRolePolicies,
   providerAccounts,
   repositories,
+  resolveGithubAppCredentials,
   subjectResults,
   systemSettings,
   writeAuditLog,
@@ -180,11 +185,7 @@ async function loadCandidates(role: PolicyRole): Promise<ModelCandidate[]> {
 async function isExpertTeamEnabled(db: DatabaseClient): Promise<boolean> {
   try {
     const [flag, policy] = await Promise.all([
-      db.db
-        .select({ value: systemSettings.value })
-        .from(systemSettings)
-        .where(eq(systemSettings.key, "agent_team_enabled"))
-        .limit(1),
+      loadSettings(db.db, ["agent_team_enabled"]),
       db.db
         .select({ candidates: modelRolePolicies.candidates })
         .from(modelRolePolicies)
@@ -192,7 +193,13 @@ async function isExpertTeamEnabled(db: DatabaseClient): Promise<boolean> {
         .orderBy(desc(modelRolePolicies.createdAt))
         .limit(1),
     ]);
-    if (flag[0]?.value !== "true") return false;
+    if (
+      !parseBool(
+        flag.get("agent_team_enabled"),
+        BOOLEAN_DEFAULTS.agent_team_enabled ?? false,
+      )
+    )
+      return false;
     const candidates = policy[0]?.candidates;
     return Array.isArray(candidates) && candidates.length > 0;
   } catch (error) {
@@ -277,22 +284,30 @@ const publicationStore: PublicationStore = {
 async function main(): Promise<void> {
   logger.info({ workerId }, "analysis worker starting");
 
-  let github = null;
-  if (config.githubAppId && config.githubAppPrivateKeyPath) {
-    const privateKeyPem = await readFile(
-      config.githubAppPrivateKeyPath,
-      "utf8",
-    );
-    github = createGitHubClient({
-      appId: config.githubAppId,
-      privateKeyPem,
-      ...(config.githubApiBaseUrl
-        ? { apiBaseUrl: config.githubApiBaseUrl }
-        : {}),
-    });
-  } else {
-    logger.warn("GitHub App is not configured; issue tasks will fail");
-  }
+  // GitHub App 凭据优先取 WebUI 保存到数据库的那份，env 兜底；换 App 不必重启。
+  const githubProvider = createGithubAppProvider({
+    logger,
+    resolve: () =>
+      resolveGithubAppCredentials(database.db, {
+        opener: config.credentialMasterKey
+          ? createCredentialCipher(config.credentialMasterKey)
+          : null,
+        env: {
+          appId: config.githubAppId,
+          privateKeyPath: config.githubAppPrivateKeyPath,
+        },
+      }),
+    createClient: (credentials) =>
+      createGitHubClient({
+        appId: credentials.appId,
+        privateKeyPem: credentials.privateKeyPem,
+        ...(config.githubApiBaseUrl
+          ? { apiBaseUrl: config.githubApiBaseUrl }
+          : {}),
+      }),
+  });
+  // 首次解析：拿到初始客户端，同时把「未配置」尽早记进日志。
+  let github = await githubProvider.get();
 
   const cipher = config.credentialMasterKey
     ? createCredentialCipher(config.credentialMasterKey)
@@ -1006,7 +1021,10 @@ async function main(): Promise<void> {
     "agent expert team status",
   );
 
-  const handler: TaskHandler = (task, signal) => {
+  const handler: TaskHandler = async (task, signal) => {
+    // 每个任务开始前刷新一次凭据：用户在 WebUI 换了 GitHub App 之后，worker
+    // 不该必须重启才认新凭据。指纹未变时这只是一次轻量查询。
+    github = await githubProvider.get();
     if (task.taskType === "pr_review") return prReviewHandler(task, signal);
     return issueHandler(task, signal);
   };
@@ -1123,13 +1141,9 @@ async function resolveIssueSettings(
   repositoryFullName: string | null,
   keys: readonly string[],
 ): Promise<Map<string, string>> {
-  const globals = new Map<string, string>();
+  let globals: Map<string, string>;
   try {
-    const rows = await database.db
-      .select({ key: systemSettings.key, value: systemSettings.value })
-      .from(systemSettings)
-      .where(inArray(systemSettings.key, [...keys]));
-    for (const row of rows) globals.set(row.key, row.value);
+    globals = await loadSettings(database.db, keys);
   } catch (error) {
     logger.warn({ err: error }, "global settings read failed");
     throw error;
@@ -1168,7 +1182,10 @@ async function issueDeepAnalysisEnabled(
     const settings = await resolveIssueSettings(repositoryFullName, [
       "issue_deep_analysis",
     ]);
-    return settings.get("issue_deep_analysis") === "true";
+    return parseBool(
+      settings.get("issue_deep_analysis"),
+      BOOLEAN_DEFAULTS.issue_deep_analysis ?? false,
+    );
   } catch {
     return false;
   }
@@ -1254,12 +1271,18 @@ async function issueEnhancementConfig(repositoryFullName: string | null): Promis
       "issue_rewrite_title",
     ]);
     return {
-      autoAssign: map.get("issue_auto_assign") === "true",
+      autoAssign: parseBool(
+        map.get("issue_auto_assign"),
+        BOOLEAN_DEFAULTS.issue_auto_assign ?? false,
+      ),
       assignee: (map.get("issue_assignee") ?? "").trim(),
       // 默认开启：含糊的标题（如只写「bug」）让维护者在列表页无法判断内容，
       // 改写成 [标签][重要度]清晰标题 才是用户期望的默认行为。显式设为
       // "false" 可关闭（全局或按仓库）。
-      rewriteTitle: (map.get("issue_rewrite_title") ?? "true") !== "false",
+      rewriteTitle: parseBool(
+        map.get("issue_rewrite_title"),
+        BOOLEAN_DEFAULTS.issue_rewrite_title ?? true,
+      ),
     };
   } catch {
     // 读取设置失败时不改写标题：宁可不动，也不要基于未知配置改写用户的 Issue。
@@ -1270,14 +1293,19 @@ async function issueEnhancementConfig(repositoryFullName: string | null): Promis
 /** PR 审查交互开关（运行时设置，可在 WebUI「系统配置」热更新）。 */
 async function prReviewConfig(): Promise<{ checkRun: boolean; autoReview: boolean }> {
   try {
-    const rows = await database.db
-      .select({ key: systemSettings.key, value: systemSettings.value })
-      .from(systemSettings)
-      .where(inArray(systemSettings.key, ["pr_check_run", "pr_auto_review"]));
-    const map = new Map(rows.map((row) => [row.key, row.value]));
+    const map = await loadSettings(database.db, [
+      "pr_check_run",
+      "pr_auto_review",
+    ]);
     return {
-      checkRun: map.get("pr_check_run") !== "false",
-      autoReview: map.get("pr_auto_review") !== "false",
+      checkRun: parseBool(
+        map.get("pr_check_run"),
+        BOOLEAN_DEFAULTS.pr_check_run ?? true,
+      ),
+      autoReview: parseBool(
+        map.get("pr_auto_review"),
+        BOOLEAN_DEFAULTS.pr_auto_review ?? true,
+      ),
     };
   } catch {
     return { checkRun: true, autoReview: true };
@@ -1395,21 +1423,15 @@ async function applyIssueEnhancements(input: {
 /** Reads the ad/spam handling policy from `system_settings`; defaults to close. */
 async function spamHandlingMode(): Promise<"none" | "close" | "delete"> {
   try {
-    const rows = await database.db
-      .select({ value: systemSettings.value })
-      .from(systemSettings)
-      .where(eq(systemSettings.key, "spam_handling"))
-      .limit(1);
-    const value = rows[0]?.value;
-    if (value === "none" || value === "delete" || value === "close")
-      return value;
+    const settings = await loadSettings(database.db, ["spam_handling"]);
+    return parseSpamHandling(settings.get("spam_handling"));
   } catch (error) {
     logger.warn(
       { err: error },
       "spam handling setting read failed; using close",
     );
+    return "close";
   }
-  return "close";
 }
 
 /** Posts an explanatory comment and closes the flagged spam issue. */

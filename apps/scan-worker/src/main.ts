@@ -1,10 +1,17 @@
-import { readFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { eq } from "drizzle-orm";
-import { loadConfig } from "../../../packages/config/src/index.js";
+import {
+  BOOLEAN_DEFAULTS,
+  createCredentialCipher,
+  loadConfig,
+  parseBool,
+} from "../../../packages/config/src/index.js";
 import {
   addScanTracking,
   createDatabaseClient,
+  createGithubAppProvider,
+  loadSettings,
+  resolveGithubAppCredentials,
   failScanRun,
   finishScanRun,
   getScanConfig,
@@ -34,18 +41,29 @@ const database = createDatabaseClient(config.databaseUrl);
 const workerId = `${hostname()}:${process.pid}`;
 const shutdown = new AbortController();
 
-async function createGithub() {
-  if (!config.githubAppId || !config.githubAppPrivateKeyPath) {
-    logger.warn("GitHub App not configured; scanning disabled");
-    return null;
-  }
-  const privateKeyPem = await readFile(config.githubAppPrivateKeyPath, "utf8");
-  return createGitHubClient({
-    appId: config.githubAppId,
-    privateKeyPem,
-    ...(config.githubApiBaseUrl ? { apiBaseUrl: config.githubApiBaseUrl } : {}),
-  });
-}
+/**
+ * GitHub App 凭据优先取 WebUI 保存到数据库的那份，env 兜底；换 App 不必重启。
+ * 之前这里只读 env，于是用户在界面上配好了却依然「scanning disabled」。
+ */
+const githubProvider = createGithubAppProvider({
+  logger,
+  resolve: () =>
+    resolveGithubAppCredentials(database.db, {
+      opener: config.credentialMasterKey
+        ? createCredentialCipher(config.credentialMasterKey)
+        : null,
+      env: {
+        appId: config.githubAppId,
+        privateKeyPath: config.githubAppPrivateKeyPath,
+      },
+    }),
+  createClient: (credentials) =>
+    createGitHubClient({
+      appId: credentials.appId,
+      privateKeyPem: credentials.privateKeyPem,
+      ...(config.githubApiBaseUrl ? { apiBaseUrl: config.githubApiBaseUrl } : {}),
+    }),
+});
 
 type RepoRow = {
   id: string;
@@ -61,7 +79,7 @@ type RepoRow = {
  * auto-creates GitHub tracking issues for new PRs. Records a scan_runs row.
  */
 async function scanRepository(
-  github: NonNullable<Awaited<ReturnType<typeof createGithub>>>,
+  github: ReturnType<typeof createGitHubClient>,
   repo: RepoRow,
   trigger: "scheduled" | "manual",
 ): Promise<ScanRunResult> {
@@ -217,12 +235,11 @@ async function scanRepository(
 /** True when scheduled scanning is globally enabled (default: enabled). */
 async function scanGloballyEnabled(): Promise<boolean> {
   try {
-    const rows = await database.db
-      .select({ value: systemSettings.value })
-      .from(systemSettings)
-      .where(eq(systemSettings.key, GLOBAL_ENABLED_KEY))
-      .limit(1);
-    return rows[0]?.value !== "false";
+    const settings = await loadSettings(database.db, [GLOBAL_ENABLED_KEY]);
+    return parseBool(
+      settings.get(GLOBAL_ENABLED_KEY),
+      BOOLEAN_DEFAULTS.scan_enabled ?? true,
+    );
   } catch {
     return true;
   }
@@ -233,7 +250,7 @@ async function scanGloballyEnabled(): Promise<boolean> {
  * scans all enabled repos immediately, ignoring the per-repo interval.
  */
 async function runScanPass(
-  github: NonNullable<Awaited<ReturnType<typeof createGithub>>>,
+  github: ReturnType<typeof createGitHubClient>,
   force: boolean,
 ): Promise<{ repos: number; scanned: number; skipped: number; errors: string[] }> {
   const repoRows = await database.db
@@ -283,11 +300,6 @@ async function runScanPass(
 }
 
 async function loop(): Promise<void> {
-  const github = await createGithub();
-  if (!github) {
-    logger.warn("scan worker has no GitHub App; idle");
-    return;
-  }
   const intervalMsRaw = Number(process.env.SCAN_INTERVAL_MS);
   const loopMs =
     Number.isFinite(intervalMsRaw) && intervalMsRaw > 0
@@ -300,6 +312,14 @@ async function loop(): Promise<void> {
     const force = (await takeSetting(TRIGGER_KEY)) !== null;
     if (!force && !(await scanGloballyEnabled())) {
       logger.debug("scan disabled globally; waiting");
+      await sleep(loopMs, shutdown.signal);
+      continue;
+    }
+    // 每轮开始前刷新凭据：用户可能刚在 WebUI 配好或换掉 GitHub App，不该必须
+    // 重启容器。未配置时跳过本轮而不是退出进程 —— 退出的话之后配好了也永远
+    // 不会再扫描。
+    const github = await githubProvider.get();
+    if (!github) {
       await sleep(loopMs, shutdown.signal);
       continue;
     }

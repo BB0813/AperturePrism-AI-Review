@@ -17,51 +17,15 @@ import { explainError, explainUnknown } from "../lib/errors";
 import { useToast } from "../components/Toast";
 
 /**
- * 仓库级可覆盖的分析开关。同一实例常同时接入个人项目与协作项目 —— 自动改标题
- * 在后者未必受欢迎，所以这些行为要能按仓库分别控制（issue #54）。
+ * 未覆盖时的实际生效值：仓库覆盖 → 全局 → 应用默认。
  *
- * 与系统设置页的字段说明分开维护：这里要额外讲清「跟随全局」的含义，措辞不同。
+ * 三层都要看：只看前两层的话，全局也没配时会把「默认开启」的项显示成关闭。
  */
-const REPO_SETTING_META: Record<
-  string,
-  { label: string; hint: string; kind: "boolean" | "text"; defaultOn?: boolean }
-> = {
-  issue_rewrite_title: {
-    label: "Issue 标题改写",
-    hint: "把含糊标题改写为 [标签][重要度]清晰标题；协作仓库里可单独关掉",
-    kind: "boolean",
-    defaultOn: true,
-  },
-  issue_auto_assign: {
-    label: "Issue 自动指派",
-    hint: "分析完成后自动指派；留空指派对象时默认仓库所有者与协作者",
-    kind: "boolean",
-    defaultOn: false,
-  },
-  issue_assignee: {
-    label: "Issue 指派对象",
-    hint: "GitHub 用户名；留空则回到默认（所有者与协作者）",
-    kind: "text",
-  },
-  issue_deep_analysis: {
-    label: "深度分析（读取源码）",
-    hint: "读取仓库源码定位问题，明显增加用时与 token；需模型网关支持 tools",
-    kind: "boolean",
-    defaultOn: false,
-  },
-  issue_reanalyze_min_change: {
-    label: "重新分析的最小变化幅度",
-    hint: "编辑 Issue 后正文变化低于该比例就不重跑（0-1，默认 0.1）",
-    kind: "text",
-  },
-};
-
-/** 未覆盖时的实际生效值：全局有值用全局，否则用应用默认。 */
-function effectiveBool(item: RepositorySettingItem, defaultOn: boolean): boolean {
-  const source = item.overridden ? item.value : item.globalValue;
-  if (source === "true") return true;
-  if (source === "false") return false;
-  return defaultOn;
+function effectiveBool(item: RepositorySettingItem): boolean {
+  const source = item.overridden
+    ? item.value
+    : item.globalValue || item.defaultValue;
+  return source === "true";
 }
 
 /**
@@ -96,14 +60,17 @@ function RepoSettings({ repo }: { repo: Repository }) {
     if (open && items === null && !loading && !error) load();
   }, [open, items, loading, error, load]);
 
+  const labelOf = (key: string) =>
+    items?.find((item) => item.key === key)?.label ?? key;
+
   const save = async (key: string, value: string | null) => {
     setBusyKey(key);
     try {
       await saveRepositorySetting(repo.id, key, value);
       toast.success(
         value === null
-          ? `已改为跟随全局：${REPO_SETTING_META[key]?.label ?? key}`
-          : `已保存仓库覆盖：${REPO_SETTING_META[key]?.label ?? key}`,
+          ? `已改为跟随全局：${labelOf(key)}`
+          : `已保存仓库覆盖：${labelOf(key)}`,
       );
       const fresh = await fetchRepositorySettings(repo.id);
       setItems(fresh.items);
@@ -143,30 +110,28 @@ function RepoSettings({ repo }: { repo: Repository }) {
       ) : (
         <div className="stack" style={{ gap: 10 }}>
           {items.map((item) => {
-            const meta = REPO_SETTING_META[item.key];
-            if (!meta) return null;
             const busy = busyKey === item.key;
-            const on = effectiveBool(item, meta.defaultOn ?? false);
+            const on = effectiveBool(item);
             return (
               <div
                 key={item.key}
                 style={{ borderTop: "1px solid var(--border)", paddingTop: 8 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 12, fontWeight: 600 }}>{meta.label}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600 }}>{item.label}</span>
                   {item.overridden ? (
                     <span className="pill pill-info">本仓库覆盖</span>
                   ) : (
                     <span className="pill pill-dim">跟随全局</span>
                   )}
                 </div>
-                {meta.kind === "boolean" ? (
+                {item.kind === "boolean" ? (
                   <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                     <button
                       type="button"
                       role="switch"
                       aria-checked={on}
-                      aria-label={meta.label}
+                      aria-label={item.label}
                       className="switch"
                       data-on={on ? "true" : "false"}
                       disabled={busy}
@@ -227,7 +192,7 @@ function RepoSettings({ repo }: { repo: Repository }) {
                   </div>
                 )}
                 <p className="faint" style={{ margin: "6px 0 0", fontSize: 11 }}>
-                  {meta.hint}
+                  {item.hint}
                 </p>
               </div>
             );

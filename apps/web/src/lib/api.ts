@@ -354,10 +354,30 @@ export async function fetchConfig(): Promise<RuntimeConfig> {
   return (await getJson("/config")) as RuntimeConfig;
 }
 
+/** 生效值的来源，界面据此显示徽章：数据库覆盖 / 环境变量 / 应用默认。 */
+export type SettingSource = "database" | "env" | "default";
+
 export type SettingItem = {
   key: string;
-  hasValue: boolean;
+  /** 后端注册表提供的元数据，前端不再自己维护一份文案。 */
+  group: string;
+  kind: "boolean" | "string" | "secret" | "enum" | "number";
+  label: string;
+  hint: string;
+  secret: boolean;
+  repoScoped: boolean;
+  /** `restart` 表示改完必须重启对应容器（目前只有 QQ 相关项）。 */
+  hotReload: "poll" | "restart";
+  options?: string[];
+  source: SettingSource;
+  /** 当前生效值；secret 一律为掩码。 */
   value: string;
+  /** env 是否提供了兜底值（不回显内容）。 */
+  envConfigured: boolean;
+  envVar: string | null;
+  defaultValue: string;
+  /** 数据库里是否有覆盖。 */
+  hasValue: boolean;
   updatedAt: string | null;
 };
 export type SettingsList = { items: SettingItem[] };
@@ -367,17 +387,82 @@ export async function fetchSettings(): Promise<SettingsList> {
   return (await getJson("/settings")) as SettingsList;
 }
 
+/**
+ * 引导层（只能来自环境变量的那几项）的健康度。CREDENTIAL_MASTER_KEY 缺失时
+ * Provider 凭据与 GitHub App 私钥都保存不了，此前只在保存失败时才暴露。
+ */
+export type BootstrapItem = {
+  key: string;
+  configured: boolean;
+  required: boolean;
+  label: string;
+  hint: string;
+};
+export type BootstrapStatus = { items: BootstrapItem[]; healthy: boolean };
+
+export async function fetchSettingsBootstrap(): Promise<BootstrapStatus> {
+  return (await getJson("/settings/bootstrap")) as BootstrapStatus;
+}
+
+/** 清除一个全局设置的覆盖，回落到环境变量 / 应用默认。 */
+export async function clearSetting(key: string): Promise<void> {
+  await putSettingValue(key, null);
+}
+
 /** Upserts a runtime setting; it hot-applies without a restart. */
 export async function saveSetting(key: string, value: string): Promise<void> {
-  await putJson("/settings", { key, value });
+  await putSettingValue(key, value);
+}
+
+/**
+ * 写入或清除一个全局设置。`value: null` 表示删除覆盖、回落到 env / 应用默认。
+ *
+ * 不走 putJson：后者把 400 一律变成 "request failed with 400"，用户看不到
+ * invalid_setting_value 携带的具体原因（比如「只能取 debug / info / …」）。
+ */
+async function putSettingValue(
+  key: string,
+  value: string | null,
+): Promise<void> {
+  const response = await fetch("/settings", {
+    method: "PUT",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify({ key, value }),
+  });
+  if (response.status === 401) throw new Error("unauthorized");
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as
+      | { reason?: unknown; detail?: unknown }
+      | null;
+    const reason = typeof body?.reason === "string" ? body.reason : "";
+    const detail = typeof body?.detail === "string" ? body.detail : "";
+    throw new Error(
+      // detail 是给人看的原因，reason 是错误码；两者都保留，便于翻译层匹配。
+      [reason, detail].filter(Boolean).join("：") ||
+        `request failed with ${response.status}`,
+    );
+  }
+  bumpCache();
 }
 
 /** 仓库级设置项：`overridden` 为 false 时该仓库跟随全局值。 */
 export type RepositorySettingItem = {
   key: string;
+  /** 字段文案由后端注册表提供，前端不再维护第二份。 */
+  label: string;
+  hint: string;
+  kind: "boolean" | "string" | "secret" | "enum" | "number";
+  secret: boolean;
+  options?: string[];
   overridden: boolean;
   value: string;
   globalValue: string;
+  /** 全局也没配时的应用默认。 */
+  defaultValue: string;
 };
 
 export type RepositorySettings = {
@@ -855,27 +940,6 @@ export async function saveGithubApp(input: {
     appId: string;
     appSlug: string;
   };
-}
-
-async function putJson(url: string, body: unknown): Promise<void> {
-  const response = await fetch(url, {
-    method: "PUT",
-    headers: {
-      accept: "application/json",
-      "content-type": "application/json",
-      ...authHeaders(),
-    },
-    body: JSON.stringify(body),
-  });
-  if (response.status === 401) throw new Error("unauthorized");
-  if (!response.ok) {
-    const reason =
-      response.status === 404
-        ? "not found"
-        : `request failed with ${response.status}`;
-    throw new Error(reason);
-  }
-  bumpCache();
 }
 
 /** Fetches both liveness and readiness; the UI shows a clear error on failure. */

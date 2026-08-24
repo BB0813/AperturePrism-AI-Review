@@ -1,10 +1,15 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import { hostname } from "node:os";
-import { eq, or } from "drizzle-orm";
-import { loadConfig } from "../../../packages/config/src/index.js";
+import { eq } from "drizzle-orm";
+import {
+  createCredentialCipher,
+  loadConfig,
+} from "../../../packages/config/src/index.js";
 import {
   createDatabaseClient,
+  createGithubAppProvider,
+  loadSettings,
+  resolveGithubAppCredentials,
   repositories,
   systemSettings,
 } from "../../../packages/database/src/index.js";
@@ -56,17 +61,11 @@ let embeddingOverride: { baseUrl: string; apiKey: string; model: string } | null
   null;
 async function loadEmbeddingOverride(): Promise<void> {
   try {
-    const rows = await database.db
-      .select({ key: systemSettings.key, value: systemSettings.value })
-      .from(systemSettings)
-      .where(
-        or(
-          eq(systemSettings.key, "embedding_base_url"),
-          eq(systemSettings.key, "embedding_api_key"),
-          eq(systemSettings.key, "embedding_model"),
-        ),
-      );
-    const map = new Map(rows.map((row) => [row.key, row.value]));
+    const map = await loadSettings(database.db, [
+      "embedding_base_url",
+      "embedding_api_key",
+      "embedding_model",
+    ]);
     embeddingOverride = {
       baseUrl: map.get("embedding_base_url") || config.embedding.baseUrl || "",
       apiKey: map.get("embedding_api_key") || config.embedding.apiKey || "",
@@ -77,18 +76,29 @@ async function loadEmbeddingOverride(): Promise<void> {
   }
 }
 
-async function createGithub() {
-  if (!config.githubAppId || !config.githubAppPrivateKeyPath) {
-    logger.warn("GitHub App not configured; indexing disabled");
-    return null;
-  }
-  const privateKeyPem = await readFile(config.githubAppPrivateKeyPath, "utf8");
-  return createGitHubClient({
-    appId: config.githubAppId,
-    privateKeyPem,
-    ...(config.githubApiBaseUrl ? { apiBaseUrl: config.githubApiBaseUrl } : {}),
-  });
-}
+/**
+ * GitHub App 凭据优先取 WebUI 保存到数据库的那份，env 兜底；换 App 不必重启。
+ * 之前这里只读 env，于是用户在界面上配好了却依然「indexing disabled」。
+ */
+const githubProvider = createGithubAppProvider({
+  logger,
+  resolve: () =>
+    resolveGithubAppCredentials(database.db, {
+      opener: config.credentialMasterKey
+        ? createCredentialCipher(config.credentialMasterKey)
+        : null,
+      env: {
+        appId: config.githubAppId,
+        privateKeyPath: config.githubAppPrivateKeyPath,
+      },
+    }),
+  createClient: (credentials) =>
+    createGitHubClient({
+      appId: credentials.appId,
+      privateKeyPem: credentials.privateKeyPem,
+      ...(config.githubApiBaseUrl ? { apiBaseUrl: config.githubApiBaseUrl } : {}),
+    }),
+});
 
 /** Deterministic fingerprint of the normalized text+signals for a document. */
 function contentHashOf(input: {
@@ -163,7 +173,7 @@ async function embedChanged(
 
 /** Runs one indexing pass over every tracked repository. Returns a summary. */
 async function runIndexPass(
-  github: NonNullable<Awaited<ReturnType<typeof createGithub>>>,
+  github: ReturnType<typeof createGitHubClient>,
 ): Promise<{
   repos: number;
   indexed: number;
@@ -317,11 +327,6 @@ async function recordLastPass(input: {
 }
 
 async function loop(): Promise<void> {
-  const github = await createGithub();
-  if (!github) {
-    logger.warn("index worker has no GitHub App; idle");
-    return;
-  }
   const intervalMs = Number(process.env.INDEX_INTERVAL_MS);
   const interval =
     Number.isFinite(intervalMs) && intervalMs > 0
@@ -341,6 +346,15 @@ async function loop(): Promise<void> {
         (error: unknown) =>
           logger.warn({ err: error }, "index clear failed during rebuild"),
       );
+    }
+
+    // 每轮开始前刷新凭据：用户可能刚在 WebUI 配好或换掉 GitHub App，
+    // 不该必须重启容器。未配置时跳过本轮而不是退出进程 —— 退出的话之后配好了
+    // 也永远不会再索引。
+    const github = await githubProvider.get();
+    if (!github) {
+      await waitForNextRun(interval);
+      continue;
     }
 
     const started = Date.now();

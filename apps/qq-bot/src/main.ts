@@ -1,8 +1,7 @@
-import { eq, or } from "drizzle-orm";
 import { loadConfig } from "../../../packages/config/src/index.js";
 import {
   createDatabaseClient,
-  systemSettings,
+  loadSettings,
 } from "../../../packages/database/src/index.js";
 import {
   createOfficialQqTokenStore,
@@ -60,19 +59,13 @@ async function loadQqOverrides(): Promise<void> {
   try {
     const database = createDatabaseClient(config.databaseUrl);
     try {
-      const rows = await database.db
-        .select({ key: systemSettings.key, value: systemSettings.value })
-        .from(systemSettings)
-        .where(
-          or(
-            eq(systemSettings.key, "qq_bot_protocols"),
-            eq(systemSettings.key, "qq_official_app_id"),
-            eq(systemSettings.key, "qq_official_app_secret"),
-            eq(systemSettings.key, "qq_official_gateway_url"),
-            eq(systemSettings.key, "qq_official_intents"),
-          ),
-        );
-      const map = new Map(rows.map((row) => [row.key, row.value]));
+      const map = await loadSettings(database.db, [
+        "qq_bot_protocols",
+        "qq_official_app_id",
+        "qq_official_app_secret",
+        "qq_official_gateway_url",
+        "qq_official_intents",
+      ]);
       const protocolsRaw = map.get("qq_bot_protocols");
       if (protocolsRaw && protocolsRaw.trim().length > 0) {
         try {

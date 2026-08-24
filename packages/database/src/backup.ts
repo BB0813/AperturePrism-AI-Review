@@ -1,15 +1,10 @@
 import { asc } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "./schema.js";
+import { redactBackupSetting } from "./backup-redact.js";
 
 export const BACKUP_VERSION = "apertureprism-backup/v1";
 
-/**
- * Setting keys whose values are secrets. A backup export never includes the
- * value (only `hasValue`), so credentials never leave the process; on import
- * these keys are skipped (they come from env or the WebUI settings form).
- */
-const SECRET_SETTING_KEYS = new Set(["webui_api_token", "github_webhook_secret"]);
 /** Non-secret settings that an import may restore. */
 const IMPORTABLE_SETTING_KEYS = new Set(["github_webhook_enabled", "log_level"]);
 /** Roles the restore path may re-create (avoids importing arbitrary rows). */
@@ -76,11 +71,8 @@ export async function buildBackupSnapshot(db: Database): Promise<BackupSnapshot>
   return {
     version: BACKUP_VERSION,
     exportedAt: new Date().toISOString(),
-    settings: settings.map((row) => ({
-      key: row.key,
-      value: SECRET_SETTING_KEYS.has(row.key) ? null : row.value,
-      hasValue: row.value.trim().length > 0,
-    })),
+    // 默认拒绝：只有白名单里的非密钥项导出明文，其余只报告「有没有值」。
+    settings: settings.map(redactBackupSetting),
     policies,
     providers: providers.map((row) => row.name),
   };
@@ -117,7 +109,9 @@ export async function applyBackupSnapshot(
   let settingsApplied = 0;
   for (const entry of snapshot.settings) {
     if (!isRecord(entry) || typeof entry.key !== "string") continue;
-    if (SECRET_SETTING_KEYS.has(entry.key)) {
+    // 导入侧的闸口一直是 IMPORTABLE_SETTING_KEYS（只恢复非密钥项）。这里单独
+    // 记录「导出时被脱敏过」的条目，好让界面如实说明哪些值需要手工重填。
+    if (entry.value === null && entry.hasValue === true) {
       skippedSecrets.push(entry.key);
       continue;
     }

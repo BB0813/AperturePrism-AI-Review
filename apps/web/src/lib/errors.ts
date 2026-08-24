@@ -126,6 +126,10 @@ const explanations: Record<string, Explanation> = {
   unsupported_setting_key: {
     message: "该配置项不支持在界面中修改。",
   },
+  invalid_setting_value: {
+    message: "配置值不合法，未保存。",
+    action: "请按提示修正后重试（错误码后面的文字说明了具体要求）。",
+  },
   update_in_progress: {
     message: "已有一个更新正在进行中。",
     action: "请等待当前更新完成后再操作。",
