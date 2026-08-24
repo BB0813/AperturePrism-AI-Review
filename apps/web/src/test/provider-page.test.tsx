@@ -6,6 +6,9 @@ vi.mock("../lib/api", () => ({
   bumpCache: vi.fn(),
   fetchProviders: vi.fn(async () => ({ policies: [], accounts: [] })),
   fetchModels: vi.fn(async () => []),
+  fetchSettings: vi.fn(async () => ({ items: [] })),
+  clearSetting: vi.fn(async () => {}),
+  saveSetting: vi.fn(async () => {}),
   saveProvider: vi.fn(async () => ({
     status: "ok",
     provider: "p",
