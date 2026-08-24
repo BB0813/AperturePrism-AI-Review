@@ -1121,9 +1121,13 @@ async function issueEnhancementConfig(): Promise<{
     return {
       autoAssign: map.get("issue_auto_assign") === "true",
       assignee: (map.get("issue_assignee") ?? "").trim(),
-      rewriteTitle: map.get("issue_rewrite_title") === "true",
+      // 默认开启：含糊的标题（如只写「bug」）让维护者在列表页无法判断内容，
+      // 改写成 [标签][重要度]清晰标题 才是用户期望的默认行为。显式设为
+      // "false" 可关闭。
+      rewriteTitle: (map.get("issue_rewrite_title") ?? "true") !== "false",
     };
   } catch {
+    // 读取设置失败时不改写标题：宁可不动，也不要基于未知配置改写用户的 Issue。
     return { autoAssign: false, assignee: "", rewriteTitle: false };
   }
 }

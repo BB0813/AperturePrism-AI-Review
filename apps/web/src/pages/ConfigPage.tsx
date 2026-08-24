@@ -71,10 +71,10 @@ const FIELD_META: Record<string, FieldMeta> = {
   },
   issue_rewrite_title: {
     label: "Issue 标题改写",
-    hint: "分析给出更清晰的标题时自动改写 Issue 标题",
+    hint: "把含糊的标题改写为 [标签][重要度]清晰标题，方便在列表页直接判断内容；默认开启",
     secret: false,
     kind: "boolean",
-    defaultOn: false,
+    defaultOn: true,
   },
   issue_deep_analysis: {
     label: "Issue 深度分析（读取源码）",
