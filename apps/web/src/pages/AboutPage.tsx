@@ -1,5 +1,8 @@
 import { BugIcon, InfoIcon } from "../components/icons";
 
+// 构建时由 Vite 注入（vite.config.ts define），用于核验前端是否已更新到新版本。
+declare const __APP_VERSION__: string;
+
 const MODULES = [
   { name: "Webhook 接入", desc: "GitHub 事件签名校验、规范化与任务映射（M2）" },
   { name: "任务引擎", desc: "持久任务状态机、租约、幂等、重试（M3）" },
@@ -57,6 +60,16 @@ export function AboutPage() {
             <p className="result-summary mono" style={{ fontSize: 12.5 }}>BB0813/AperturePrism-AI-Review</p>
           </a>
         </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-title"><h2>版本</h2></div>
+        <dl className="kv">
+          <dt>前端构建</dt><dd className="mono">v{__APP_VERSION__}</dd>
+        </dl>
+        <p className="faint" style={{ margin: 0, fontSize: 12 }}>
+          若此处版本落后于最新发布，请强刷页面（Ctrl+F5）以获取最新前端。
+        </p>
       </section>
 
       <section className="panel">

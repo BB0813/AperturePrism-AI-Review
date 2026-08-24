@@ -1610,7 +1610,10 @@ async function handleRepositories(
   response: ServerResponse,
   requestId: string,
 ): Promise<void> {
-  const [repos, taskCounts, resultCounts] = await Promise.all([
+  // githubConfigured 以「能否真的实例化出客户端」为准（含 DB 覆盖），
+  // 前端据此区分「App 没配」与「配了但还没有仓库」两种空态。
+  const [github, repos, taskCounts, resultCounts] = await Promise.all([
+    githubClientPromise,
     database.db
       .select({
         id: repositories.id,
@@ -1669,6 +1672,7 @@ async function handleRepositories(
     response,
     200,
     {
+      githubConfigured: github !== null,
       items: [...byName.entries()].map(([fullName, info]) => ({
         id: info.id,
         owner: info.owner,
@@ -1789,19 +1793,38 @@ const REPOSITORY_SYNC_INTERVAL_MS = 12 * 60 * 60 * 1_000; // 每 12 小时自动
 let repositorySyncRunning = false;
 let repositorySyncTimer: ReturnType<typeof setInterval> | null = null;
 
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+/** 把 github-adapter 的稳定错误类别映射成 WebUI 能解释的 reason 码。 */
+function reasonOfSyncError(error: unknown): string {
+  if (error instanceof GitHubApiError) {
+    if (error.category === "rate_limited") return "rate_limited";
+    if (error.category === "authentication_failed") return "github_auth_failed";
+    if (error.category === "not_found") return "github_not_found";
+    if (error.category === "network" || error.category === "server_error")
+      return "github_unavailable";
+  }
+  return error instanceof Error ? error.message : "unknown";
+}
+
 /**
  * Pulls every installed repository from the GitHub App for each known
  * installation and upserts them into the `repositories` table. Each
- * installation is retried once on a transient failure; `details` carries the
- * per-installation failure reason so the WebUI can show why a sync failed.
+ * installation is retried with exponential backoff on transient failures;
+ * hitting the GitHub rate limit aborts the whole pass (every installation
+ * would fail identically). `details` carries the per-installation failure
+ * reason so the WebUI can show why a sync failed.
  */
 async function syncInstallations(): Promise<{
   installations: number;
   synced: number;
   errors: number;
+  skipped?: boolean;
   details?: { installationId: string; reason: string }[];
 }> {
-  if (repositorySyncRunning) return { installations: 0, synced: 0, errors: 0 };
+  if (repositorySyncRunning)
+    return { installations: 0, synced: 0, errors: 0, skipped: true };
   repositorySyncRunning = true;
   try {
     const github = await githubClientPromise;
@@ -1822,9 +1845,11 @@ async function syncInstallations(): Promise<{
     let errors = 0;
     const details: { installationId: string; reason: string }[] = [];
     for (const installationId of ids) {
-      // Retry once: GitHub App token minting is occasionally flaky and a
-      // single retry recovers the vast majority of transient failures.
-      for (let attempt = 0; attempt < 2; attempt += 1) {
+      // Exponential backoff (400ms → 1600ms): GitHub App token minting is
+      // occasionally flaky and a short backoff recovers the vast majority of
+      // transient failures without hammering the API.
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
           const repos = await github.listInstallationRepositories(installationId);
           synced += await upsertInstalledRepositories(
@@ -1832,28 +1857,37 @@ async function syncInstallations(): Promise<{
             installationId,
             repos,
           );
+          lastError = undefined;
           break;
         } catch (error) {
-          if (attempt === 0) {
+          lastError = error;
+          // Rate limit is global, not per-installation: abort the whole pass.
+          if (error instanceof GitHubApiError && error.category === "rate_limited") {
+            errors += 1;
+            details.push({ installationId, reason: "rate_limited" });
             logger.warn(
-              { err: error, installationId },
-              "installation repository sync failed, retrying once",
+              { installationId, retryAfterMs: error.retryAfterMs },
+              "repository sync aborted: GitHub rate limit reached",
             );
-            continue;
+            return { installations: ids.length, synced, errors, details };
           }
-          errors += 1;
-          const reason =
-            error instanceof GitHubApiError
-              ? error.category
-              : error instanceof Error
-                ? error.message
-                : "unknown";
-          details.push({ installationId, reason });
-          logger.warn(
-            { err: error, installationId },
-            "installation repository sync failed",
-          );
+          if (attempt < 2) {
+            logger.warn(
+              { err: error, installationId, attempt: attempt + 1 },
+              "installation repository sync failed, retrying with backoff",
+            );
+            await sleep(400 * (2 ** attempt));
+          }
         }
+      }
+      if (lastError) {
+        errors += 1;
+        const reason = reasonOfSyncError(lastError);
+        details.push({ installationId, reason });
+        logger.warn(
+          { err: lastError, installationId },
+          "installation repository sync failed",
+        );
       }
     }
     return { installations: ids.length, synced, errors, details };
@@ -2018,6 +2052,17 @@ async function handleRepositorySync(
   }
   const result = await syncInstallations();
   audit(request, "repositories.sync", undefined, result);
+  // 已有同步在进行（进程内锁）：显式返回 409，前端据此提示「正在同步中」，
+  // 而不是收到一个静默的 0 结果让用户以为同步没生效。
+  if (result.skipped) {
+    json(
+      response,
+      409,
+      { status: "error", reason: "sync_in_progress" },
+      requestId,
+    );
+    return;
+  }
   json(response, 200, { status: "ok", ...result }, requestId);
 }
 

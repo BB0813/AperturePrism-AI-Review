@@ -61,6 +61,14 @@ const explanations: Record<string, Explanation> = {
     message: "已触发 GitHub 接口限流。",
     action: "请稍等几分钟后重试；频繁同步会加剧限流。",
   },
+  github_unavailable: {
+    message: "GitHub 暂时不可用（网络或服务异常）。",
+    action: "请稍后重试；若持续失败，请检查服务器到 GitHub 的网络。",
+  },
+  sync_in_progress: {
+    message: "已有一次仓库同步正在进行中。",
+    action: "同步完成后会自动刷新列表，无需重复点击。",
+  },
   registry_unreachable: {
     message: "无法连接镜像仓库，无法检查可用版本。",
     action: "请检查服务器网络与镜像加速配置。",

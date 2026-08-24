@@ -1,0 +1,116 @@
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// api 模块会在导入时读取环境与 localStorage，这里只关心页面行为，全部 mock。
+vi.mock("../lib/api", () => ({
+  bumpCache: vi.fn(),
+  fetchRepositories: vi.fn(async () => ({ items: [], githubConfigured: true })),
+  fetchRepositorySettings: vi.fn(async () => ({ items: [] })),
+  fetchRepoSubjects: vi.fn(async () => []),
+  saveRepositorySetting: vi.fn(async () => {}),
+  syncRepositories: vi.fn(async () => ({
+    status: "ok",
+    installations: 0,
+    synced: 0,
+    errors: 0,
+  })),
+  triggerManualTask: vi.fn(async () => ({ taskId: "t", outcome: "created" })),
+}));
+
+import { ToastProvider } from "../components/Toast";
+
+const { ReposPage } = await import("../pages/ReposPage");
+const api = await import("../lib/api");
+
+const fetchRepositories = vi.mocked(api.fetchRepositories);
+const syncRepositories = vi.mocked(api.syncRepositories);
+
+const REPO = {
+  id: "repo-1",
+  owner: "acme",
+  name: "widget",
+  fullName: "acme/widget",
+  taskCount: 3,
+  resultCount: 5,
+  createdAt: "2026-08-24T00:00:00.000Z",
+};
+
+function renderPage() {
+  return render(
+    <ToastProvider>
+      <ReposPage />
+    </ToastProvider>,
+  );
+}
+
+/**
+ * 回归防护（#15）：点击「已安装仓库」后报错，根因之一是旧前端被浏览器缓存，
+ * 且页面无法区分「GitHub App 没配」与「配了但还没有仓库」两种空态。
+ * 这里锁定空态分级与同步错误的可读提示。
+ */
+describe("已安装仓库页（#15 收尾）", () => {
+  beforeEach(() => {
+    fetchRepositories.mockReset();
+    syncRepositories.mockReset();
+    fetchRepositories.mockResolvedValue({ items: [], githubConfigured: true });
+    syncRepositories.mockResolvedValue({
+      status: "ok",
+      installations: 0,
+      synced: 0,
+      errors: 0,
+    });
+  });
+
+  it("无 App 且无仓库 → 空态引导去「GitHub 接入」", async () => {
+    fetchRepositories.mockResolvedValue({ items: [], githubConfigured: false });
+    renderPage();
+    expect(await screen.findByText("GitHub App 尚未配置")).toBeTruthy();
+    const cta = screen.getByRole("link", { name: /前往 GitHub 接入/ });
+    expect(cta.getAttribute("href")).toBe("#/github-access");
+  });
+
+  it("已配置 App 但还没有仓库 → 显示「暂无可追踪仓库」而不是引导配置", async () => {
+    fetchRepositories.mockResolvedValue({ items: [], githubConfigured: true });
+    renderPage();
+    expect(await screen.findByText("暂无可追踪仓库")).toBeTruthy();
+    expect(screen.queryByText("GitHub App 尚未配置")).toBeNull();
+  });
+
+  it("有仓库 → 渲染仓库卡片与任务/结果计数", async () => {
+    fetchRepositories.mockResolvedValue({ items: [REPO], githubConfigured: true });
+    renderPage();
+    expect(await screen.findByText("widget")).toBeTruthy();
+    expect(screen.getByText(/acme/)).toBeTruthy();
+    expect(screen.getByText("3 任务")).toBeTruthy();
+    expect(screen.getByText("5 结果")).toBeTruthy();
+  });
+
+  it("同步失败且带原因 → toast 显示可读解释（机器码翻译）", async () => {
+    fetchRepositories.mockResolvedValue({ items: [], githubConfigured: true });
+    syncRepositories.mockResolvedValue({
+      status: "ok",
+      installations: 1,
+      synced: 0,
+      errors: 1,
+      details: [{ installationId: "1", reason: "rate_limited" }],
+    });
+    renderPage();
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^同步仓库$/ }),
+    );
+    expect(await screen.findByText(/已触发 GitHub 接口限流/)).toBeTruthy();
+  });
+
+  it("同步已在进行的 409 → toast 提示「正在同步中」而非静默 0 结果", async () => {
+    fetchRepositories.mockResolvedValue({ items: [], githubConfigured: true });
+    syncRepositories.mockRejectedValue(new Error("sync_in_progress"));
+    renderPage();
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^同步仓库$/ }),
+    );
+    expect(
+      await screen.findByText(/已有一次仓库同步正在进行中/),
+    ).toBeTruthy();
+  });
+});

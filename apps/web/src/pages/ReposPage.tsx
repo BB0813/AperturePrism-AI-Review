@@ -207,6 +207,8 @@ export function ReposPage() {
   const [repos, setRepos] = useState<Repository[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // 是否真的能用 GitHub App（含 DB 覆盖）；为 false 时把空态引导到接入页。
+  const [githubConfigured, setGithubConfigured] = useState(true);
 
   const [triggerType, setTriggerType] = useState<"issue" | "pr">("issue");
   const [triggerRepo, setTriggerRepo] = useState<string>("");
@@ -251,7 +253,10 @@ export function ReposPage() {
     setLoading(true);
     setError(null);
     fetchRepositories()
-      .then((data) => setRepos(data.items))
+      .then((data) => {
+        setRepos(data.items);
+        setGithubConfigured(data.githubConfigured ?? true);
+      })
       .catch((err: unknown) => {
         setError(explainUnknown(err));
         setRepos(null);
@@ -441,7 +446,21 @@ export function ReposPage() {
         ) : loading ? (
           <LoadingRows />
         ) : !repos || repos.length === 0 ? (
-          <Empty icon={<FolderIcon size={32} />} title="暂无可追踪仓库" hint="点上方「在 GitHub 添加仓库」把仓库授权给 App，再点「同步仓库」即可出现在这里" />
+          githubConfigured ? (
+            <Empty icon={<FolderIcon size={32} />} title="暂无可追踪仓库" hint="点上方「在 GitHub 添加仓库」把仓库授权给 App，再点「同步仓库」即可出现在这里" />
+          ) : (
+            <div style={{ textAlign: "center" }}>
+              <Empty
+                icon={<GearIcon size={32} />}
+                title="GitHub App 尚未配置"
+                hint="无法访问 GitHub，因此看不到任何仓库。请先配置 App 凭据，再回到本页同步。"
+              />
+              <a className="btn btn-primary" href="#/github-access">
+                <GearIcon size={15} />
+                前往 GitHub 接入
+              </a>
+            </div>
+          )
         ) : (
           <div className="kpi-grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(240px,1fr))" }}>
             {repos.map((repo) => (

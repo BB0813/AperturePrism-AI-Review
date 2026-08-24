@@ -153,13 +153,19 @@ export type Repository = {
   createdAt: string;
 };
 
-export type RepositoryList = { items: Repository[] };
+export type RepositoryList = {
+  items: Repository[];
+  /** 能否真的实例化出 GitHub App 客户端（含 DB 覆盖）；前端用它区分空态。 */
+  githubConfigured?: boolean;
+};
 
 export type RepoSyncResult = {
   status: string;
   installations: number;
   synced: number;
   errors: number;
+  /** 已有同步在进行，本次被跳过。 */
+  skipped?: boolean;
   details?: { installationId: string; reason: string }[];
 };
 
@@ -171,6 +177,12 @@ export async function syncRepositories(): Promise<RepoSyncResult> {
   });
   if (response.status === 401) throw new Error("unauthorized");
   if (response.status === 403) throw new Error("需要管理员权限（403）");
+  if (response.status === 409) {
+    const body = (await response.json().catch(() => null)) as {
+      reason?: string;
+    } | null;
+    throw new Error(body?.reason ?? "sync_in_progress");
+  }
   if (!response.ok) throw new Error(`sync repositories ${response.status}`);
   return (await response.json()) as RepoSyncResult;
 }
