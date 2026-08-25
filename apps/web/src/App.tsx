@@ -3,7 +3,7 @@ import { useSse } from "./hooks/useSse";
 import { navigate, tabOf, useHashRoute } from "./hooks/useHash";
 import { useTheme } from "./hooks/useTheme";
 import { useToast } from "./components/Toast";
-import { eventsUrl, getToken, setToken } from "./lib/auth";
+import { eventsUrl, getToken, onUnauthorized, setToken } from "./lib/auth";
 import { fetchSetupStatus } from "./lib/api";
 import { Login } from "./pages/Login";
 import { Overview } from "./pages/Overview";
@@ -148,6 +148,15 @@ export function App() {
       window.history.replaceState(null, "", "#/");
     }
   }, [toast]);
+
+  // 令牌失效（任一 API 401）→ 清空会话回到登录页：真正的密码门禁。
+  useEffect(() => {
+    onUnauthorized(() => {
+      setToken("");
+      setTokenState("");
+      navigate("/");
+    });
+  }, [navigate]);
 
   const loginGate = (
     <Login

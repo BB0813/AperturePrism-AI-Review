@@ -1,4 +1,4 @@
-import { authHeaders } from "./auth";
+import { authHeaders, notifyUnauthorized } from "./auth";
 
 /* ---------- 短期 GET 缓存（改善切页/轮询的响应体感） ----------
    只缓存只读 GET，5s 后自动失效；显式"刷新/写操作"调用 bumpCache()
@@ -35,7 +35,11 @@ async function fetchJson(url: string): Promise<unknown> {
   const response = await fetch(url, {
     headers: { accept: "application/json", ...authHeaders() },
   });
-  if (response.status === 401) throw new Error("unauthorized");
+  if (response.status === 401) {
+    // 令牌失效：通知应用回到登录页（密码门禁）。仅顶层一次，避免重复触发。
+    notifyUnauthorized();
+    throw new Error("unauthorized");
+  }
   if (!response.ok) {
     const reason =
       response.status === 404
@@ -177,7 +181,10 @@ export async function syncRepositories(): Promise<RepoSyncResult> {
     method: "POST",
     headers: { accept: "application/json", ...authHeaders() },
   });
-  if (response.status === 401) throw new Error("unauthorized");
+  if (response.status === 401) {
+    notifyUnauthorized();
+    throw new Error("unauthorized");
+  }
   if (response.status === 403) throw new Error("需要管理员权限（403）");
   if (response.status === 409) {
     const body = (await response.json().catch(() => null)) as {
@@ -453,7 +460,10 @@ async function putSettingValue(
     },
     body: JSON.stringify({ key, value }),
   });
-  if (response.status === 401) throw new Error("unauthorized");
+  if (response.status === 401) {
+    notifyUnauthorized();
+    throw new Error("unauthorized");
+  }
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as
       | { reason?: unknown; detail?: unknown }
@@ -521,7 +531,10 @@ export async function saveRepositorySetting(
       body: JSON.stringify({ key, value }),
     },
   );
-  if (response.status === 401) throw new Error("unauthorized");
+  if (response.status === 401) {
+    notifyUnauthorized();
+    throw new Error("unauthorized");
+  }
   if (!response.ok) {
     const reason = await response
       .json()
@@ -567,7 +580,10 @@ export async function setExpertTeamEnabled(enabled: boolean): Promise<void> {
     headers: { "content-type": "application/json", ...authHeaders() },
     body: JSON.stringify({ enabled }),
   });
-  if (response.status === 401) throw new Error("unauthorized");
+  if (response.status === 401) {
+    notifyUnauthorized();
+    throw new Error("unauthorized");
+  }
   if (response.status === 403) throw new Error("需要管理员权限（403）");
   if (!response.ok) throw new Error(`capabilities ${response.status}`);
 }
@@ -715,7 +731,10 @@ export async function triggerMemoryConsolidation(): Promise<MemoryConsolidationR
     method: "POST",
     headers: { accept: "application/json", ...authHeaders() },
   });
-  if (response.status === 401) throw new Error("unauthorized");
+  if (response.status === 401) {
+    notifyUnauthorized();
+    throw new Error("unauthorized");
+  }
   if (!response.ok) {
     const reason =
       response.status === 403
@@ -732,7 +751,10 @@ export async function deleteRepoMemory(id: string): Promise<void> {
     method: "DELETE",
     headers: authHeaders(),
   });
-  if (response.status === 401) throw new Error("unauthorized");
+  if (response.status === 401) {
+    notifyUnauthorized();
+    throw new Error("unauthorized");
+  }
   if (!response.ok && response.status !== 403 && response.status !== 404) {
     throw new Error(`memory delete ${response.status}`);
   }
@@ -828,6 +850,22 @@ export type MetricsSnapshot = {
 /** 管理员可见的运行时指标快照（进程计数 + 库内实时量规）。 */
 export async function fetchMetrics(): Promise<MetricsSnapshot> {
   return (await getJson("/metrics")) as MetricsSnapshot;
+}
+
+export type AlertRecord = {
+  id: string;
+  severity: "info" | "warning" | "critical";
+  message: string;
+  status: "active" | "resolved";
+  firstAt: string;
+  lastAt: string;
+  value: number;
+};
+
+/** 当前告警状态（active 在前）。 */
+export async function fetchAlerts(): Promise<AlertRecord[]> {
+  const result = (await getJson("/alerts")) as { items: AlertRecord[] };
+  return result.items;
 }
 
 export type SetupStatus = {
@@ -1007,7 +1045,10 @@ export async function fetchUpdateStatus(): Promise<UpdateStatus> {
   const response = await fetch("/update/status", {
     headers: { accept: "application/json", ...authHeaders() },
   });
-  if (response.status === 401) throw new Error("unauthorized");
+  if (response.status === 401) {
+    notifyUnauthorized();
+    throw new Error("unauthorized");
+  }
   if (!response.ok) {
     if (response.status === 503)
       throw new Error("暂时无法连接镜像仓库（registry_unreachable）");
@@ -1037,7 +1078,10 @@ export async function applyUpdate(
     headers: { "content-type": "application/json", ...authHeaders() },
     body: JSON.stringify({ target, backupBefore }),
   });
-  if (response.status === 401) throw new Error("unauthorized");
+  if (response.status === 401) {
+    notifyUnauthorized();
+    throw new Error("unauthorized");
+  }
   if (response.status === 403) throw new Error("需要管理员权限（403）");
   if (response.status === 409) throw new Error("已有更新任务在运行（409）");
   if (!response.ok) throw new Error(`update apply ${response.status}`);
@@ -1106,7 +1150,10 @@ export async function rerunTasks(taskIds: string[]): Promise<RerunResult> {
   } catch {
     // keep default
   }
-  if (response.status === 401) throw new Error("unauthorized");
+  if (response.status === 401) {
+    notifyUnauthorized();
+    throw new Error("unauthorized");
+  }
   if (response.status === 403) throw new Error("需要管理员权限（403）");
   if (!response.ok) {
     throw new Error(parsed.reason ?? `rerun tasks ${response.status}`);
@@ -1186,7 +1233,10 @@ export async function revokeSubject(input: {
   } catch {
     // keep default
   }
-  if (response.status === 401) throw new Error("unauthorized");
+  if (response.status === 401) {
+    notifyUnauthorized();
+    throw new Error("unauthorized");
+  }
   if (response.status === 403) throw new Error("需要管理员权限（403）");
   if (!response.ok) {
     throw new Error(parsed.reason ?? `revoke subject ${response.status}`);
@@ -1249,7 +1299,10 @@ export async function deleteResults(
   } catch {
     // keep default
   }
-  if (response.status === 401) throw new Error("unauthorized");
+  if (response.status === 401) {
+    notifyUnauthorized();
+    throw new Error("unauthorized");
+  }
   if (response.status === 403) throw new Error("需要管理员权限（403）");
   if (!response.ok) {
     throw new Error(parsed.reason ?? `delete results ${response.status}`);
@@ -1320,7 +1373,10 @@ export async function saveScansConfig(
     headers: { "content-type": "application/json", ...authHeaders() },
     body: JSON.stringify(input),
   });
-  if (response.status === 401) throw new Error("unauthorized");
+  if (response.status === 401) {
+    notifyUnauthorized();
+    throw new Error("unauthorized");
+  }
   if (response.status === 403) throw new Error("需要管理员权限（403）");
   if (!response.ok) throw new Error(`save scan config ${response.status}`);
   bumpCache();
@@ -1332,7 +1388,10 @@ export async function triggerScan(): Promise<void> {
     method: "POST",
     headers: { accept: "application/json", ...authHeaders() },
   });
-  if (response.status === 401) throw new Error("unauthorized");
+  if (response.status === 401) {
+    notifyUnauthorized();
+    throw new Error("unauthorized");
+  }
   if (response.status === 403) throw new Error("需要管理员权限（403）");
   if (!response.ok) throw new Error(`trigger scan ${response.status}`);
   bumpCache();

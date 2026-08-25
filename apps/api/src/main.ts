@@ -4,6 +4,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
+import { evaluateAlerts, type AlertRecord, type AlertRuleId } from "./alerts.js";
 import { and, asc, desc, eq, gt, inArray, isNotNull, or } from "drizzle-orm";
 import {
   ALLOWED_SETTING_KEYS,
@@ -2794,6 +2795,56 @@ function settingDefaultValue(key: string): string {
 }
 
 /**
+ * 任务可靠性量规（供 /metrics 与告警评估共用）：队列积压、在途、失败、滞留。
+ */
+async function collectTaskReliabilityGauges(): Promise<{
+  queueDepth: number;
+  inflight: number;
+  failed: number;
+  stale: number;
+}> {
+  const [queue, inflight, failed, stale] = await Promise.all([
+    database.sql<{ c: number }[]>`
+      SELECT count(*)::int AS c FROM analysis_tasks WHERE status IN ('queued', 'retry_wait')`,
+    database.sql<{ c: number }[]>`
+      SELECT count(*)::int AS c FROM analysis_tasks WHERE status IN ('leased', 'running', 'publishing')`,
+    database.sql<{ c: number }[]>`
+      SELECT count(*)::int AS c FROM analysis_tasks WHERE status = 'failed'`,
+    // 滞留任务：声称在跑但心跳超过 10 分钟未更新（疑似 worker 已死但租约未释放）。
+    database.sql<{ c: number }[]>`
+      SELECT count(*)::int AS c FROM analysis_tasks
+      WHERE status IN ('leased', 'running', 'publishing')
+        AND (heartbeat_at IS NULL OR heartbeat_at < now() - interval '10 minutes')`,
+  ]);
+  return {
+    queueDepth: queue[0]?.c ?? 0,
+    inflight: inflight[0]?.c ?? 0,
+    failed: failed[0]?.c ?? 0,
+    stale: stale[0]?.c ?? 0,
+  };
+}
+
+/** 进程内告警状态（规则 → 最新记录）。 */
+const alertRecords = new Map<AlertRuleId, AlertRecord>();
+
+/** 评估一次告警（由定时器与 /alerts 请求共同触发）。 */
+async function refreshAlerts(): Promise<void> {
+  try {
+    const { queueDepth, failed, stale } =
+      await collectTaskReliabilityGauges();
+    const next = evaluateAlerts(alertRecords, {
+      queueDepth,
+      failed,
+      stale,
+    });
+    alertRecords.clear();
+    for (const record of next) alertRecords.set(record.id, record);
+  } catch (error) {
+    logger.warn({ err: error }, "alert evaluation failed");
+  }
+}
+
+/**
  * GET /metrics — 进程内指标快照 + 库内实时量规（队列深度 / 在途任务 / 仓库数）。
  * 管理员可见；给「运维」页与未来 Prometheus 抓取共用同一份快照。
  */
@@ -2803,30 +2854,35 @@ async function handleMetrics(
 ): Promise<void> {
   const snapshot = metrics.snapshot();
   try {
-    const [queue, inflight, repos, failed, stale] = await Promise.all([
-      database.sql<{ c: number }[]>`
-        SELECT count(*)::int AS c FROM analysis_tasks WHERE status IN ('queued', 'retry_wait')`,
-      database.sql<{ c: number }[]>`
-        SELECT count(*)::int AS c FROM analysis_tasks WHERE status IN ('leased', 'running', 'publishing')`,
-      database.sql<{ c: number }[]>`
-        SELECT count(*)::int AS c FROM repositories`,
-      database.sql<{ c: number }[]>`
-        SELECT count(*)::int AS c FROM analysis_tasks WHERE status = 'failed'`,
-      // 滞留任务：声称在跑但心跳超过 10 分钟未更新（疑似 worker 已死但租约未释放）。
-      database.sql<{ c: number }[]>`
-        SELECT count(*)::int AS c FROM analysis_tasks
-        WHERE status IN ('leased', 'running', 'publishing')
-          AND (heartbeat_at IS NULL OR heartbeat_at < now() - interval '10 minutes')`,
-    ]);
-    snapshot.gauges["queue.depth"] = queue[0]?.c ?? 0;
-    snapshot.gauges["tasks.inflight"] = inflight[0]?.c ?? 0;
+    const { queueDepth, inflight, failed, stale } =
+      await collectTaskReliabilityGauges();
+    const repos = await database.sql<{ c: number }[]>`
+      SELECT count(*)::int AS c FROM repositories`;
+    snapshot.gauges["queue.depth"] = queueDepth;
+    snapshot.gauges["tasks.inflight"] = inflight;
     snapshot.gauges["repositories.count"] = repos[0]?.c ?? 0;
-    snapshot.gauges["tasks.failed"] = failed[0]?.c ?? 0;
-    snapshot.gauges["tasks.stale"] = stale[0]?.c ?? 0;
+    snapshot.gauges["tasks.failed"] = failed;
+    snapshot.gauges["tasks.stale"] = stale;
   } catch (error) {
     logger.warn({ err: error }, "metrics live gauges failed");
   }
   json(response, 200, snapshot, requestId);
+}
+
+/**
+ * GET /alerts — 当前告警状态（active 在前，resolved 历史在后）。管理员可见。
+ */
+async function handleAlerts(
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  await refreshAlerts();
+  json(
+    response,
+    200,
+    { items: [...alertRecords.values()] },
+    requestId,
+  );
 }
 
 /** Runtime settings: GET lists (secret values masked); PUT upserts a key. */
@@ -4447,6 +4503,29 @@ async function handleRequest(
     return;
   }
 
+  if (path === "/alerts") {
+    if (request.method !== "GET") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    if (!(await isAdminRequest(request))) {
+      json(
+        response,
+        403,
+        { status: "error", reason: "admin required" },
+        requestId,
+      );
+      return;
+    }
+    await handleAlerts(response, requestId);
+    return;
+  }
+
   if (
     path === "/auth/status" ||
     path === "/auth/login" ||
@@ -5054,16 +5133,21 @@ async function shutdown(signal: string): Promise<void> {
   logger.info({ signal }, "shutting down");
   await stopEventStream();
   if (repositorySyncTimer) clearInterval(repositorySyncTimer);
+  if (alertTimer) clearInterval(alertTimer);
   await new Promise<void>((resolve) => server.close(() => resolve()));
   await closeRedisClient(redis);
   await database.close();
 }
+
+let alertTimer: ReturnType<typeof setInterval> | null = null;
 
 process.once("SIGINT", () => void shutdown("SIGINT"));
 process.once("SIGTERM", () => void shutdown("SIGTERM"));
 void startEventStream()
   .then(() => {
     startRuntimeSettings();
+    void refreshAlerts();
+    alertTimer = setInterval(() => void refreshAlerts(), 60_000);
     server.listen(config.port, config.host, () =>
       logger.info({ host: config.host, port: config.port }, "API listening"),
     );

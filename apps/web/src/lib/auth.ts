@@ -24,3 +24,14 @@ export function eventsUrl(): string {
   if (!token) return base;
   return `${base}?token=${encodeURIComponent(token)}`;
 }
+
+// 令牌失效全局回调：任一 API 返回 401 时触发，让应用回到登录页（真正的密码门禁）。
+let unauthorizedHandler: (() => void) | null = null;
+
+export function onUnauthorized(handler: (() => void) | null): void {
+  unauthorizedHandler = handler;
+}
+
+export function notifyUnauthorized(): void {
+  unauthorizedHandler?.();
+}

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  fetchAlerts,
   fetchMetrics,
+  type AlertRecord,
   type MetricsDurationBucket,
   type MetricsSnapshot,
 } from "../lib/api";
-import { GaugeIcon, RefreshIcon } from "../components/icons";
-import { ErrorPanel, LoadingRows } from "../components/ui";
+import { AlertIcon, GaugeIcon, RefreshIcon } from "../components/icons";
+import { ErrorPanel, LoadingRows, fmtTime } from "../components/ui";
 
 function GaugeCard({
   label,
@@ -40,14 +42,18 @@ function avgMs(bucket?: MetricsDurationBucket): string {
  */
 export function OpsPage() {
   const [data, setData] = useState<MetricsSnapshot | null>(null);
+  const [alerts, setAlerts] = useState<AlertRecord[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
-    fetchMetrics()
-      .then(setData)
+    Promise.all([fetchMetrics(), fetchAlerts()])
+      .then(([snapshot, alertItems]) => {
+        setData(snapshot);
+        setAlerts(alertItems);
+      })
       .catch((err: unknown) => {
         const messageText = err instanceof Error ? err.message : "failed to load metrics";
         setError(
@@ -112,6 +118,50 @@ export function OpsPage() {
               </p>
             ) : null}
           </section>
+
+          {alerts.length > 0 ? (
+            <section className="panel">
+              <div className="panel-title">
+                <h2>
+                  <AlertIcon size={14} /> 系统告警
+                </h2>
+              </div>
+              <div className="stack">
+                {alerts.map((alert) => (
+                  <div
+                    key={alert.id}
+                    className={`result-card ${
+                      alert.status === "active"
+                        ? alert.severity === "critical"
+                          ? "status-error"
+                          : "status-warn"
+                        : "status-dim"
+                    }`}
+                  >
+                    <div style={{ flex: "1 1 auto" }}>
+                      <div className="result-title">{alert.message}</div>
+                      <div className="faint" style={{ fontSize: 12 }}>
+                        {alert.status === "active" ? "持续中" : "已恢复"} ·{" "}
+                        {alert.status === "active" ? "首次出现" : "最后出现"}{" "}
+                        {fmtTime(alert.status === "active" ? alert.firstAt : alert.lastAt)}
+                      </div>
+                    </div>
+                    <span
+                      className={`pill ${
+                        alert.severity === "critical"
+                          ? "pill-error"
+                          : alert.severity === "warning"
+                          ? "pill-warn"
+                          : "pill-info"
+                      }`}
+                    >
+                      {alert.severity}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           <section className="panel">
             <div className="panel-title"><h2>请求与 Webhook</h2></div>

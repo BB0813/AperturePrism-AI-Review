@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchOAuthStatus, fetchSetupStatus } from "../lib/api";
+import { fetchMe, fetchOAuthStatus, fetchSetupStatus } from "../lib/api";
 import { useTheme } from "../hooks/useTheme";
 import { MoonIcon, SunIcon } from "../components/icons";
 
@@ -22,14 +22,28 @@ export function Login(props: { onAuthenticated: (token: string) => void }) {
       .catch(() => setSetupOn(false));
   }, []);
 
-  const submit = () => {
+  // 真正的密码验证：先拿令牌调一次受保护接口，通过了才进入控制台。
+  const submit = async () => {
     const token = value.trim();
     if (!token) {
       setError("请输入访问令牌");
       return;
     }
     setBusy(true);
-    props.onAuthenticated(token);
+    setError(null);
+    try {
+      await fetchMe();
+      props.onAuthenticated(token);
+    } catch (err) {
+      const messageText = err instanceof Error ? err.message : "";
+      setError(
+        messageText.includes("unauthorized")
+          ? "访问令牌无效，请检查后重试。"
+          : "无法连接服务器，请稍后重试。",
+      );
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
