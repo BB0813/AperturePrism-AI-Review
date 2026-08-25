@@ -97,25 +97,28 @@ export async function removeRepository(
   db: PostgresJsDatabase<typeof schema>,
   repoId: string,
 ): Promise<void> {
-  // 仓库下所有任务 id（供 task 层子表清理），以内联子查询嵌入 DELETE。
-  const taskIds = db
+  // 先取任务 id 数组：postgres-js 对 `inArray(col, subquery)` 会按参数绑定而
+  // 非内联，导致 SQL 语法错误，这里显式取回再按数组绑定。
+  const taskRows = await db
     .select({ id: schema.analysisTasks.id })
     .from(schema.analysisTasks)
-    .where(eq(schema.analysisTasks.repositoryId, repoId))
-    .as("task_ids");
+    .where(eq(schema.analysisTasks.repositoryId, repoId));
+  const taskIds = taskRows.map((row) => row.id);
   await db.transaction(async (tx) => {
-    await tx
-      .delete(schema.taskAttempts)
-      .where(inArray(schema.taskAttempts.taskId, taskIds));
-    await tx
-      .delete(schema.taskEvents)
-      .where(inArray(schema.taskEvents.taskId, taskIds));
-    await tx
-      .delete(schema.externalPublications)
-      .where(inArray(schema.externalPublications.taskId, taskIds));
-    await tx
-      .delete(schema.subjectResults)
-      .where(inArray(schema.subjectResults.taskId, taskIds));
+    if (taskIds.length > 0) {
+      await tx
+        .delete(schema.taskAttempts)
+        .where(inArray(schema.taskAttempts.taskId, taskIds));
+      await tx
+        .delete(schema.taskEvents)
+        .where(inArray(schema.taskEvents.taskId, taskIds));
+      await tx
+        .delete(schema.externalPublications)
+        .where(inArray(schema.externalPublications.taskId, taskIds));
+      await tx
+        .delete(schema.subjectResults)
+        .where(inArray(schema.subjectResults.taskId, taskIds));
+    }
     await tx
       .delete(schema.analysisTasks)
       .where(eq(schema.analysisTasks.repositoryId, repoId));
