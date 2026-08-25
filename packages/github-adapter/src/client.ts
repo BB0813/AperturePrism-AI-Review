@@ -419,6 +419,11 @@ export type GitHubClient = {
     installationId: string,
     signal?: AbortSignal,
   ) => Promise<InstalledRepository[]>;
+  /**
+   * 列出 App 的所有安装（用 App JWT，非安装令牌）。同步用它对账：本地表的
+   * 安装 ID 只能反映「已经同步过的」，新用户安装 App 后必须靠这里发现。
+   */
+  listInstallations: (signal?: AbortSignal) => Promise<{ id: string }[]>;
 };
 
 function signAppJwt(
@@ -1132,6 +1137,22 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
           fullName: stringValue(repo.full_name),
         };
       });
+    },
+
+    listInstallations: async (signal) => {
+      // App 级端点：用 App JWT（每次现签），不需要安装令牌。
+      const data = await request<Record<string, unknown>[]>(
+        "/app/installations?per_page=100",
+        {
+          method: "GET",
+          token: signAppJwt(options.appId, options.privateKeyPem, now()),
+          signal,
+        },
+      );
+      const list = Array.isArray(data) ? data : [];
+      return list.map((installation) => ({
+        id: String(numberValue(installation.id)),
+      }));
     },
   };
 }

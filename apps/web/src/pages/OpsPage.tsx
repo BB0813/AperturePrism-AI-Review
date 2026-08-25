@@ -98,7 +98,19 @@ export function OpsPage() {
               <GaugeCard label="待处理任务（队列）" value={gauges["queue.depth"]} />
               <GaugeCard label="在途任务" value={gauges["tasks.inflight"]} />
               <GaugeCard label="已追踪仓库" value={gauges["repositories.count"]} />
+              <GaugeCard label="失败任务（死信）" value={gauges["tasks.failed"]} />
+              <GaugeCard
+                label="滞留任务（心跳超时）"
+                value={gauges["tasks.stale"]}
+              />
             </div>
+            {(gauges["tasks.failed"] ?? 0) > 0 ||
+            (gauges["tasks.stale"] ?? 0) > 0 ? (
+              <p className="faint" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--warn)" }}>
+                有失败/滞留任务：可到「审查队列」勾选失败任务重新入队；滞留任务会由租约
+                恢复机制自动回收（lease 过期后重新可领取）。
+              </p>
+            ) : null}
           </section>
 
           <section className="panel">

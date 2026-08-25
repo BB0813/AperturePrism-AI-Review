@@ -1863,17 +1863,31 @@ async function syncInstallations(): Promise<{
     const github = await githubClientPromise;
     if (!github)
       return { installations: 0, synced: 0, errors: 1, details: [{ installationId: "-", reason: "github_not_configured" }] };
-    const rows = await database.db
-      .select({ installationId: repositories.installationId })
-      .from(repositories)
-      .where(isNotNull(repositories.installationId));
-    const ids = [
-      ...new Set(
-        rows
-          .map((row) => row.installationId)
-          .filter((value): value is string => Boolean(value)),
-      ),
-    ];
+    // 权威安装列表来自 GitHub（App JWT）；本地表只是缓存。若只读本地表，
+    // 新用户安装 App 后本地没有对应安装，同步永远发现不了新仓库（用户反馈
+    // 「同步显示 0 个仓库」的根因）。
+    let ids: string[];
+    try {
+      const installations = await github.listInstallations();
+      ids = installations.map((installation) => installation.id);
+    } catch (error) {
+      // App JWT 端点偶发失败：回退到本地已知安装，至少维持存量仓库的同步。
+      logger.warn(
+        { err: error },
+        "listInstallations failed, falling back to local installation ids",
+      );
+      const rows = await database.db
+        .select({ installationId: repositories.installationId })
+        .from(repositories)
+        .where(isNotNull(repositories.installationId));
+      ids = [
+        ...new Set(
+          rows
+            .map((row) => row.installationId)
+            .filter((value): value is string => Boolean(value)),
+        ),
+      ];
+    }
     let synced = 0;
     let errors = 0;
     const details: { installationId: string; reason: string }[] = [];
@@ -2789,17 +2803,26 @@ async function handleMetrics(
 ): Promise<void> {
   const snapshot = metrics.snapshot();
   try {
-    const [queue, inflight, repos] = await Promise.all([
+    const [queue, inflight, repos, failed, stale] = await Promise.all([
       database.sql<{ c: number }[]>`
         SELECT count(*)::int AS c FROM analysis_tasks WHERE status IN ('queued', 'retry_wait')`,
       database.sql<{ c: number }[]>`
         SELECT count(*)::int AS c FROM analysis_tasks WHERE status IN ('leased', 'running', 'publishing')`,
       database.sql<{ c: number }[]>`
         SELECT count(*)::int AS c FROM repositories`,
+      database.sql<{ c: number }[]>`
+        SELECT count(*)::int AS c FROM analysis_tasks WHERE status = 'failed'`,
+      // 滞留任务：声称在跑但心跳超过 10 分钟未更新（疑似 worker 已死但租约未释放）。
+      database.sql<{ c: number }[]>`
+        SELECT count(*)::int AS c FROM analysis_tasks
+        WHERE status IN ('leased', 'running', 'publishing')
+          AND (heartbeat_at IS NULL OR heartbeat_at < now() - interval '10 minutes')`,
     ]);
     snapshot.gauges["queue.depth"] = queue[0]?.c ?? 0;
     snapshot.gauges["tasks.inflight"] = inflight[0]?.c ?? 0;
     snapshot.gauges["repositories.count"] = repos[0]?.c ?? 0;
+    snapshot.gauges["tasks.failed"] = failed[0]?.c ?? 0;
+    snapshot.gauges["tasks.stale"] = stale[0]?.c ?? 0;
   } catch (error) {
     logger.warn({ err: error }, "metrics live gauges failed");
   }
