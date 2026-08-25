@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { evaluateAlerts, type AlertRecord } from "./alerts.js";
+import {
+  evaluateAlerts,
+  type AlertRecord,
+  type AlertRuleId,
+} from "./alerts.js";
 
 describe("evaluateAlerts", () => {
   it("不触发时不产生告警记录", () => {
@@ -37,7 +41,7 @@ describe("evaluateAlerts", () => {
 
   it("恢复后标记 resolved 并保留 firstAt", () => {
     const first = new Date("2026-08-25T00:00:00Z");
-    const active: ReadonlyMap<string, AlertRecord> = new Map(
+    const active: ReadonlyMap<AlertRuleId, AlertRecord> = new Map(
       evaluateAlerts(
         new Map(),
         { queueDepth: 25, failed: 0, stale: 0 },
