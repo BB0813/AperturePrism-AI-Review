@@ -23,6 +23,7 @@ import { SecurityPage } from "./pages/SecurityPage";
 import { MemoryPage } from "./pages/MemoryPage";
 import { AgentPage } from "./pages/AgentPage";
 import { AboutPage } from "./pages/AboutPage";
+import { OpsPage } from "./pages/OpsPage";
 import { SetupPage } from "./pages/SetupPage";
 import { BotPage } from "./pages/BotPage";
 import { GitHubAccessPage } from "./pages/GitHubAccessPage";
@@ -34,6 +35,7 @@ import {
   CpuIcon,
   DatabaseIcon,
   FolderIcon,
+  GaugeIcon,
   GearIcon,
   GitHubIcon,
   GridIcon,
@@ -96,6 +98,7 @@ export const NAV: NavGroup[] = [
       { path: "/memory", label: "记忆管理", icon: SparkleIcon },
       { path: "/labels", label: "标签配置", icon: TagIcon },
       { path: "/agent", label: "Agent 能力", icon: LayersIcon },
+      { path: "/ops", label: "运维", icon: GaugeIcon },
     ],
   },
   {
@@ -224,6 +227,7 @@ function AuthedConsole(props: { onLogout: () => void }) {
   else if (active === "/memory") page = <MemoryPage />;
   else if (active === "/labels") page = <LabelsPage />;
   else if (active === "/agent") page = <AgentPage />;
+  else if (active === "/ops") page = <OpsPage />;
   else if (active === "/bot") page = <BotPage />;
   else if (active === "/github-access") page = <GitHubAccessPage />;
   else if (active === "/analysis") page = <AnalysisSettingsPage />;

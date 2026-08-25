@@ -40,3 +40,6 @@ export function startTimer(): () => number {
   const startedAt = performance.now();
   return () => performance.now() - startedAt;
 }
+
+export { MetricsRegistry, metrics } from "./metrics.js";
+export type { DurationBucket, MetricsSnapshot } from "./metrics.js";

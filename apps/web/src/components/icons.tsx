@@ -312,3 +312,11 @@ export const SlidersIcon = (p: IconProps) => (
     <circle cx="16" cy="18" r="2" />
   </Base>
 );
+
+export const GaugeIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M4 14a8 8 0 1 1 16 0" />
+    <path d="M12 14l3.5-4.5" />
+    <circle cx="12" cy="14" r="1.6" />
+  </Base>
+);

@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray, isNotNull } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { NormalizedGitHubEvent } from "../../../packages/github-adapter/src/index.js";
 import { mapGitHubEventToTask } from "../../../packages/github-adapter/src/index.js";
@@ -87,6 +87,98 @@ export async function upsertInstalledRepositories(
   }
   return count;
 }
+
+/**
+ * 删除单个仓库及其全部从属数据（按外键依赖顺序清理）。删除是幂等的：目标
+ * 不存在时直接返回。调用方只在拿到 GitHub 的权威安装/仓库列表后才删除，避免
+ * 因一次同步失败误删仍在授权的仓库。
+ */
+export async function removeRepository(
+  db: PostgresJsDatabase<typeof schema>,
+  repoId: string,
+): Promise<void> {
+  // 仓库下所有任务 id（供 task 层子表清理），以内联子查询嵌入 DELETE。
+  const taskIds = db
+    .select({ id: schema.analysisTasks.id })
+    .from(schema.analysisTasks)
+    .where(eq(schema.analysisTasks.repositoryId, repoId))
+    .as("task_ids");
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(schema.taskAttempts)
+      .where(inArray(schema.taskAttempts.taskId, taskIds));
+    await tx
+      .delete(schema.taskEvents)
+      .where(inArray(schema.taskEvents.taskId, taskIds));
+    await tx
+      .delete(schema.externalPublications)
+      .where(inArray(schema.externalPublications.taskId, taskIds));
+    await tx
+      .delete(schema.subjectResults)
+      .where(inArray(schema.subjectResults.taskId, taskIds));
+    await tx
+      .delete(schema.analysisTasks)
+      .where(eq(schema.analysisTasks.repositoryId, repoId));
+    await tx
+      .delete(schema.issueDocuments)
+      .where(eq(schema.issueDocuments.repositoryId, repoId));
+    await tx
+      .delete(schema.repoMemory)
+      .where(eq(schema.repoMemory.repositoryId, repoId));
+    await tx
+      .delete(schema.scanConfigs)
+      .where(eq(schema.scanConfigs.repositoryId, repoId));
+    await tx
+      .delete(schema.scanRuns)
+      .where(eq(schema.scanRuns.repositoryId, repoId));
+    await tx
+      .delete(schema.scanTracking)
+      .where(eq(schema.scanTracking.repositoryId, repoId));
+    await tx
+      .delete(schema.repositorySettings)
+      .where(eq(schema.repositorySettings.repositoryId, repoId));
+    await tx.delete(schema.repositories).where(eq(schema.repositories.id, repoId));
+  });
+}
+
+/**
+ * 同步后的清理：删除「安装已整个移除」或「仓库已从安装中取消」的仓库。
+ * 只有当对应安装本次成功拉取过仓库列表时才会删仓库，避免误删。
+ */
+export async function pruneRepositories(
+  db: PostgresJsDatabase<typeof schema>,
+  activeInstallations: readonly string[],
+  installedByInstallation: ReadonlyMap<string, ReadonlySet<string>>,
+): Promise<number> {
+  const rows = await db
+    .select({
+      id: schema.repositories.id,
+      githubId: schema.repositories.githubId,
+      installationId: schema.repositories.installationId,
+    })
+    .from(schema.repositories)
+    .where(isNotNull(schema.repositories.installationId));
+  const active = new Set(activeInstallations);
+  let removed = 0;
+  for (const row of rows) {
+    const installationId = row.installationId;
+    if (!installationId) continue;
+    // 整个安装已被移除 → 无条件删除。
+    if (!active.has(installationId)) {
+      await removeRepository(db, row.id);
+      removed += 1;
+      continue;
+    }
+    // 安装还在但仓库不在本次拉取的列表里 → 仓库已被取消授权。
+    const installed = installedByInstallation.get(installationId);
+    if (installed && !installed.has(row.githubId)) {
+      await removeRepository(db, row.id);
+      removed += 1;
+    }
+  }
+  return removed;
+}
+
 
 export async function ingestGitHubWebhook(
   db: PostgresJsDatabase<typeof schema>,

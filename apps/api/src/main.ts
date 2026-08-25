@@ -46,6 +46,8 @@ import {
   clearSettingWithRotation,
   putSettingWithRotation,
   rotationInfo,
+  readPreviousValueWithinGrace,
+  pruneRepositories,
   resolveSettingValue,
   resolveGithubAppCredentials,
   seedDefaultLabelRules,
@@ -112,6 +114,8 @@ import {
 } from "../../../packages/duplicate-detection/src/index.js";
 import {
   createLogger,
+  metrics,
+  startTimer,
   withCorrelation,
 } from "../../../packages/observability/src/index.js";
 
@@ -658,13 +662,30 @@ async function handleWebhook(
   }
   const body = await readBody(request);
   try {
-    verifyWebhookSignature(
-      body,
+    // 轮换宽限期内双密钥接收：先用当前密钥验签，失败再试旧值（换密钥时对端
+    // 可能还在用旧密钥推送）。
+    const signature =
       typeof request.headers["x-hub-signature-256"] === "string"
         ? request.headers["x-hub-signature-256"]
-        : undefined,
-      webhookSecret(),
+        : undefined;
+    const secrets = [webhookSecret()];
+    const previous = await readPreviousValueWithinGrace(
+      database.db,
+      "github_webhook_secret",
     );
+    if (previous) secrets.push(previous);
+    let verified = false;
+    let lastError: unknown;
+    for (const secret of secrets) {
+      try {
+        verifyWebhookSignature(body, signature, secret);
+        verified = true;
+        break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (!verified) throw lastError;
     const deliveryId = request.headers["x-github-delivery"]?.toString();
     const eventName = request.headers["x-github-event"]?.toString();
     if (!deliveryId || !eventName) {
@@ -690,6 +711,8 @@ async function handleWebhook(
       normalized,
       policyVersion,
     );
+    metrics.increment("webhook.deliveries");
+    metrics.increment(`webhook.outcome.${result.outcome}`);
     // Issue/PR comment commands (e.g. "/apertureprism analyze") trigger tasks.
     const commandOutcome =
       normalized.eventName === "issue_comment"
@@ -1825,6 +1848,7 @@ async function syncInstallations(): Promise<{
   synced: number;
   errors: number;
   skipped?: boolean;
+  removed?: number;
   details?: { installationId: string; reason: string }[];
 }> {
   if (repositorySyncRunning)
@@ -1848,6 +1872,8 @@ async function syncInstallations(): Promise<{
     let synced = 0;
     let errors = 0;
     const details: { installationId: string; reason: string }[] = [];
+    // 本次成功拉取到的「安装 → 仓库 id 集合」，供同步后清理已取消授权/已移除的仓库。
+    const installedByInstallation = new Map<string, Set<string>>();
     for (const installationId of ids) {
       // Exponential backoff (400ms → 1600ms): GitHub App token minting is
       // occasionally flaky and a short backoff recovers the vast majority of
@@ -1856,6 +1882,10 @@ async function syncInstallations(): Promise<{
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
           const repos = await github.listInstallationRepositories(installationId);
+          installedByInstallation.set(
+            installationId,
+            new Set(repos.map((repo) => String(repo.id))),
+          );
           synced += await upsertInstalledRepositories(
             database.db,
             installationId,
@@ -1894,7 +1924,17 @@ async function syncInstallations(): Promise<{
         );
       }
     }
-    return { installations: ids.length, synced, errors, details };
+    // 同步后清理：删除「安装已移除」或「仓库已取消授权」的本地行（仅在拿到权威
+    // 列表后执行，避免一次失败误删仍在授权的仓库）。
+    const removed = await pruneRepositories(
+      database.db,
+      ids,
+      installedByInstallation,
+    );
+    if (removed > 0) {
+      logger.info({ removed }, "pruned repositories no longer installed");
+    }
+    return { installations: ids.length, synced, errors, details, removed };
   } finally {
     repositorySyncRunning = false;
   }
@@ -2054,7 +2094,11 @@ async function handleRepositorySync(
     );
     return;
   }
+  const syncTimer = startTimer();
   const result = await syncInstallations();
+  metrics.recordDuration("repositories.sync_ms", syncTimer());
+  metrics.increment("repositories.sync_runs");
+  if (result.removed) metrics.increment("repositories.sync_removed", result.removed);
   audit(request, "repositories.sync", undefined, result);
   // 已有同步在进行（进程内锁）：显式返回 409，前端据此提示「正在同步中」，
   // 而不是收到一个静默的 0 结果让用户以为同步没生效。
@@ -2728,6 +2772,38 @@ function settingDefaultValue(key: string): string {
   if (key === "embedding_model") return config.embedding.model;
   if (key === "qq_official_intents") return String(config.qqOfficialIntents);
   return "";
+}
+
+/**
+ * GET /metrics — 进程内指标快照 + 库内实时量规（队列深度 / 在途任务 / 仓库数）。
+ * 管理员可见；给「运维」页与未来 Prometheus 抓取共用同一份快照。
+ */
+async function handleMetrics(
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const snapshot = metrics.snapshot();
+  try {
+    const [queue, inflight, repos] = await Promise.all([
+      database.db
+        .select({ c: database.sql<number>`count(*)::int` })
+        .from(analysisTasks)
+        .where(inArray(analysisTasks.status, ["queued", "retry_wait"])),
+      database.db
+        .select({ c: database.sql<number>`count(*)::int` })
+        .from(analysisTasks)
+        .where(inArray(analysisTasks.status, ["leased", "running", "publishing"])),
+      database.db
+        .select({ c: database.sql<number>`count(*)::int` })
+        .from(repositories),
+    ]);
+    snapshot.gauges["queue.depth"] = Number(queue[0]?.c ?? 0);
+    snapshot.gauges["tasks.inflight"] = Number(inflight[0]?.c ?? 0);
+    snapshot.gauges["repositories.count"] = Number(repos[0]?.c ?? 0);
+  } catch (error) {
+    logger.warn({ err: error }, "metrics live gauges failed");
+  }
+  json(response, 200, snapshot, requestId);
 }
 
 /** Runtime settings: GET lists (secret values masked); PUT upserts a key. */
@@ -4325,6 +4401,29 @@ async function handleRequest(
     return;
   }
 
+  if (path === "/metrics") {
+    if (request.method !== "GET") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    if (!(await isAdminRequest(request))) {
+      json(
+        response,
+        403,
+        { status: "error", reason: "admin required" },
+        requestId,
+      );
+      return;
+    }
+    await handleMetrics(response, requestId);
+    return;
+  }
+
   if (
     path === "/auth/status" ||
     path === "/auth/login" ||
@@ -4908,6 +5007,13 @@ async function handleRequest(
 }
 
 const server = createServer((request, response) => {
+  metrics.increment("http.requests");
+  const timer = startTimer();
+  response.once("finish", () => {
+    metrics.recordDuration("http.request_ms", timer());
+    const code = response.statusCode;
+    if (code >= 500) metrics.increment("http.errors_5xx");
+  });
   void handleRequest(request, response).catch((error: unknown) => {
     logger.error({ err: error }, "request failed");
     if (!response.headersSent)

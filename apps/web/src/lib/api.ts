@@ -164,6 +164,8 @@ export type RepoSyncResult = {
   installations: number;
   synced: number;
   errors: number;
+  /** 已取消授权 / 已移除安装的仓库数（本次同步清理）。 */
+  removed?: number;
   /** 已有同步在进行，本次被跳过。 */
   skipped?: boolean;
   details?: { installationId: string; reason: string }[];
@@ -807,13 +809,25 @@ export type AuditEntry = {
   ip: string | null;
   createdAt: string;
 };
-
 /** Lists the security audit trail, newest first (admin only). */
 export async function fetchAuditLog(offset = 0, limit = 50): Promise<AuditEntry[]> {
   const result = (await getJson(`/audit?offset=${offset}&limit=${limit}`)) as {
     items: AuditEntry[];
   };
   return result.items;
+}
+
+export type MetricsDurationBucket = { count: number; totalMs: number };
+export type MetricsSnapshot = {
+  counters: Record<string, number>;
+  durations: Record<string, MetricsDurationBucket>;
+  gauges: Record<string, number>;
+  since: string;
+};
+
+/** 管理员可见的运行时指标快照（进程计数 + 库内实时量规）。 */
+export async function fetchMetrics(): Promise<MetricsSnapshot> {
+  return (await getJson("/metrics")) as MetricsSnapshot;
 }
 
 export type SetupStatus = {

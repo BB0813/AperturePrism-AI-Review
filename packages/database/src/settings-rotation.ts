@@ -104,6 +104,29 @@ export async function rotationInfo(
   };
 }
 
+/**
+ * 消费侧轮换回退：读取宽限期内暂存的旧值（过期视为无，并顺带清理）。
+ * 供「新密钥先验签/交换，失败再退旧值」的双密钥接收使用。
+ */
+export async function readPreviousValueWithinGrace(
+  db: Database,
+  key: string,
+  now: Date = new Date(),
+): Promise<string | null> {
+  const rows = await db
+    .select({ value: schema.systemSettings.value })
+    .from(schema.systemSettings)
+    .where(eq(schema.systemSettings.key, rotationKeyFor(key)))
+    .limit(1);
+  const meta = parseRotationMeta(rows[0]?.value);
+  if (!meta) return null;
+  if (isRotationExpired(meta, now)) {
+    await deleteSetting(db, rotationKeyFor(key));
+    return null;
+  }
+  return meta.value;
+}
+
 /** 覆盖密钥时把旧值暂存为轮换元数据；返回是否发生了轮换。 */
 export async function putSettingWithRotation(
   db: Database,
