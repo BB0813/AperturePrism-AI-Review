@@ -669,11 +669,16 @@ async function handleWebhook(
         ? request.headers["x-hub-signature-256"]
         : undefined;
     const secrets = [webhookSecret()];
-    const previous = await readPreviousValueWithinGrace(
-      database.db,
-      "github_webhook_secret",
-    );
-    if (previous) secrets.push(previous);
+    try {
+      // 轮换回退是增强：数据库不可用时（如测试/启动早期）不阻塞验签。
+      const previous = await readPreviousValueWithinGrace(
+        database.db,
+        "github_webhook_secret",
+      );
+      if (previous) secrets.push(previous);
+    } catch {
+      // best-effort：继续只用当前密钥验签。
+    }
     let verified = false;
     let lastError: unknown;
     for (const secret of secrets) {
