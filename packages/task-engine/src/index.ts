@@ -574,6 +574,9 @@ export async function resetTaskToQueued(
       )
       .returning({ id: analysisTasks.id });
     if (updated.length === 0) return false;
+    // 重跑是全新执行：清掉旧 attempts，避免 worker 重新领取时插入
+    // attempt_number=1 与历史记录撞唯一约束 (task_id, attempt_number)。
+    await tx.delete(taskAttempts).where(eq(taskAttempts.taskId, input.taskId));
     await tx.insert(taskEvents).values({
       taskId: input.taskId,
       eventType: taskRetryReadyEventType,
