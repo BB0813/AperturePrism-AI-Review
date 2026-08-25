@@ -2785,21 +2785,16 @@ async function handleMetrics(
   const snapshot = metrics.snapshot();
   try {
     const [queue, inflight, repos] = await Promise.all([
-      database.db
-        .select({ c: database.sql<number>`count(*)::int` })
-        .from(analysisTasks)
-        .where(inArray(analysisTasks.status, ["queued", "retry_wait"])),
-      database.db
-        .select({ c: database.sql<number>`count(*)::int` })
-        .from(analysisTasks)
-        .where(inArray(analysisTasks.status, ["leased", "running", "publishing"])),
-      database.db
-        .select({ c: database.sql<number>`count(*)::int` })
-        .from(repositories),
+      database.sql<{ c: number }[]>`
+        SELECT count(*)::int AS c FROM analysis_tasks WHERE status IN ('queued', 'retry_wait')`,
+      database.sql<{ c: number }[]>`
+        SELECT count(*)::int AS c FROM analysis_tasks WHERE status IN ('leased', 'running', 'publishing')`,
+      database.sql<{ c: number }[]>`
+        SELECT count(*)::int AS c FROM repositories`,
     ]);
-    snapshot.gauges["queue.depth"] = Number(queue[0]?.c ?? 0);
-    snapshot.gauges["tasks.inflight"] = Number(inflight[0]?.c ?? 0);
-    snapshot.gauges["repositories.count"] = Number(repos[0]?.c ?? 0);
+    snapshot.gauges["queue.depth"] = queue[0]?.c ?? 0;
+    snapshot.gauges["tasks.inflight"] = inflight[0]?.c ?? 0;
+    snapshot.gauges["repositories.count"] = repos[0]?.c ?? 0;
   } catch (error) {
     logger.warn({ err: error }, "metrics live gauges failed");
   }
