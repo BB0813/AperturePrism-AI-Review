@@ -25,6 +25,13 @@ function makeGithub(): GitHubClient {
     listIssues: async () => [],
     listCollaborators: async () => [],
     getAppMetadata: async () => ({ id: 1, slug: "app", name: "App" }),
+    getWebhookConfig: async () => ({
+      url: "",
+      active: false,
+      contentType: "json",
+    }),
+    pingAppWebhook: async () => undefined,
+    listRecentWebhookDeliveries: async () => [],
     listIssueComments: async () => [],
     createIssueComment: async () => ({ id: 1, htmlUrl: "" }),
     closeIssue: async () => undefined,
