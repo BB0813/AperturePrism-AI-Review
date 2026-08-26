@@ -159,9 +159,9 @@ export function ConfigPage() {
           ) : null}
 
           <SettingsSection
-            keys={["webui_api_token", "log_level", "scan_enabled", "agent_team_enabled"]}
+            keys={["webui_api_token", "log_level", "scan_enabled", "agent_team_enabled", "alert_webhook_url"]}
             title="全局运维"
-            desc="访问令牌、日志级别与总开关；其余配置请在各自功能页维护"
+            desc="访问令牌、日志级别、总开关与告警通知；其余配置请在各自功能页维护"
           />
 
           <BootstrapPanel status={bootstrap} />

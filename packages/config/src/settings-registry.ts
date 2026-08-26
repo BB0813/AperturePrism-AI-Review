@@ -349,6 +349,17 @@ export const SETTINGS_REGISTRY: readonly SettingSpec[] = [
     label: "定时扫描总开关",
     hint: "关闭后停止所有仓库的周期扫描；单仓库扫描配置在「仓库扫描」页",
   },
+  {
+    key: "alert_webhook_url",
+    group: "ops",
+    kind: "string",
+    secret: false,
+    repoScoped: false,
+    envVar: "ALERT_WEBHOOK_URL",
+    hotReload: "poll",
+    label: "告警 Webhook URL",
+    hint: "告警触发/恢复时 POST JSON 通知（如飞书/钉钉/自定义）；留空则不推送",
+  },
 ];
 
 const byKey = new Map(SETTINGS_REGISTRY.map((spec) => [spec.key, spec]));

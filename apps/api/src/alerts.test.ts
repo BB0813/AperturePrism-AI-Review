@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  diffAlertTransitions,
   evaluateAlerts,
   type AlertRecord,
   type AlertRuleId,
@@ -57,5 +58,72 @@ describe("evaluateAlerts", () => {
     expect(q?.status).toBe("resolved");
     expect(q?.firstAt).toBe(first.toISOString());
     expect(q?.lastAt).toBe("2026-08-25T01:00:00.000Z");
+  });
+});
+
+describe("diffAlertTransitions", () => {
+  const t0 = new Date("2026-08-25T00:00:00Z");
+
+  it("从无记录到触发产生 triggered", () => {
+    const next = evaluateAlerts(
+      new Map(),
+      { queueDepth: 25, failed: 0, stale: 0 },
+      t0,
+    );
+    const events = diffAlertTransitions(new Map(), next);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ kind: "triggered" });
+    expect(events[0]!.record.id).toBe("queue_backlog");
+  });
+
+  it("持续 active 不重复通知", () => {
+    const first = evaluateAlerts(
+      new Map(),
+      { queueDepth: 25, failed: 0, stale: 0 },
+      t0,
+    );
+    const prevMap = new Map<AlertRuleId, AlertRecord>(
+      first.map((a) => [a.id, a]),
+    );
+    const second = evaluateAlerts(
+      prevMap,
+      { queueDepth: 26, failed: 0, stale: 0 },
+      new Date("2026-08-25T00:05:00Z"),
+    );
+    const events = diffAlertTransitions(prevMap, second);
+    expect(events).toHaveLength(0);
+  });
+
+  it("active → resolved 产生 resolved 事件", () => {
+    const first = evaluateAlerts(
+      new Map(),
+      { queueDepth: 25, failed: 0, stale: 0 },
+      t0,
+    );
+    const prevMap = new Map<AlertRuleId, AlertRecord>(
+      first.map((a) => [a.id, a]),
+    );
+    const second = evaluateAlerts(
+      prevMap,
+      { queueDepth: 0, failed: 0, stale: 0 },
+      new Date("2026-08-25T01:00:00Z"),
+    );
+    const events = diffAlertTransitions(prevMap, second);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ kind: "resolved" });
+    expect(events[0]!.record.id).toBe("queue_backlog");
+  });
+
+  it("多规则同时触发时逐个产出事件", () => {
+    const next = evaluateAlerts(
+      new Map(),
+      { queueDepth: 25, failed: 3, stale: 0 },
+      t0,
+    );
+    const events = diffAlertTransitions(new Map(), next);
+    expect(events.map((e) => e.record.id).sort()).toEqual([
+      "failed_tasks",
+      "queue_backlog",
+    ]);
   });
 });

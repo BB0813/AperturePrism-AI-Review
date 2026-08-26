@@ -4,7 +4,13 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { evaluateAlerts, type AlertRecord, type AlertRuleId } from "./alerts.js";
+import {
+  diffAlertTransitions,
+  evaluateAlerts,
+  type AlertRecord,
+  type AlertRuleId,
+  type AlertTransition,
+} from "./alerts.js";
 import { and, asc, desc, eq, gt, inArray, isNotNull, or } from "drizzle-orm";
 import {
   ALLOWED_SETTING_KEYS,
@@ -305,6 +311,13 @@ function webhookEnabled(): boolean {
   const override = runtimeSettings.get("github_webhook_enabled");
   if (override !== undefined && override !== "") return override === "true";
   return Boolean(config.githubWebhookSecret);
+}
+
+/** Effective alert webhook URL: runtime setting overrides env; empty = disabled. */
+function alertWebhookUrl(): string {
+  const override = runtimeSettings.get("alert_webhook_url");
+  if (override && override.trim().length > 0) return override.trim();
+  return (process.env.ALERT_WEBHOOK_URL ?? "").trim();
 }
 
 /** Effective embedding config: runtime settings override, then env. */
@@ -2833,9 +2846,53 @@ async function collectTaskReliabilityGauges(): Promise<{
 /** 进程内告警状态（规则 → 最新记录）。 */
 const alertRecords = new Map<AlertRuleId, AlertRecord>();
 
-/** 评估一次告警（由定时器与 /alerts 请求共同触发）。 */
+/**
+ * 将告警状态迁移事件 POST 到配置的 webhook（如飞书/钉钉/自定义端点）。
+ * 仅在配置了 alert_webhook_url 时发送；失败仅记日志，不影响告警主流程。
+ * 每次迁移只发一条（triggered/resolved），持续状态不重复。
+ */
+async function notifyAlertTransitions(
+  transitions: readonly AlertTransition[],
+): Promise<void> {
+  if (transitions.length === 0) return;
+  const url = alertWebhookUrl();
+  if (!url) return;
+  const payload = {
+    type: "alert",
+    sentAt: new Date().toISOString(),
+    events: transitions.map((t) => ({
+      kind: t.kind,
+      rule: t.record.id,
+      severity: t.record.severity,
+      message: t.record.message,
+      value: t.record.value,
+      firstAt: t.record.firstAt,
+      lastAt: t.record.lastAt,
+      status: t.record.status,
+    })),
+  };
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) {
+      logger.warn(
+        { url, status: response.status },
+        "alert webhook non-2xx response",
+      );
+    }
+  } catch (error) {
+    logger.warn({ err: error, url }, "alert webhook send failed");
+  }
+}
+
+/** 评估一次告警（由定时器与 /alerts 请求共同触发），并在状态迁移时推送 webhook。 */
 async function refreshAlerts(): Promise<void> {
   try {
+    const prev = new Map(alertRecords);
     const { queueDepth, failed, stale } =
       await collectTaskReliabilityGauges();
     const next = evaluateAlerts(alertRecords, {
@@ -2843,8 +2900,13 @@ async function refreshAlerts(): Promise<void> {
       failed,
       stale,
     });
+    const transitions = diffAlertTransitions(prev, next);
     alertRecords.clear();
     for (const record of next) alertRecords.set(record.id, record);
+    if (transitions.length > 0) {
+      // 不 await：通知失败不阻塞告警刷新。
+      void notifyAlertTransitions(transitions);
+    }
   } catch (error) {
     logger.warn({ err: error }, "alert evaluation failed");
   }

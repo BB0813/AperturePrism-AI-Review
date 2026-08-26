@@ -1,13 +1,13 @@
 {
   "name": "@apertureprism/api",
   "private": true,
-  "version": "1.0.44",
+  "version": "1.0.45",
   "type": "module",
   "dependencies": {
-    "@apertureprism/config": "1.0.44",
-    "@apertureprism/database": "1.0.44",
-    "@apertureprism/github-adapter": "1.0.44",
-    "@apertureprism/observability": "1.0.44"
+    "@apertureprism/config": "1.0.45",
+    "@apertureprism/database": "1.0.45",
+    "@apertureprism/github-adapter": "1.0.45",
+    "@apertureprism/observability": "1.0.45"
   },
   "scripts": {
     "build": "tsc",

@@ -103,3 +103,31 @@ export function evaluateAlerts(
     a.status === b.status ? 0 : a.status === "active" ? -1 : 1,
   );
 }
+
+/** 告警状态迁移事件（供 webhook 通知 / 审计）。 */
+export type AlertTransition =
+  | { kind: "triggered"; record: AlertRecord } // 由 resolved/无 → active
+  | { kind: "resolved"; record: AlertRecord }; // 由 active → resolved
+
+/**
+ * 对比上轮与本轮的告警状态，产出需要通知的状态迁移。
+ * - 上轮无记录 / resolved，本轮 active → triggered（首次触发或复发）
+ * - 上轮 active，本轮 resolved → resolved（恢复）
+ * - 持续 active 不重复通知；持续 resolved 不重复通知。
+ * 纯函数，便于单测。
+ */
+export function diffAlertTransitions(
+  prev: ReadonlyMap<AlertRuleId, AlertRecord>,
+  next: readonly AlertRecord[],
+): AlertTransition[] {
+  const transitions: AlertTransition[] = [];
+  for (const record of next) {
+    const before = prev.get(record.id);
+    if (record.status === "active" && before?.status !== "active") {
+      transitions.push({ kind: "triggered", record });
+    } else if (record.status === "resolved" && before?.status === "active") {
+      transitions.push({ kind: "resolved", record });
+    }
+  }
+  return transitions;
+}
