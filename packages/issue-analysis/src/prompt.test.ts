@@ -243,6 +243,16 @@ describe("提示词版本化与回滚", () => {
     )?.content;
     expect(lightSystem).toContain("全局轻量模式");
   });
+
+  it("v7 在 v6 基础上追加「已执行操作」约束，v6 不含", () => {
+    const v7 = getIssueSystemPrompt("v7");
+    const v6 = getIssueSystemPrompt("v6");
+    expect(v7).toContain("分类差异化"); // 继承 v6
+    expect(v7).toContain("已执行操作约束");
+    expect(v7).toContain("不得重复建议用户已经执行过的操作");
+    expect(v6).not.toContain("已执行操作约束");
+    expect(v7).not.toBe(v6);
+  });
 });
 
 describe("Issue 结果区块开关", () => {
