@@ -2737,11 +2737,32 @@ async function handleLabelRules(
 }
 
 /** Non-secret runtime configuration snapshot (no keys, no secrets). */
+/** GitHub App slug 缓存（60s），供 WebUI 生成「安装 / 授权仓库」链接。 */
+let githubAppSlugCache: { slug: string; at: number } | null = null;
+
+/** 当前 GitHub App 的 slug（如 clodbreeze-ai-reviewer）；未配置/失败返回 null。 */
+async function githubAppSlug(): Promise<string | null> {
+  if (githubAppSlugCache && Date.now() - githubAppSlugCache.at < 60_000)
+    return githubAppSlugCache.slug;
+  try {
+    const client = await githubClientPromise;
+    if (!client) return null;
+    const app = await client.getAppMetadata();
+    if (!app.slug) return null;
+    githubAppSlugCache = { slug: app.slug, at: Date.now() };
+    return app.slug;
+  } catch (error) {
+    logger.warn({ err: error }, "github app slug lookup failed");
+    return null;
+  }
+}
+
 async function handleConfig(
   response: ServerResponse,
   requestId: string,
 ): Promise<void> {
   const modelProviders = Object.keys(config.modelProviderBaseUrls);
+  const appSlug = await githubAppSlug();
   json(
     response,
     200,
@@ -2753,6 +2774,7 @@ async function handleConfig(
       githubAppConfigured: Boolean(
         config.githubAppId && config.githubAppPrivateKeyPath,
       ),
+      githubAppSlug: appSlug,
       webuiAuthEnabled: Boolean(config.webuiApiToken),
       modelProviders,
       embeddingModel: embeddingConfig().model,

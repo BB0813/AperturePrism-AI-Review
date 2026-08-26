@@ -358,6 +358,8 @@ export type RuntimeConfig = {
   logLevel: string;
   githubWebhookConfigured: boolean;
   githubAppConfigured: boolean;
+  /** GitHub App slug（如 clodbreeze-ai-reviewer）；用于生成安装/授权仓库链接。 */
+  githubAppSlug: string | null;
   webuiAuthEnabled: boolean;
   modelProviders: string[];
   embeddingModel: string;

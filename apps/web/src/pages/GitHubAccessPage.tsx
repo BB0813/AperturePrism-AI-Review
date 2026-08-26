@@ -179,6 +179,54 @@ export function GitHubAccessPage() {
             onSaved={load}
           />
 
+          {cfg?.githubAppConfigured && cfg.githubAppSlug ? (
+            <section className="panel">
+              <div className="panel-title">
+                <h2>安装 / 授权仓库</h2>
+                <span className="count">{cfg.githubAppSlug}</span>
+              </div>
+              <p className="faint" style={{ margin: "0 0 10px", fontSize: 12 }}>
+                已配置 GitHub App <code className="mono">{cfg.githubAppSlug}</code>。系统只能看到
+                <strong>该 App 被安装到的账号 + 已勾选的仓库</strong> —— 若「已安装仓库」页为空或缺少仓库，
+                请到 GitHub 完成安装并勾选仓库：
+              </p>
+              <div className="dist" style={{ marginTop: 4 }}>
+                <div className="dist-row">
+                  <span className="dist-label">首次安装</span>
+                  <span>
+                    <a
+                      className="btn"
+                      href={`https://github.com/apps/${cfg.githubAppSlug}/installations/new`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      安装到账号并选择仓库 ↗
+                    </a>
+                  </span>
+                </div>
+                <div className="dist-row">
+                  <span className="dist-label">添加仓库</span>
+                  <span>
+                    <a
+                      className="btn"
+                      href={`https://github.com/apps/${cfg.githubAppSlug}/installations`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      管理已安装的仓库授权 ↗
+                    </a>
+                    <span className="faint" style={{ fontSize: 12, marginLeft: 8 }}>
+                      在安装详情里勾选更多仓库即可
+                    </span>
+                  </span>
+                </div>
+              </div>
+              <p className="faint" style={{ margin: "12px 0 0", fontSize: 12 }}>
+                授权后点击「已安装仓库」页的「同步仓库」即可拉取；系统每小时也会自动同步一次。
+              </p>
+            </section>
+          ) : null}
+
           <SettingsSection
             keys={["oauth_client_id", "oauth_client_secret"]}
             title="GitHub OAuth（WebUI 登录）"
