@@ -69,9 +69,11 @@ for (const file of pkgFiles) {
 console.log(`已更新 ${pkgFiles.length} 个 package.json`);
 
 // 2) lock 同步 + 校准（--package-lock-only 不装依赖，快且不会触发 postinstall）。
+// Windows 下 npm 是 npm.cmd，直接 spawn 会 ENOENT；shell:true 兼容两平台。
 execFileSync("npm", ["install", "--package-lock-only", "--ignore-scripts"], {
   cwd: root,
   stdio: "inherit",
+  shell: process.platform === "win32",
 });
 
 // 3) 提交 + 打 tag。
