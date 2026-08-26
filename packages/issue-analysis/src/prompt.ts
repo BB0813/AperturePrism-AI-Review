@@ -105,21 +105,58 @@ const ISSUE_SYSTEM_PROMPTS: Readonly<Record<string, string>> = {
 export const ISSUE_PROMPT_VERSIONS: readonly string[] =
   Object.keys(ISSUE_SYSTEM_PROMPTS);
 
-/** 取指定版本的系统提示词；未知版本回落到当前版本。 */
-export function getIssueSystemPrompt(version?: string): string {
-  if (version) {
-    const prompt = ISSUE_SYSTEM_PROMPTS[version];
-    if (prompt) return prompt;
-  }
-  return ISSUE_SYSTEM_PROMPTS[ISSUE_ANALYSIS_PROMPT_VERSION] ?? SYSTEM_PROMPT_V6;
+/** 分析强度模式：与提示词版本正交的「轻量 / 全量」策略。 */
+export type PromptMode = "adaptive" | "light" | "full";
+
+/**
+ * 全局模式覆盖指令，按 mode 附加在所选版本提示词之后。
+ * - adaptive：不附加 —— 用 v6 自带的分类差异化（feature 轻量、缺陷全量）。
+ * - light / full：强制全局轻量 / 全局全量，覆盖 v6 分类块与单类别规则。
+ */
+const MODE_INSTRUCTIONS: Readonly<Record<PromptMode, string>> = {
+  adaptive: "",
+  light: `
+全局轻量模式（覆盖上方所有针对单类别的规则，必须遵守）：
+- 对所有类型的 Issue（含 bug / security / performance）一律按最轻量方式处理，只求快速给出方向：
+  - 不索取复现步骤 / 版本号 / 截图 / 报错原文 / 日志；missingInformation 最多 3 条，只保留「确实会改变方向」的关键未知。
+  - 省略 probableCause / troubleshooting / evidence；proposedChanges 与 suggestedActions 给方向性方案即可。
+  - 描述足以支撑方向时 quality 判 actionable，severity 缺证据给 unknown。`,
+  full: `
+全局全量模式（覆盖上方所有针对单类别的规则，必须遵守）：
+- 对所有类型的 Issue（含 feature）一律做全量深度分析，不允许因分类而轻量化：
+  - feature 同样要给出完整、精确的实现方案：若仓库上下文完整（已读取源码 / 已检索代码），proposedChanges 精确到文件 / 函数 / 数据流并尽量带 locator，suggestedActions 给出可落地的实现路线，missingInformation 只列确实会改变实现方案的缺失项 —— 不要因为是功能请求就只给一句方向性描述。
+  - bug / security / performance 保持全量信息要求：版本 / 复现步骤 / 截图 / 报错原文 / 日志，missingInformation 详尽。
+  - probableCause / troubleshooting / evidence 有依据就保留。
+- 总之：能深入就深入，不要因为分类或「已给足方向」就压低信息量。`,
+};
+
+/** 可用的分析强度模式（供设置项枚举）。 */
+export const ISSUE_PROMPT_MODES: readonly PromptMode[] = [
+  "adaptive",
+  "light",
+  "full",
+];
+
+/** 取指定版本的系统提示词；未知版本回落到当前版本。mode 追加全局覆盖指令。 */
+export function getIssueSystemPrompt(
+  version?: string,
+  mode: PromptMode = "adaptive",
+): string {
+  const base =
+    (version && ISSUE_SYSTEM_PROMPTS[version]) ||
+    ISSUE_SYSTEM_PROMPTS[ISSUE_ANALYSIS_PROMPT_VERSION] ||
+    SYSTEM_PROMPT_V6;
+  const extra = MODE_INSTRUCTIONS[mode];
+  return extra ? `${base}\n\n${extra}` : base;
 }
 
 export function buildIssueAnalysisMessages(
   context: IssueContext,
   promptVersion?: string,
+  mode: PromptMode = "adaptive",
 ): readonly ModelMessage[] {
   return [
-    { role: "system", content: getIssueSystemPrompt(promptVersion) },
+    { role: "system", content: getIssueSystemPrompt(promptVersion, mode) },
     { role: "user", content: renderIssueContext(context) },
   ];
 }
@@ -129,10 +166,11 @@ export function buildIssueAnalysisRepairRequest(
   invalidText: string,
   issues: readonly string[],
   promptVersion?: string,
+  mode: PromptMode = "adaptive",
 ): ModelInvocationRequest {
   return {
     messages: [
-      { role: "system", content: getIssueSystemPrompt(promptVersion) },
+      { role: "system", content: getIssueSystemPrompt(promptVersion, mode) },
       {
         role: "user",
         content: `${renderIssueContext(context)}
@@ -155,9 +193,10 @@ ${fenceUntrusted(invalidText)}
 export function buildIssueAnalysisRequest(
   context: IssueContext,
   promptVersion?: string,
+  mode: PromptMode = "adaptive",
 ): ModelInvocationRequest {
   return {
-    messages: buildIssueAnalysisMessages(context, promptVersion),
+    messages: buildIssueAnalysisMessages(context, promptVersion, mode),
     responseFormat: "json",
     maxOutputTokens: 1_500,
     temperature: 0.2,

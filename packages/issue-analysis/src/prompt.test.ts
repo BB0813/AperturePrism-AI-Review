@@ -223,4 +223,20 @@ describe("提示词版本化与回滚", () => {
     expect(v5).not.toContain("分类差异化");
     expect(v6).not.toBe(v5);
   });
+
+  it("light / full 模式追加全局覆盖指令，adaptive 不追加", () => {
+    const base = getIssueSystemPrompt("v6");
+    expect(getIssueSystemPrompt("v6", "adaptive")).toBe(base);
+    expect(getIssueSystemPrompt("v6", "light")).toContain("全局轻量模式");
+    expect(getIssueSystemPrompt("v6", "full")).toContain("全局全量模式");
+    expect(getIssueSystemPrompt("v6", "light")).toContain("不索取复现步骤");
+    expect(getIssueSystemPrompt("v6", "full")).toContain("精确到文件 / 函数 / 数据流");
+  });
+
+  it("mode 穿透到 system 消息", () => {
+    const lightSystem = buildIssueAnalysisMessages(context(), "v6", "light").find(
+      (m) => m.role === "system",
+    )?.content;
+    expect(lightSystem).toContain("全局轻量模式");
+  });
 });

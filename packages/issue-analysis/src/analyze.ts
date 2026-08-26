@@ -23,6 +23,7 @@ import {
   buildIssueAnalysisMessages,
   buildIssueAnalysisRepairRequest,
   buildIssueAnalysisRequest,
+  type PromptMode,
 } from "./prompt.js";
 
 export type IssueAnalyzerOptions = {
@@ -39,6 +40,11 @@ export type IssueAnalyzerOptions = {
    * 版本」可在线回退到历史版本，无需重新部署。
    */
   promptVersion?: string;
+  /**
+   * 分析强度模式（adaptive / light / full）。缺省 adaptive（分类差异化）；
+   * 改「分析设置 → Issue 提示词模式」可全局轻量或全量。
+   */
+  promptMode?: PromptMode;
   /**
    * 开启后主分析先做一轮工具探索，让模型读取仓库源码再作答。不开启时模型只能
    * 看到 Issue 文本，无法给出定位到文件与位置的修复建议。默认关闭：探索会显著
@@ -113,13 +119,17 @@ export async function analyzeIssue(
   // 供 attempt 记账，两者都无法从循环内部获得。代价是开启探索时多一次调用，
   // 这也是该能力默认关闭的原因之一。
   const main = await invokeOnce(
-    buildIssueAnalysisRequest(context, options.promptVersion),
+    buildIssueAnalysisRequest(context, options.promptVersion, options.promptMode),
   );
   let mainContent = main.response.content;
   if (options.tools) {
     const loop = await runToolLoop(
       (request) => invokeOnce(request).then((result) => result.response),
-      buildIssueAnalysisMessages(context, options.promptVersion),
+      buildIssueAnalysisMessages(
+        context,
+        options.promptVersion,
+        options.promptMode,
+      ),
       options.tools.context,
       {
         tools: builtinTools(),
@@ -160,6 +170,7 @@ export async function analyzeIssue(
       mainContent,
       validation.issues,
       options.promptVersion,
+      options.promptMode,
     ),
     deadlineMs: remainingMs,
     retryPolicy: options.retryPolicy,

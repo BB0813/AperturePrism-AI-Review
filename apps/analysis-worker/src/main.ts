@@ -445,6 +445,7 @@ async function main(): Promise<void> {
         `${context.repository.owner}/${context.repository.name}`,
       );
       const promptVersion = await resolveIssuePromptVersion();
+      const promptMode = await resolveIssuePromptMode();
       return analyzeIssue(
         {
           adapters,
@@ -454,6 +455,7 @@ async function main(): Promise<void> {
           signal,
           // exactOptionalPropertyTypes：undefined 不能显式赋给可选属性，条件展开。
           ...(promptVersion === undefined ? {} : { promptVersion }),
+          ...(promptMode === undefined ? {} : { promptMode }),
           ...(deep
             ? {
                 tools: {
@@ -1249,6 +1251,21 @@ async function resolveIssuePromptVersion(): Promise<string | undefined> {
     ]);
     const raw = settings.get("issue_prompt_version");
     return raw && raw.trim().length > 0 ? raw.trim() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 当前 Issue 分析的强度模式（adaptive / light / full）。读「分析设置 →
+ * Issue 提示词模式」；缺省或读取失败返回 undefined（默认 adaptive）。
+ */
+async function resolveIssuePromptMode(): Promise<"adaptive" | "light" | "full" | undefined> {
+  try {
+    const settings = await resolveIssueSettings(null, ["issue_prompt_mode"]);
+    const raw = settings.get("issue_prompt_mode");
+    if (raw === "light" || raw === "full" || raw === "adaptive") return raw;
+    return undefined;
   } catch {
     return undefined;
   }

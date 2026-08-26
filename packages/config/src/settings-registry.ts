@@ -225,6 +225,18 @@ export const SETTINGS_REGISTRY: readonly SettingSpec[] = [
     hint: "在线切换 Issue 分析的系统提示词版本；新版翻车时可改回历史版本回滚，无需重新部署",
     options: ["v4", "v5", "v6"],
   },
+  {
+    key: "issue_prompt_mode",
+    group: "issue",
+    kind: "enum",
+    secret: false,
+    repoScoped: false,
+    envVar: null,
+    hotReload: "poll",
+    label: "Issue 提示词模式",
+    hint: "自适应（feature 轻量、缺陷全量）/ 轻量（所有类型都轻量）/ 全量（所有类型深度分析、用足仓库上下文）",
+    options: ["adaptive", "light", "full"],
+  },
   // ── PR 审查 ──
   {
     key: "pr_check_run",
