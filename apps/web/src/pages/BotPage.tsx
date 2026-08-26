@@ -283,23 +283,23 @@ export function BotPage() {
                     {cfg?.qqOfficialConfigured ? "已配置凭据" : "未配置凭据"}
                   </span>
                 </span>
-                <span style={{ display: "flex", gap: 8 }}>
-                  <button
-                    className="btn btn-primary"
-                    disabled={botBusy || bot?.status === "running"}
-                    onClick={() => toggleBot("start")}
-                  >
-                    {botBusy ? "处理中…" : "启动机器人"}
-                  </button>
-                  <button
-                    className="btn"
-                    disabled={botBusy || bot?.status !== "running"}
-                    onClick={() => toggleBot("stop")}
-                  >
-                    {botBusy ? "处理中…" : "停止机器人"}
-                  </button>
-                </span>
               </div>
+            </div>
+            <div className="actions" style={{ marginTop: 14 }}>
+              <button
+                className="btn btn-primary"
+                disabled={botBusy || bot?.status === "running"}
+                onClick={() => toggleBot("start")}
+              >
+                {botBusy ? "处理中…" : "启动机器人"}
+              </button>
+              <button
+                className="btn"
+                disabled={botBusy || bot?.status !== "running"}
+                onClick={() => toggleBot("stop")}
+              >
+                {botBusy ? "处理中…" : "停止机器人"}
+              </button>
             </div>
             <p className="faint" style={{ marginTop: 12, fontSize: 12 }}>
               配置保存在数据库（覆盖环境变量）。启动/停止会操作 qq-bot 容器（compose --profile qq），
