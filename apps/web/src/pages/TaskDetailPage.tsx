@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactElement } from "react";
 import {
   fetchTaskCheckRun,
   fetchTaskDetail,
+  rerunTasks,
   type CheckRunStatus,
   type TaskDetail,
 } from "../lib/api";
@@ -15,6 +16,8 @@ import {
   XCircleIcon,
 } from "../components/icons";
 import { ErrorPanel, LoadingRows, StatusPill, TypeChip, fmtTime, timeAgo } from "../components/ui";
+import { explainError } from "../lib/errors";
+import { useToast } from "../components/Toast";
 
 const EVENT_META: Record<
   string,
@@ -41,6 +44,26 @@ export function TaskDetailPage({ id }: { id: string }) {
   const [loading, setLoading] = useState(true);
   const [checkRun, setCheckRun] = useState<CheckRunStatus | null>(null);
   const [checkRunDegraded, setCheckRunDegraded] = useState(false);
+  const [rerunning, setRerunning] = useState(false);
+  const toast = useToast();
+
+  /** 失败/已取消任务重新入队。 */
+  const rerun = async () => {
+    setRerunning(true);
+    try {
+      const result = await rerunTasks([id]);
+      toast.success(
+        result.skipped > 0
+          ? `重新入队 ${result.rerun} 个，跳过非终态 ${result.skipped} 个`
+          : `已重新入队 ${result.rerun} 个任务`,
+      );
+      await load();
+    } catch (err) {
+      toast.error(`重新入队失败：${err instanceof Error ? err.message : err}`);
+    } finally {
+      setRerunning(false);
+    }
+  };
 
   const load = useCallback(() => {
     setLoading(true);
@@ -130,6 +153,14 @@ export function TaskDetailPage({ id }: { id: string }) {
         <span className="muted">{timeAgo(detail.updatedAt)}</span>
       </div>
 
+      {detail.status === "failed" || detail.status === "canceled" ? (
+        <div className="actions" style={{ marginTop: 10 }}>
+          <button className="btn btn-primary" onClick={rerun} disabled={rerunning}>
+            {rerunning ? "入队中…" : "重新入队"}
+          </button>
+        </div>
+      ) : null}
+
       <div className="grid2">
         <section className="panel">
           <div className="panel-title"><h2>任务信息</h2></div>
@@ -141,7 +172,13 @@ export function TaskDetailPage({ id }: { id: string }) {
             <dt>尝试</dt><dd className="mono">{detail.attemptCount}/{detail.maxAttempts}</dd>
             {detail.lastErrorCategory ? (
               <>
-                <dt>最后错误</dt><dd><span className="pill pill-err">{detail.lastErrorCategory}</span></dd>
+                <dt>最后错误</dt>
+                <dd>
+                  <span className="pill pill-err">{detail.lastErrorCategory}</span>
+                  <div className="faint" style={{ fontSize: 12, marginTop: 4, lineHeight: 1.6, maxWidth: 420 }}>
+                    {explainError(detail.lastErrorCategory)}
+                  </div>
+                </dd>
               </>
             ) : null}
             <dt>创建时间</dt><dd className="mono muted">{fmtTime(detail.createdAt)}</dd>
@@ -296,7 +333,18 @@ export function TaskDetailPage({ id }: { id: string }) {
                     <td className="mono muted">
                       {compact(attempt.startedAt, attempt.finishedAt)}
                     </td>
-                    <td>{attempt.errorCategory ? <span className="pill pill-err">{attempt.errorCategory}</span> : <span className="faint">—</span>}</td>
+                    <td>{attempt.errorCategory ? (
+                      <div>
+                        <span className="pill pill-err">{attempt.errorCategory}</span>
+                        {explainError(attempt.errorCategory) !== attempt.errorCategory.trim() ? (
+                          <div className="faint" style={{ fontSize: 12, marginTop: 4, lineHeight: 1.6, maxWidth: 400 }}>
+                            {explainError(attempt.errorCategory)}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <span className="faint">—</span>
+                    )}</td>
                   </tr>
                 ))}
               </tbody>

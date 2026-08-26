@@ -421,6 +421,13 @@ function IssueBody({ norm }: { norm: NormResult }) {
   const actions = stringArr(r.suggestedActions);
   const evidence = arrOf(r.evidence);
   const suggestedTitle = str(r.suggestedTitle);
+  const probableCause = str(r.probableCause);
+  const troubleshooting = stringArr(r.troubleshooting);
+  const proposedChanges = arrOf(r.proposedChanges).map((p) => ({
+    path: str(p.path),
+    locator: str(p.locator),
+    change: str(p.change),
+  }));
 
   return (
     <>
@@ -437,6 +444,13 @@ function IssueBody({ norm }: { norm: NormResult }) {
         <div className="section">
           <h4>建议标题</h4>
           <p className="action-item">{suggestedTitle}</p>
+        </div>
+      ) : null}
+
+      {probableCause ? (
+        <div className="section">
+          <h4>根因分析</h4>
+          <p className="action-item">{probableCause}</p>
         </div>
       ) : null}
 
@@ -464,6 +478,17 @@ function IssueBody({ norm }: { norm: NormResult }) {
         </div>
       ) : null}
 
+      {troubleshooting.length > 0 ? (
+        <div className="section">
+          <h4>排查步骤</h4>
+          <ol className="missing-list" style={{ paddingLeft: 20 }}>
+            {troubleshooting.map((t, i) => (
+              <li key={i}>{t}</li>
+            ))}
+          </ol>
+        </div>
+      ) : null}
+
       {missing.length > 0 ? (
         <div className="section">
           <h4>缺失信息</h4>
@@ -483,6 +508,28 @@ function IssueBody({ norm }: { norm: NormResult }) {
               <span key={i} className="tag">{l}</span>
             ))}
           </div>
+        </div>
+      ) : null}
+
+      {proposedChanges.length > 0 ? (
+        <div className="section">
+          <h4>建议改动</h4>
+          <ul>
+            {proposedChanges.map((p, i) => (
+              <li key={i} className="action-item">
+                <code className="mono">
+                  {p.path}
+                  {p.locator ? `:${p.locator}` : ""}
+                </code>
+                <span> — {p.change}</span>
+              </li>
+            ))}
+          </ul>
+          {proposedChanges.every((p) => !p.locator) ? (
+            <p className="faint" style={{ fontSize: 12, marginTop: 6 }}>
+              提示：开启「分析设置 → Issue 深度分析（读取源码）」后，建议改动会精确到文件行号。
+            </p>
+          ) : null}
         </div>
       ) : null}
 
