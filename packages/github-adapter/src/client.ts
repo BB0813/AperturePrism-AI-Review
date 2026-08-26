@@ -695,7 +695,9 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
     },
 
     pingAppWebhook: async (signal) => {
-      await request<Record<string, unknown>>("/app/hook/pings", {
+      // GitHub 的 App 级测试投递端点是单数 ping：POST /app/hook/ping
+      // （复数 pings 会 404 —— 实测于 App 4486804）。
+      await request<Record<string, unknown>>("/app/hook/ping", {
         method: "POST",
         token: signAppJwt(options.appId, options.privateKeyPem, now()),
         ...(signal ? { signal } : {}),
