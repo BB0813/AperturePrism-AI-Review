@@ -1157,11 +1157,14 @@ async function applyConfiguredLabels(input: {
   owner: string;
   name: string;
   issueNumber: number;
-  analysis: { category: string; severity: string; priority: string; quality: string };
+  analysis: IssueAnalysisResult;
 }): Promise<void> {
   const rules = await listLabelRules(database.db);
-  if (rules.length === 0) return;
-  const labels = labelsForAnalysis(
+  // 标签来源 = 规则引擎匹配（category/severity/priority/quality）∪ 模型建议。
+  // 此前模型在评论里输出的「建议标签」从不落到 GitHub（issue #23 用户误解的根源）：
+  // 评论说了建议标签、Issue 上却没有。合并后言行一致；GitHub 会对不存在的
+  // 标签自动创建。
+  const ruleLabels = labelsForAnalysis(
     {
       category: input.analysis.category,
       severity: input.analysis.severity,
@@ -1170,9 +1173,18 @@ async function applyConfiguredLabels(input: {
     },
     rules,
   );
-  if (labels.length === 0) return;
+  const labels = [
+    ...new Set(
+      [...ruleLabels, ...input.analysis.suggestedLabels].map((label) =>
+        label.trim(),
+      ),
+    ),
+  ].filter((label) => label.length > 0);
+  // 契约上限：规则映射 + 模型建议各 ≤10；再兜底一层防爆量。
+  const capped = labels.slice(0, 15);
+  if (capped.length === 0) return;
   logger.info(
-    { owner: input.owner, name: input.name, issueNumber: input.issueNumber, labels },
+    { owner: input.owner, name: input.name, issueNumber: input.issueNumber, labels: capped },
     "applying configured labels",
   );
   await input.github.addIssueLabels({
@@ -1180,7 +1192,7 @@ async function applyConfiguredLabels(input: {
     owner: input.owner,
     name: input.name,
     number: input.issueNumber,
-    labels,
+    labels: capped,
   });
 }
 

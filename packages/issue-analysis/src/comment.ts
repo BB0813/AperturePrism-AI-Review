@@ -128,7 +128,12 @@ export function buildIssueAnalysisComment(
   }
 
   if (result.suggestedLabels.length > 0) {
-    lines.push("", `### 建议标签`, result.suggestedLabels.join(" "));
+    // 每个标签包行内代码（GitHub 渲染为灰底框），空格平铺时边界难辨（issue #23）。
+    lines.push(
+      "",
+      `### 建议标签`,
+      result.suggestedLabels.map((label) => `\`${label}\``).join(" "),
+    );
   }
 
   if (adjustments.length > 0) {

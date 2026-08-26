@@ -119,4 +119,15 @@ describe("issue comment templates", () => {
     expect(comment).not.toContain("建议修改");
     expect(comment).not.toContain("可以先试试");
   });
+
+  it("建议标签逐个包行内代码（灰框），不平铺（issue #23）", () => {
+    const graded = applyGradingRules({
+      ...result,
+      suggestedLabels: ["security", "review-bot", "context-awareness"],
+    });
+    const comment = buildIssueAnalysisComment(graded);
+
+    expect(comment).toContain("### 建议标签");
+    expect(comment).toContain("`security` `review-bot` `context-awareness`");
+  });
 });
