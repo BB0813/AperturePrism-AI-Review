@@ -452,7 +452,8 @@ async function main(): Promise<void> {
           deadlineMs: analysisDeadlineMs,
           retryPolicy: analysisRetryPolicy,
           signal,
-          promptVersion,
+          // exactOptionalPropertyTypes：undefined 不能显式赋给可选属性，条件展开。
+          ...(promptVersion === undefined ? {} : { promptVersion }),
           ...(deep
             ? {
                 tools: {

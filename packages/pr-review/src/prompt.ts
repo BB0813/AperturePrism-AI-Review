@@ -75,10 +75,11 @@ export const PR_REVIEW_PROMPT_VERSIONS: readonly string[] =
 
 /** 取指定版本的系统提示词；未知版本回落到当前版本。 */
 export function getPrReviewSystemPrompt(version?: string): string {
-  if (version && PR_REVIEW_SYSTEM_PROMPTS[version]) {
-    return PR_REVIEW_SYSTEM_PROMPTS[version];
+  if (version) {
+    const prompt = PR_REVIEW_SYSTEM_PROMPTS[version];
+    if (prompt) return prompt;
   }
-  return PR_REVIEW_SYSTEM_PROMPTS[PR_REVIEW_PROMPT_VERSION];
+  return PR_REVIEW_SYSTEM_PROMPTS[PR_REVIEW_PROMPT_VERSION] ?? systemPrompt;
 }
 
 function systemPromptFor(mode: ReviewMode, version?: string): string {

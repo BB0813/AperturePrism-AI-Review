@@ -89,10 +89,11 @@ export const ISSUE_PROMPT_VERSIONS: readonly string[] =
 
 /** 取指定版本的系统提示词；未知版本回落到当前版本。 */
 export function getIssueSystemPrompt(version?: string): string {
-  if (version && ISSUE_SYSTEM_PROMPTS[version]) {
-    return ISSUE_SYSTEM_PROMPTS[version];
+  if (version) {
+    const prompt = ISSUE_SYSTEM_PROMPTS[version];
+    if (prompt) return prompt;
   }
-  return ISSUE_SYSTEM_PROMPTS[ISSUE_ANALYSIS_PROMPT_VERSION];
+  return ISSUE_SYSTEM_PROMPTS[ISSUE_ANALYSIS_PROMPT_VERSION] ?? systemPrompt;
 }
 
 export function buildIssueAnalysisMessages(
