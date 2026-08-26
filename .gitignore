@@ -25,3 +25,5 @@ archive/
 # Credential notes kept on disk (never committed)
 *密钥留档*.txt
 *.secrets.txt
+
+ap_ssh.py
