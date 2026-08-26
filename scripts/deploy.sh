@@ -17,7 +17,8 @@ COMPOSE_FILES=(-f docker/docker-compose.prod.yml -f docker/images-mirror.yml -f 
 SERVICES=(web api scheduler scan-worker index-worker analysis-worker)
 
 compose() {
-  docker compose "${COMPOSE_FILES[@]}" --env-file "$ENV_FILE" "$@"
+  # 必须先 cd 到根目录：compose 相对路径（docker/...）与 --env-file 都以它为基准。
+  (cd "$DIR" && docker compose "${COMPOSE_FILES[@]}" --env-file "$(basename "$ENV_FILE")" "$@")
 }
 
 current_tag() {

@@ -3,6 +3,7 @@ import { useSse } from "./hooks/useSse";
 import { navigate, tabOf, useHashRoute } from "./hooks/useHash";
 import { useTheme } from "./hooks/useTheme";
 import { useToast } from "./components/Toast";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { eventsUrl, getToken, onUnauthorized, setToken } from "./lib/auth";
 import { fetchSetupStatus } from "./lib/api";
 import { Login } from "./pages/Login";
@@ -246,6 +247,10 @@ function AuthedConsole(props: { onLogout: () => void }) {
   else if (active === "/account") page = <AccountPage />;
   else if (active === "/users") page = <UsersPage />;
   else page = <AboutPage />;
+
+  // ErrorBoundary 按路由 key 重置：切页自动清除上一次的错误态，页面组件抛错
+  // 时只替换内容区，侧栏 / 登录态保持可用。
+  page = <ErrorBoundary key={active}>{page}</ErrorBoundary>;
 
   return (
     <div className="shell">

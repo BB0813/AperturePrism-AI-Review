@@ -14,6 +14,12 @@ import { serializeSseEvent } from "../../../packages/event-stream/src/index.js";
    No read:packages token required. */
 
 const REGISTRY_HOST = "ghcr.io";
+/**
+ * 镜像站 fallback（9.5）：ghcr.io 直连在中国大陆网络下经常超时（表现为更新面板
+ * 「最新版本：未知」）。NAS 生产环境实际通过 ghcr.nju.edu.cn 拉取，探测失败时
+ * 逐个尝试镜像站 —— 它们的 v2 API 与 ghcr.io 兼容且支持匿名 token。
+ */
+const REGISTRY_FALLBACK_HOSTS = ["ghcr.nju.edu.cn", "docker.1ms.run"] as const;
 const REGISTRY_BASE = "bb0813/apertureprism-ai-review";
 const UPDATE_SERVICES = [
   "api",
@@ -68,9 +74,9 @@ export function currentVersion(): string {
   return packageVersion();
 }
 
-async function registryToken(service: string): Promise<string> {
+async function registryToken(host: string, service: string): Promise<string> {
   const url =
-    `https://${REGISTRY_HOST}/token?service=${REGISTRY_HOST}` +
+    `https://${host}/token?service=${host}` +
     `&scope=repository:${REGISTRY_BASE}/${service}:pull`;
   const response = await fetch(url, {
     signal: AbortSignal.timeout(10_000),
@@ -80,9 +86,12 @@ async function registryToken(service: string): Promise<string> {
   return data.token ?? data.access_token ?? "";
 }
 
-async function registryTags(service: string): Promise<string[]> {
-  const token = await registryToken(service);
-  const url = `https://${REGISTRY_HOST}/v2/${REGISTRY_BASE}/${service}/tags/list`;
+async function registryTags(
+  host: string,
+  service: string,
+): Promise<string[]> {
+  const token = await registryToken(host, service);
+  const url = `https://${host}/v2/${REGISTRY_BASE}/${service}/tags/list`;
   const response = await fetch(url, {
     headers: {
       accept: "application/json",
@@ -96,9 +105,13 @@ async function registryTags(service: string): Promise<string[]> {
   return data.tags ?? [];
 }
 
-async function registryDigest(service: string, tag: string): Promise<string | null> {
-  const token = await registryToken(service);
-  const url = `https://${REGISTRY_HOST}/v2/${REGISTRY_BASE}/${service}/manifests/${encodeURIComponent(tag)}`;
+async function registryDigest(
+  host: string,
+  service: string,
+  tag: string,
+): Promise<string | null> {
+  const token = await registryToken(host, service);
+  const url = `https://${host}/v2/${REGISTRY_BASE}/${service}/manifests/${encodeURIComponent(tag)}`;
   const response = await fetch(url, {
     headers: {
       accept:
@@ -110,6 +123,22 @@ async function registryDigest(service: string, tag: string): Promise<string | nu
   });
   if (!response.ok) return null;
   return response.headers.get("docker-content-digest");
+}
+
+/**
+ * 探测第一个可达的 registry 主机：ghcr.io 直连优先（数据最新），超时/报错后
+ * 依次尝试镜像站。全部失败才抛错 —— 上层据此返回 registry_unreachable。
+ */
+async function reachableHost(): Promise<string> {
+  for (const host of [REGISTRY_HOST, ...REGISTRY_FALLBACK_HOSTS]) {
+    try {
+      await registryToken(host, UPDATE_SERVICES[0]);
+      return host;
+    } catch {
+      // 试下一个镜像站。
+    }
+  }
+  throw new Error("all registries unreachable");
 }
 
 function compareVersion(a: string, b: string): number {
@@ -124,11 +153,11 @@ function compareVersion(a: string, b: string): number {
 }
 
 /** Sorted distinct semver tags (vX.Y.Z) across the main services, newest first. */
-async function fetchLatestTags(): Promise<string[]> {
+async function fetchLatestTags(host: string): Promise<string[]> {
   const seen = new Set<string>();
   for (const service of UPDATE_SERVICES) {
     try {
-      for (const tag of await registryTags(service)) {
+      for (const tag of await registryTags(host, service)) {
         if (/^v?\d+\.\d+\.\d+$/.test(tag)) seen.add(tag);
       }
     } catch {
@@ -145,11 +174,13 @@ export async function handleUpdateStatus(
 ): Promise<void> {
   const current = currentVersion();
   try {
-    const tags = await fetchLatestTags();
+    // ghcr.io 直连超时时自动落到镜像站（9.5），而不是把「未知」甩给用户。
+    const host = await reachableHost();
+    const tags = await fetchLatestTags(host);
     const latestTag = tags[0];
-    const latestDigest = latestTag ? await registryDigest("web", latestTag) : null;
+    const latestDigest = latestTag ? await registryDigest(host, "web", latestTag) : null;
     const currentDigest =
-      current !== "unknown" ? await registryDigest("web", current) : null;
+      current !== "unknown" ? await registryDigest(host, "web", current) : null;
     json(
       response,
       200,
