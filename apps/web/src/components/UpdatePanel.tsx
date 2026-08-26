@@ -94,12 +94,16 @@ export function UpdatePanel() {
     setLogsOpen(false);
     autoReloaded.current = false;
     setUpdating(true);
+    // 是否已进入 SSE 流。只有流建立后才可能发生「更新导致的断连」（update.sh
+    // 重建 web/nginx 或 api 重启）；在此之前失败是真实错误，应原样报出。
+    let streamStarted = false;
     try {
       const body = await applyUpdate("latest", true);
       if (!body) {
         toast.success("已触发更新");
         return;
       }
+      streamStarted = true;
       const reader = body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -159,10 +163,11 @@ export function UpdatePanel() {
         toast.error(finalResult.message);
       }
     } catch (err) {
-      // API 容器重建时会中断 SSE 流（属预期）：此时更新仍在后台由独立
+      // API/nginx 容器重建时会中断 SSE 流（属预期）：此时更新仍在后台由独立
       // helper 容器继续执行，稍后自动刷新确认结果，而不是报“更新失败”。
-      if (updating) {
-        toast.info("更新连接已中断（API 正在重启）；将自动刷新页面确认结果");
+      // 用局部 streamStarted 判断（`updating` 是陈旧闭包，重渲染后才更新，不可靠）。
+      if (streamStarted) {
+        toast.info("更新连接已中断（服务正在重启）；将自动刷新页面确认结果");
         scheduleReload(8);
       } else {
         toast.error(err instanceof Error ? err.message : "更新失败");

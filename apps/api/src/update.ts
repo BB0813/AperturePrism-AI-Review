@@ -308,9 +308,12 @@ async function runUpdate(
   });
 
   response.on("close", () => {
+    // 客户端断开是更新流程中的预期事件：update.sh 中途会重建 web（nginx）容器，
+    // 经 nginx 的 SSE 连接随之断开；用户也可能中途关掉页面。绝不能在此 SIGKILL
+    // 更新脚本 —— 否则更新永远卡在「重建 web」那一步（历史里的 script_exit_null）。
+    // 让 update.sh 在后台继续跑完，状态由子进程 close 事件写回更新历史；
+    // updateRunning 由子进程 close 复位，避免并发更新。
     clearInterval(heartbeat);
-    if (child.exitCode === null) child.kill("SIGKILL");
-    updateRunning = false;
   });
 }
 
