@@ -280,7 +280,7 @@ export function BotPage() {
                     <span className="pill pill-dim">未知</span>
                   )}
                   <span className="faint" style={{ fontSize: 12, marginLeft: 8 }}>
-                    {bot?.configured ? "已配置凭据" : "未配置凭据"}
+                    {cfg?.qqOfficialConfigured ? "已配置凭据" : "未配置凭据"}
                   </span>
                 </span>
                 <span style={{ display: "flex", gap: 8 }}>

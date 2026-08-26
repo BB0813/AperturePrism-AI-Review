@@ -48,9 +48,9 @@ export async function handleBotStatus(
   requestId: string,
 ): Promise<void> {
   const { ok, output } = runBotctl("status");
+  // 凭据是否配置以 DB runtime settings 为准（qq-bot 启动时从 DB 覆盖 env）。
   json(response, ok ? 200 : 502, {
     status: ok ? (output || "unknown") : "unknown",
-    configured: Boolean(process.env.QQ_OFFICIAL_APP_ID),
     ok,
   }, requestId);
 }

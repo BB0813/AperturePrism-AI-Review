@@ -1411,7 +1411,6 @@ export async function fetchScanRuns(
 
 export type BotStatus = {
   status: "running" | "exited" | "absent" | "unknown";
-  configured: boolean;
   ok: boolean;
 };
 
