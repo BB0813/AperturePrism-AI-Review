@@ -168,13 +168,29 @@ export function validateIssueAnalysis(
   };
 }
 
+/**
+ * 从模型输出中容错提取 JSON。之前是严格 JSON.parse —— 模型一旦用 ```json
+ * 代码块包裹、带尾随解释文字，或输出被 maxOutputTokens 截断，就整个判 invalid。
+ * 现在依次尝试：纯 JSON → markdown 围栏 → 首个 `{` 到末个 `}`。
+ */
+function extractIssueAnalysisJson(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) return trimmed;
+  const fence = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence && fence[1]) return fence[1].trim();
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start !== -1 && end > start) return trimmed.slice(start, end + 1);
+  return trimmed;
+}
+
 /** Parses a JSON model response without letting syntax errors escape. */
 export function parseIssueAnalysisJson(
   text: string,
   options: GradingOptions = {},
 ): ContractValidation {
   try {
-    return validateIssueAnalysis(JSON.parse(text), options);
+    return validateIssueAnalysis(JSON.parse(extractIssueAnalysisJson(text)), options);
   } catch {
     return {
       outcome: "invalid",

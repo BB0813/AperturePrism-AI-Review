@@ -247,4 +247,16 @@ describe("contract validation", () => {
     const validation = parseIssueAnalysisJson(JSON.stringify(analysis()));
     expect(validation.outcome).toBe("valid");
   });
+
+  it("extracts JSON from a markdown-fenced response", () => {
+    const wrapped = "```json\n" + JSON.stringify(analysis()) + "\n```";
+    const validation = parseIssueAnalysisJson(wrapped);
+    expect(validation.outcome).toBe("valid");
+  });
+
+  it("extracts JSON surrounded by prose", () => {
+    const messy = `好的，分析如下：\n${JSON.stringify(analysis())}\n以上就是我的分析。`;
+    const validation = parseIssueAnalysisJson(messy);
+    expect(validation.outcome).toBe("valid");
+  });
 });

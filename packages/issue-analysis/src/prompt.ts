@@ -185,7 +185,7 @@ ${fenceUntrusted(invalidText)}
       },
     ],
     responseFormat: "json",
-    maxOutputTokens: 1_500,
+    maxOutputTokens: 2_500,
     temperature: 0.1,
   };
 }
@@ -198,7 +198,7 @@ export function buildIssueAnalysisRequest(
   return {
     messages: buildIssueAnalysisMessages(context, promptVersion, mode),
     responseFormat: "json",
-    maxOutputTokens: 1_500,
+    maxOutputTokens: 2_500,
     temperature: 0.2,
   };
 }
