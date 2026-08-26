@@ -402,7 +402,7 @@ export type SettingItem = {
   key: string;
   /** 后端注册表提供的元数据，前端不再自己维护一份文案。 */
   group: string;
-  kind: "boolean" | "string" | "secret" | "enum" | "number";
+  kind: "boolean" | "string" | "secret" | "enum" | "number" | "multicheck";
   label: string;
   hint: string;
   secret: boolean;
@@ -505,7 +505,7 @@ export type RepositorySettingItem = {
   /** 字段文案由后端注册表提供，前端不再维护第二份。 */
   label: string;
   hint: string;
-  kind: "boolean" | "string" | "secret" | "enum" | "number";
+  kind: "boolean" | "string" | "secret" | "enum" | "number" | "multicheck";
   secret: boolean;
   options?: string[];
   overridden: boolean;

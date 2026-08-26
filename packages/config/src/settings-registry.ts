@@ -11,7 +11,13 @@
  */
 
 /** 设置值的形态，驱动 WebUI 用什么控件渲染。 */
-export type SettingKind = "boolean" | "string" | "secret" | "enum" | "number";
+export type SettingKind =
+  | "boolean"
+  | "string"
+  | "secret"
+  | "enum"
+  | "number"
+  | "multicheck";
 
 /**
  * 热更新方式，如实告诉用户改完要不要重启。
@@ -42,7 +48,7 @@ export type SettingSpec = {
   hotReload: SettingHotReload;
   label: string;
   hint: string;
-  /** enum 的合法取值（仅 kind==="enum" 有意义）。 */
+  /** enum / multicheck 的合法取值（仅这两种 kind 有意义）。 */
   options?: readonly string[];
 };
 
@@ -236,6 +242,29 @@ export const SETTINGS_REGISTRY: readonly SettingSpec[] = [
     label: "Issue 提示词模式",
     hint: "自适应（feature 轻量、缺陷全量）/ 轻量（所有类型都轻量）/ 全量（所有类型深度分析、用足仓库上下文）",
     options: ["adaptive", "light", "full"],
+  },
+  {
+    key: "issue_result_sections",
+    group: "issue",
+    kind: "multicheck",
+    secret: false,
+    repoScoped: false,
+    envVar: null,
+    hotReload: "poll",
+    label: "Issue 结果区块",
+    hint: "勾选分析结果要展示的区块，未勾选的不输出（评论 / 结果页 / 标签都不出现）。默认关闭「缺失信息」「建议动作」——它们多数时候把责任推回报告者；需要时勾回即可",
+    // 取值与 issue-analysis 的 ISSUE_RESULT_SECTIONS 保持一致（逗号分隔多选）。
+    options: [
+      "summary",
+      "suggested_title",
+      "probable_cause",
+      "troubleshooting",
+      "evidence",
+      "missing_information",
+      "suggested_labels",
+      "proposed_changes",
+      "suggested_actions",
+    ],
   },
   // ── PR 审查 ──
   {
@@ -545,6 +574,18 @@ export function validateSettingValue(
   if (spec.kind === "enum") {
     if (!spec.options || !spec.options.includes(value))
       return `只能取以下值之一：${spec.options?.join(" / ") ?? ""}`;
+    return null;
+  }
+
+  if (spec.kind === "multicheck") {
+    // 逗号分隔的多选；空值由写入侧当作「回落默认」处理，不在这里拦。
+    if (value.trim().length === 0) return null;
+    const parts = value.split(",").map((s) => s.trim());
+    if (parts.length === 0) return null;
+    const valid = new Set(spec.options ?? []);
+    for (const part of parts) {
+      if (!valid.has(part)) return `未知区块：${part}`;
+    }
     return null;
   }
 

@@ -137,26 +137,98 @@ export const ISSUE_PROMPT_MODES: readonly PromptMode[] = [
   "full",
 ];
 
+/** Issue 结果可开关区块，与结果契约字段一一对应。 */
+export const ISSUE_RESULT_SECTIONS = [
+  "summary",
+  "suggested_title",
+  "probable_cause",
+  "troubleshooting",
+  "evidence",
+  "missing_information",
+  "suggested_labels",
+  "proposed_changes",
+  "suggested_actions",
+] as const;
+export type IssueResultSection = (typeof ISSUE_RESULT_SECTIONS)[number];
+
+/** 全开时的逗号分隔值。 */
+export const ALL_ISSUE_RESULT_SECTIONS = ISSUE_RESULT_SECTIONS.join(",");
+
+/**
+ * 缺省启用的结果区块：关闭「缺失信息」与「建议动作」，其余全开。
+ * 缺失信息 / 建议动作多数时候是把责任推回报告者，约束性也不够；需要时在
+ * 设置里重新勾选即可。
+ */
+export const DEFAULT_ISSUE_RESULT_SECTIONS: readonly IssueResultSection[] =
+  ISSUE_RESULT_SECTIONS.filter(
+    (section) =>
+      section !== "missing_information" && section !== "suggested_actions",
+  );
+
+/** 缺省区块的逗号分隔值（供设置项默认值与 WebUI 展示）。 */
+export const DEFAULT_ISSUE_RESULT_SECTIONS_VALUE =
+  DEFAULT_ISSUE_RESULT_SECTIONS.join(",");
+
+/**
+ * 解析设置值（逗号分隔）；缺省 / 为空 / 全非法时回落到默认启用的区块集合
+ * （见 DEFAULT_ISSUE_RESULT_SECTIONS，即默认关闭缺失信息与建议动作）。
+ */
+export function parseIssueResultSections(
+  raw: string | null | undefined,
+): Set<IssueResultSection> {
+  if (!raw) return new Set(DEFAULT_ISSUE_RESULT_SECTIONS);
+  const enabled = new Set<IssueResultSection>();
+  for (const part of raw.split(",")) {
+    const s = part.trim();
+    if ((ISSUE_RESULT_SECTIONS as readonly string[]).includes(s)) {
+      enabled.add(s as IssueResultSection);
+    }
+  }
+  if (enabled.size === 0) return new Set(DEFAULT_ISSUE_RESULT_SECTIONS);
+  return enabled;
+}
+
+/** 已关闭区块的 prompt 约束指令；全开时不追加。 */
+function sectionControlInstruction(
+  sections?: ReadonlySet<IssueResultSection>,
+): string {
+  if (!sections) return "";
+  const disabled = ISSUE_RESULT_SECTIONS.filter((s) => !sections.has(s));
+  if (disabled.length === 0) return "";
+  return `
+
+输出区块控制（必须遵守）：
+- 以下区块已关闭，一律不要输出：${disabled.join("、")}。
+- 关闭区块对应的字段输出空数组 / 省略，不要把内容挪到其他区块里，也不要额外补充类似信息。
+- summary 始终输出。`;
+}
+
 /** 取指定版本的系统提示词；未知版本回落到当前版本。mode 追加全局覆盖指令。 */
 export function getIssueSystemPrompt(
   version?: string,
   mode: PromptMode = "adaptive",
+  sections?: ReadonlySet<IssueResultSection>,
 ): string {
   const base =
     (version && ISSUE_SYSTEM_PROMPTS[version]) ||
     ISSUE_SYSTEM_PROMPTS[ISSUE_ANALYSIS_PROMPT_VERSION] ||
     SYSTEM_PROMPT_V6;
   const extra = MODE_INSTRUCTIONS[mode];
-  return extra ? `${base}\n\n${extra}` : base;
+  const withMode = extra ? `${base}\n\n${extra}` : base;
+  return withMode + sectionControlInstruction(sections);
 }
 
 export function buildIssueAnalysisMessages(
   context: IssueContext,
   promptVersion?: string,
   mode: PromptMode = "adaptive",
+  sections?: ReadonlySet<IssueResultSection>,
 ): readonly ModelMessage[] {
   return [
-    { role: "system", content: getIssueSystemPrompt(promptVersion, mode) },
+    {
+      role: "system",
+      content: getIssueSystemPrompt(promptVersion, mode, sections),
+    },
     { role: "user", content: renderIssueContext(context) },
   ];
 }
@@ -167,10 +239,14 @@ export function buildIssueAnalysisRepairRequest(
   issues: readonly string[],
   promptVersion?: string,
   mode: PromptMode = "adaptive",
+  sections?: ReadonlySet<IssueResultSection>,
 ): ModelInvocationRequest {
   return {
     messages: [
-      { role: "system", content: getIssueSystemPrompt(promptVersion, mode) },
+      {
+        role: "system",
+        content: getIssueSystemPrompt(promptVersion, mode, sections),
+      },
       {
         role: "user",
         content: `${renderIssueContext(context)}
@@ -194,9 +270,10 @@ export function buildIssueAnalysisRequest(
   context: IssueContext,
   promptVersion?: string,
   mode: PromptMode = "adaptive",
+  sections?: ReadonlySet<IssueResultSection>,
 ): ModelInvocationRequest {
   return {
-    messages: buildIssueAnalysisMessages(context, promptVersion, mode),
+    messages: buildIssueAnalysisMessages(context, promptVersion, mode, sections),
     responseFormat: "json",
     maxOutputTokens: 2_500,
     temperature: 0.2,

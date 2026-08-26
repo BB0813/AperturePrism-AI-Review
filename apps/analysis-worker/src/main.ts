@@ -49,12 +49,15 @@ import {
   detectSpamIssue,
   DEFAULT_MIN_CHANGE_RATIO,
   isIssueEditEvent,
+  ISSUE_RESULT_SECTIONS,
   issueCommentIdempotencyKey,
+  parseIssueResultSections,
   parseIssueTaskPayload,
   parseMinChangeRatio,
   publishIssueComment,
   repositoryOwnerName,
   type IssueContext,
+  type IssueResultSection,
   type PublicationStore,
 } from "../../../packages/issue-analysis/src/index.js";
 import {
@@ -446,6 +449,7 @@ async function main(): Promise<void> {
       );
       const promptVersion = await resolveIssuePromptVersion();
       const promptMode = await resolveIssuePromptMode();
+      const sections = await resolveIssueSections();
       return analyzeIssue(
         {
           adapters,
@@ -456,6 +460,7 @@ async function main(): Promise<void> {
           // exactOptionalPropertyTypes：undefined 不能显式赋给可选属性，条件展开。
           ...(promptVersion === undefined ? {} : { promptVersion }),
           ...(promptMode === undefined ? {} : { promptMode }),
+          ...(sections === undefined ? {} : { sections }),
           ...(deep
             ? {
                 tools: {
@@ -1266,6 +1271,27 @@ async function resolveIssuePromptMode(): Promise<"adaptive" | "light" | "full" |
     const raw = settings.get("issue_prompt_mode");
     if (raw === "light" || raw === "full" || raw === "adaptive") return raw;
     return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 当前 Issue 分析的结果区块开关（summary / probable_cause / missing_information / …）。
+ * 读「分析设置 → Issue 结果区块」；缺省 / 读取失败 / 全非法时回落到全开
+ * （parseIssueResultSections 内部处理），这里只在解析结果非全开时才显式传入。
+ */
+async function resolveIssueSections(): Promise<
+  ReadonlySet<IssueResultSection> | undefined
+> {
+  try {
+    const settings = await resolveIssueSettings(null, [
+      "issue_result_sections",
+    ]);
+    const parsed = parseIssueResultSections(
+      settings.get("issue_result_sections"),
+    );
+    return parsed.size === ISSUE_RESULT_SECTIONS.length ? undefined : parsed;
   } catch {
     return undefined;
   }

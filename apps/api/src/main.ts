@@ -103,6 +103,7 @@ import {
   WebhookSignatureError,
 } from "../../../packages/github-adapter/src/index.js";
 import {
+  DEFAULT_ISSUE_RESULT_SECTIONS_VALUE,
   DEFAULT_MIN_CHANGE_RATIO,
   ISSUE_ANALYSIS_POLICY_VERSION,
   repositoryOwnerName,
@@ -2990,6 +2991,7 @@ function settingDefaultValue(key: string): string {
     return String(DEFAULT_MIN_CHANGE_RATIO);
   if (key === "issue_prompt_version") return "v6";
   if (key === "issue_prompt_mode") return "adaptive";
+  if (key === "issue_result_sections") return DEFAULT_ISSUE_RESULT_SECTIONS_VALUE;
   if (key === "embedding_model") return config.embedding.model;
   if (key === "qq_official_intents") return String(config.qqOfficialIntents);
   if (key === "alert_queue_backlog_threshold")

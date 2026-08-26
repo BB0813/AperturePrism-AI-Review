@@ -1,6 +1,7 @@
 import {
   parseIssueAnalysisJson,
   type GradedIssueAnalysis,
+  type IssueAnalysisResult,
 } from "../../../packages/contracts/src/index.js";
 import type {
   ModelAttemptOutcome,
@@ -23,6 +24,7 @@ import {
   buildIssueAnalysisMessages,
   buildIssueAnalysisRepairRequest,
   buildIssueAnalysisRequest,
+  type IssueResultSection,
   type PromptMode,
 } from "./prompt.js";
 
@@ -45,6 +47,12 @@ export type IssueAnalyzerOptions = {
    * 改「分析设置 → Issue 提示词模式」可全局轻量或全量。
    */
   promptMode?: PromptMode;
+  /**
+   * 结果区块开关（summary / probable_cause / missing_information / …）。
+   * 缺省全开。关闭的区块：prompt 不要求输出，且校验后强制清空对应字段，
+   * 保证评论 / 结果页 / 标签都不再出现。
+   */
+  sections?: ReadonlySet<IssueResultSection>;
   /**
    * 开启后主分析先做一轮工具探索，让模型读取仓库源码再作答。不开启时模型只能
    * 看到 Issue 文本，无法给出定位到文件与位置的修复建议。默认关闭：探索会显著
@@ -88,6 +96,47 @@ function totalUsage(...usage: readonly ModelUsage[]): ModelUsage {
 }
 
 /**
+ * 结果区块后置过滤：关闭的区块在 prompt 里已不要求输出，但模型仍可能不守约，
+ * 这里对校验后的结果强制清空对应字段，保证评论 / 结果页 / 标签都不再出现。
+ * summary 始终保留（契约硬性要求）。缺省（sections 未传）不修改原结果。
+ */
+function applyResultSections(
+  graded: GradedIssueAnalysis,
+  sections?: ReadonlySet<IssueResultSection>,
+): GradedIssueAnalysis {
+  if (!sections) return graded;
+  const result = graded.result;
+
+  const next: IssueAnalysisResult = {
+    ...result,
+    troubleshooting: sections.has("troubleshooting")
+      ? result.troubleshooting
+      : [],
+    proposedChanges: sections.has("proposed_changes")
+      ? result.proposedChanges
+      : [],
+    evidence: sections.has("evidence") ? result.evidence : [],
+    missingInformation: sections.has("missing_information")
+      ? result.missingInformation
+      : [],
+    suggestedLabels: sections.has("suggested_labels")
+      ? result.suggestedLabels
+      : [],
+    suggestedActions: sections.has("suggested_actions")
+      ? result.suggestedActions
+      : [],
+    ...(sections.has("suggested_title") && result.suggestedTitle !== undefined
+      ? { suggestedTitle: result.suggestedTitle }
+      : {}),
+    ...(sections.has("probable_cause") && result.probableCause !== undefined
+      ? { probableCause: result.probableCause }
+      : {}),
+  };
+
+  return { ...graded, result: next };
+}
+
+/**
  * Runs the main analysis, validates the contract, and performs exactly one
  * bounded repair when the contract fails. A still-invalid result is reported
  * as `invalid` so the engine can retry the task; no automatic decision is
@@ -119,7 +168,12 @@ export async function analyzeIssue(
   // 供 attempt 记账，两者都无法从循环内部获得。代价是开启探索时多一次调用，
   // 这也是该能力默认关闭的原因之一。
   const main = await invokeOnce(
-    buildIssueAnalysisRequest(context, options.promptVersion, options.promptMode),
+    buildIssueAnalysisRequest(
+      context,
+      options.promptVersion,
+      options.promptMode,
+      options.sections,
+    ),
   );
   let mainContent = main.response.content;
   if (options.tools) {
@@ -129,6 +183,7 @@ export async function analyzeIssue(
         context,
         options.promptVersion,
         options.promptMode,
+        options.sections,
       ),
       options.tools.context,
       {
@@ -153,7 +208,7 @@ export async function analyzeIssue(
   if (validation.outcome === "valid") {
     return {
       outcome: "valid",
-      analysis: validation.analysis,
+      analysis: applyResultSections(validation.analysis, options.sections),
       usage: main.response.usage,
       candidate: main.candidate,
       attempts: main.attempts,
@@ -171,6 +226,7 @@ export async function analyzeIssue(
       validation.issues,
       options.promptVersion,
       options.promptMode,
+      options.sections,
     ),
     deadlineMs: remainingMs,
     retryPolicy: options.retryPolicy,
@@ -191,7 +247,7 @@ export async function analyzeIssue(
   if (repaired.outcome === "valid") {
     return {
       outcome: "valid",
-      analysis: repaired.analysis,
+      analysis: applyResultSections(repaired.analysis, options.sections),
       usage,
       candidate: repair.candidate,
       attempts,

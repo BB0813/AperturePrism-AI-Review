@@ -29,6 +29,103 @@ export function SourceBadge({ item }: { item: SettingItem }) {
   );
 }
 
+/** Issue 结果区块选项的中文展示名（options 本身是契约键，文案只在这里维护一份）。 */
+const RESULT_SECTION_LABELS: Record<string, string> = {
+  summary: "总结",
+  suggested_title: "建议标题",
+  probable_cause: "可能原因",
+  troubleshooting: "排查步骤",
+  evidence: "证据",
+  missing_information: "缺失信息",
+  suggested_labels: "建议标签",
+  proposed_changes: "建议改动",
+  suggested_actions: "建议动作",
+};
+
+/**
+ * multicheck（多选）设置项：Issue 结果区块的勾选组。
+ * 勾选即本地暂存，点「保存」才写库；summary 始终勾选且不可取消（契约硬性要求）。
+ */
+function MultiCheckField({
+  item,
+  save,
+  clear,
+  busy,
+  canRevert,
+}: {
+  item: SettingItem;
+  save: (key: string, value: string) => void;
+  clear: (key: string) => void;
+  busy: boolean;
+  canRevert: boolean;
+}) {
+  const options = item.options ?? [];
+  // 当前生效值是逗号分隔串；summary 必须在其中（保证至少一个可保存）。
+  const split = (value: string) => {
+    const list = value
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return list.includes("summary") ? list : ["summary", ...list];
+  };
+  const [checked, setChecked] = useState<string[]>(() => split(item.value));
+  useEffect(() => {
+    setChecked(split(item.value));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.value]);
+
+  const toggle = (option: string) => {
+    if (option === "summary") return;
+    setChecked((prev) =>
+      prev.includes(option)
+        ? prev.filter((o) => o !== option)
+        : [...prev, option],
+    );
+  };
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {options.map((option) => {
+          const on = checked.includes(option);
+          return (
+            <button
+              key={option}
+              type="button"
+              role="checkbox"
+              aria-checked={on}
+              disabled={busy || option === "summary"}
+              className="chip"
+              data-on={on ? "true" : "false"}
+              onClick={() => toggle(option)}
+              title={option === "summary" ? "总结始终输出，不可关闭" : undefined}
+            >
+              {RESULT_SECTION_LABELS[option] ?? option}
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ marginTop: 10, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <button
+          className="btn btn-primary"
+          onClick={() => save(item.key, checked.join(","))}
+          disabled={busy}
+        >
+          {busy ? "保存中…" : `保存（已启用 ${checked.length}/${options.length}）`}
+        </button>
+        {canRevert ? (
+          <button className="btn" style={{ fontSize: 12 }} disabled={busy} onClick={() => clear(item.key)}>
+            {item.envConfigured ? "回落环境变量" : "回落默认"}
+          </button>
+        ) : null}
+        <span className="faint" style={{ fontSize: 12 }}>
+          保存后对新分析的 Issue 生效
+        </span>
+      </div>
+    </div>
+  );
+}
+
 /**
  * 单个设置项的可编辑行：按 kind 渲染开关 / 下拉 / 文本框，保存即写数据库。
  * 从原系统配置页抽取，供各功能页复用，避免每个页面各写一份字段控件。
@@ -113,6 +210,14 @@ export function SettingField({
             </button>
           ) : null}
         </div>
+      ) : item.kind === "multicheck" ? (
+        <MultiCheckField
+          item={item}
+          save={save}
+          clear={clear}
+          busy={busy}
+          canRevert={canRevert}
+        />
       ) : (
         <div style={{ marginTop: 10, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <input

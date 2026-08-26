@@ -20,6 +20,9 @@ export function AnalysisSettingsPage() {
           "issue_rewrite_title",
           "issue_deep_analysis",
           "issue_reanalyze_min_change",
+          "issue_prompt_version",
+          "issue_prompt_mode",
+          "issue_result_sections",
         ]}
         title="Issue 分析"
         desc="多数项可按仓库单独覆盖；留空即跟随这里的全局默认"

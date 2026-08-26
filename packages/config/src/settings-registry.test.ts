@@ -36,9 +36,9 @@ describe("registry integrity", () => {
     }
   });
 
-  it("declares options for every enum and none for other kinds", () => {
+  it("declares options for every enum/multicheck and none for other kinds", () => {
     for (const spec of SETTINGS_REGISTRY) {
-      if (spec.kind === "enum") {
+      if (spec.kind === "enum" || spec.kind === "multicheck") {
         expect(spec.options?.length).toBeGreaterThan(0);
       } else {
         expect(spec.options).toBeUndefined();

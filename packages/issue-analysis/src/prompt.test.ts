@@ -3,10 +3,14 @@ import type { IssueContext } from "./context.js";
 import {
   buildIssueAnalysisMessages,
   buildIssueAnalysisRepairRequest,
+  DEFAULT_ISSUE_RESULT_SECTIONS,
+  DEFAULT_ISSUE_RESULT_SECTIONS_VALUE,
   fenceUntrusted,
   getIssueSystemPrompt,
   ISSUE_ANALYSIS_PROMPT_VERSION,
   ISSUE_PROMPT_VERSIONS,
+  ISSUE_RESULT_SECTIONS,
+  parseIssueResultSections,
 } from "./prompt.js";
 
 function context(overrides: Partial<IssueContext> = {}): IssueContext {
@@ -238,5 +242,65 @@ describe("提示词版本化与回滚", () => {
       (m) => m.role === "system",
     )?.content;
     expect(lightSystem).toContain("全局轻量模式");
+  });
+});
+
+describe("Issue 结果区块开关", () => {
+  it("默认启用的区块是「全开去掉缺失信息与建议动作」", () => {
+    expect(DEFAULT_ISSUE_RESULT_SECTIONS).not.toContain("missing_information");
+    expect(DEFAULT_ISSUE_RESULT_SECTIONS).not.toContain("suggested_actions");
+    expect(DEFAULT_ISSUE_RESULT_SECTIONS).toContain("summary");
+    expect(DEFAULT_ISSUE_RESULT_SECTIONS).toContain("proposed_changes");
+    // 默认值串与集合一致（供设置项展示 / 保存）。
+    expect(DEFAULT_ISSUE_RESULT_SECTIONS_VALUE).toBe(
+      DEFAULT_ISSUE_RESULT_SECTIONS.join(","),
+    );
+  });
+
+  it("缺省 / 空 / 全非法都回落到默认区块集合", () => {
+    expect([...parseIssueResultSections(undefined)].sort()).toEqual(
+      [...DEFAULT_ISSUE_RESULT_SECTIONS].sort(),
+    );
+    expect([...parseIssueResultSections("")].sort()).toEqual(
+      [...DEFAULT_ISSUE_RESULT_SECTIONS].sort(),
+    );
+    expect([...parseIssueResultSections("   ")].sort()).toEqual(
+      [...DEFAULT_ISSUE_RESULT_SECTIONS].sort(),
+    );
+    expect([...parseIssueResultSections("not_a_section,also_bad")].sort()).toEqual(
+      [...DEFAULT_ISSUE_RESULT_SECTIONS].sort(),
+    );
+  });
+
+  it("解析合法逗号分隔值，忽略非法项，全部勾回可达到全开", () => {
+    const parsed = parseIssueResultSections("summary,missing_information,bogus");
+    expect(parsed.has("summary")).toBe(true);
+    expect(parsed.has("missing_information")).toBe(true);
+    expect(parsed.has("bogus")).toBe(false);
+    const all = parseIssueResultSections(ISSUE_RESULT_SECTIONS.join(","));
+    expect(all.size).toBe(ISSUE_RESULT_SECTIONS.length);
+  });
+
+  it("有关闭区块时 system 提示词追加区块控制指令，全开时不追加", () => {
+    const disabled = parseIssueResultSections(undefined); // 默认关缺失信息/建议动作
+    const prompt = getIssueSystemPrompt("v6", "adaptive", disabled);
+    expect(prompt).toContain("输出区块控制");
+    expect(prompt).toContain("missing_information");
+    expect(prompt).toContain("suggested_actions");
+    expect(prompt).toContain("summary 始终输出");
+
+    const allOn = parseIssueResultSections(ISSUE_RESULT_SECTIONS.join(","));
+    expect(getIssueSystemPrompt("v6", "adaptive", allOn)).not.toContain(
+      "输出区块控制",
+    );
+  });
+
+  it("区块控制指令穿透到 system 消息", () => {
+    const disabled = parseIssueResultSections(undefined);
+    const system = buildIssueAnalysisMessages(context(), "v6", "adaptive", disabled).find(
+      (m) => m.role === "system",
+    )?.content;
+    expect(system).toContain("输出区块控制");
+    expect(system).toContain("missing_information");
   });
 });

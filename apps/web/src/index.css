@@ -640,6 +640,11 @@ select.input {
 .chip-type { color: var(--accent-2); border-color: var(--info-bd); background: var(--info-bg); }
 .chip-type-index { color: var(--violet); border-color: var(--vio-bd); background: var(--vio-bg); }
 
+/* multicheck setting chips（如 Issue 结果区块勾选组）：选中态 + 禁用态 */
+.chip[data-on="true"] { color: var(--accent-2); border-color: var(--info-bd); background: var(--info-bg); }
+.chip[data-on="false"] { color: var(--muted); background: var(--panel-2); border-color: var(--border-2); }
+.chip:disabled { opacity: 0.6; cursor: not-allowed; }
+
 .pill {
   display: inline-flex; align-items: center; gap: 6px;
   font-size: 11.5px; font-weight: 600;

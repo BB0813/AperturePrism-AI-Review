@@ -177,3 +177,90 @@ describe("issue analysis orchestration", () => {
     expect(outcome.candidate).toEqual(fallback);
   });
 });
+
+describe("结果区块后置过滤", () => {
+  const richIssueJson = JSON.stringify({
+    contractVersion: "issue-analysis/v1",
+    category: "bug",
+    summary: "crash",
+    severity: "S0",
+    priority: "P0",
+    quality: "complete",
+    suggestedTitle: "Crash on startup",
+    probableCause: "missing config",
+    troubleshooting: ["create a default config file"],
+    proposedChanges: [{ path: "src/main.ts", change: "add default config" }],
+    evidence: [{ kind: "reproduction_steps", excerpt: "rm config; start" }],
+    missingInformation: ["OS version", "runtime version"],
+    suggestedLabels: ["bug"],
+    suggestedActions: ["reproduce on a clean checkout"],
+    confidence: { severity: 0.9, rootCause: 0.8, suggestion: 0.7 },
+  });
+
+  it("缺省不传 sections 时保留全部字段", async () => {
+    const { adapter } = scriptedAdapter("provider-a", [richIssueJson]);
+    const outcome = await analyzeIssue(
+      options([adapter], [candidate]),
+      context,
+    );
+    expect(outcome.outcome).toBe("valid");
+    if (outcome.outcome !== "valid") return;
+    expect(outcome.analysis.result.missingInformation).toEqual([
+      "OS version",
+      "runtime version",
+    ]);
+    expect(outcome.analysis.result.suggestedActions).toEqual([
+      "reproduce on a clean checkout",
+    ]);
+  });
+
+  it("关闭的区块在校验后被强制清空，其余区块保留", async () => {
+    const { adapter } = scriptedAdapter("provider-a", [richIssueJson]);
+    // 模拟默认设置：关闭 missing_information 与 suggested_actions。
+    const sections = new Set([
+      "summary",
+      "suggested_title",
+      "probable_cause",
+      "troubleshooting",
+      "evidence",
+      "suggested_labels",
+      "proposed_changes",
+    ]);
+    const outcome = await analyzeIssue(
+      { ...options([adapter], [candidate]), sections },
+      context,
+    );
+    expect(outcome.outcome).toBe("valid");
+    if (outcome.outcome !== "valid") return;
+    expect(outcome.analysis.result.missingInformation).toEqual([]);
+    expect(outcome.analysis.result.suggestedActions).toEqual([]);
+    // 保留的区块不受影响。
+    expect(outcome.analysis.result.probableCause).toBe("missing config");
+    expect(outcome.analysis.result.proposedChanges).toEqual([
+      { path: "src/main.ts", change: "add default config" },
+    ]);
+    expect(outcome.analysis.result.evidence).toHaveLength(1);
+    expect(outcome.analysis.result.summary).toBe("crash");
+  });
+
+  it("关闭建议标题 / 可能原因等可选字段时整个字段被移除", async () => {
+    const { adapter } = scriptedAdapter("provider-a", [richIssueJson]);
+    const sections = new Set([
+      "summary",
+      "troubleshooting",
+      "evidence",
+      "missing_information",
+      "suggested_labels",
+      "proposed_changes",
+      "suggested_actions",
+    ]);
+    const outcome = await analyzeIssue(
+      { ...options([adapter], [candidate]), sections },
+      context,
+    );
+    expect(outcome.outcome).toBe("valid");
+    if (outcome.outcome !== "valid") return;
+    expect(outcome.analysis.result.suggestedTitle).toBeUndefined();
+    expect(outcome.analysis.result.probableCause).toBeUndefined();
+  });
+});
