@@ -695,13 +695,11 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
     },
 
     pingAppWebhook: async (signal) => {
-      // GitHub 的 App 级测试投递端点是单数 ping：POST /app/hook/ping
-      // （复数 pings 会 404 —— 实测于 App 4486804）。
-      await request<Record<string, unknown>>("/app/hook/ping", {
-        method: "POST",
-        token: signAppJwt(options.appId, options.privateKeyPem, now()),
-        ...(signal ? { signal } : {}),
-      });
+      // 说明：GitHub 的 App 级 webhook 没有可程序化触发的 ping 端点
+      // （POST /app/hook/ping 与 /pings 均 404，实测于 App 4486804；仓库级
+      // /repos/*/hooks/{id}/pings 对 App token 返回 403）。自检流程因此不
+      // 触发新投递，而是回查最近投递记录判断链路健康度。
+      await Promise.resolve(signal);
     },
 
     listRecentWebhookDeliveries: async (signal) => {

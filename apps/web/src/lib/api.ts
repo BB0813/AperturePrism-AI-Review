@@ -1482,16 +1482,18 @@ export async function stopBot(): Promise<BotActionResult> {
   return botAction("stop");
 }
 
-/** Webhook 自检结果：GitHub 侧配置 + ping 投递实测 + 中文诊断。 */
+/** Webhook 自检结果：GitHub 侧配置 + 最近投递统计 + 中文诊断。 */
 export type WebhookSelfTestResult = {
   status: string;
   webhookUrl: string;
   urlLooksRight: boolean;
   active: boolean;
   contentType: string;
-  pingDelivered: boolean;
-  pingStatusCode: number | null;
-  pingDeliveredAt: string | null;
+  recentDeliveries: {
+    event: string;
+    statusCode: number | null;
+    deliveredAt: string;
+  }[];
   diagnosis: string;
 };
 

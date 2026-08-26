@@ -218,25 +218,36 @@ export function GitHubAccessPage() {
               </p>
             ) : null}
             {selfTestResult ? (
-              <div
-                className="result-card"
-                style={{
-                  marginTop: 12,
-                  borderColor: selfTestResult.pingDelivered && selfTestResult.urlLooksRight ? "var(--ok-bd)" : "var(--warn-bd)",
-                }}
-              >
-                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                  <span className={`pill ${selfTestResult.pingDelivered && selfTestResult.urlLooksRight ? "pill-ok" : "pill-warn"}`}>
-                    {selfTestResult.pingDelivered && selfTestResult.urlLooksRight ? "链路正常" : "发现问题"}
-                  </span>
-                  <span className="faint mono" style={{ fontSize: 12 }}>
-                    GitHub 侧 URL：{selfTestResult.webhookUrl || "（未配置）"}
-                  </span>
-                </div>
-                <p style={{ margin: "8px 0 0", fontSize: 12.5, lineHeight: 1.7 }}>
-                  {selfTestResult.diagnosis}
-                </p>
-              </div>
+              (() => {
+                const healthy =
+                  selfTestResult.urlLooksRight &&
+                  selfTestResult.active &&
+                  selfTestResult.recentDeliveries.length > 0 &&
+                  selfTestResult.recentDeliveries.every(
+                    (d) => d.statusCode !== null && d.statusCode < 400,
+                  );
+                return (
+                  <div
+                    className="result-card"
+                    style={{
+                      marginTop: 12,
+                      borderColor: healthy ? "var(--ok-bd)" : "var(--warn-bd)",
+                    }}
+                  >
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <span className={`pill ${healthy ? "pill-ok" : "pill-warn"}`}>
+                        {healthy ? "链路正常" : "需检查"}
+                      </span>
+                      <span className="faint mono" style={{ fontSize: 12 }}>
+                        GitHub 侧 URL：{selfTestResult.webhookUrl || "（未配置）"}
+                      </span>
+                    </div>
+                    <p style={{ margin: "8px 0 0", fontSize: 12.5, lineHeight: 1.7 }}>
+                      {selfTestResult.diagnosis}
+                    </p>
+                  </div>
+                );
+              })()
             ) : null}
           </section>
 

@@ -697,8 +697,9 @@ async function handleIssueCommentCommand(
 
 /**
  * Webhook 自检（issue #22/#23 排查经验的沉淀）：GitHub 侧路径配错、签名不一致、
- * 入口不通，这三类故障此前只能靠人肉对比配置 + 手工 curl。此端点三步闭环：
- * 读 GitHub 侧实际配置 → 触发 ping 投递 → 回查最近投递状态码。
+ * 入口不通，这三类故障此前只能靠人肉对比配置 + 手工 curl。GitHub 不提供可程序化
+ * 触发的 App 级 ping（/app/hook/ping|pings 均 404），自检改为两步：读 GitHub 侧
+ * 实际配置 + 统计最近投递的成功率，据此给出中文诊断。
  */
 async function handleWebhookSelfTest(
   request: IncomingMessage,
@@ -715,39 +716,37 @@ async function handleWebhookSelfTest(
     );
     return;
   }
-  const expectedPath = "/github/webhook";
   try {
     // 第一步：GitHub 侧实际配置（URL 错误是最常见根因）。
     const hookConfig = await github.getWebhookConfig();
-    // 第二步：触发 ping 投递（GitHub 受理即 204；到不到本服务另说）。
-    await github.pingAppWebhook();
-    // 等投递落账后回查最近记录（GitHub deliveries 有秒级延迟，轮询三次）。
-    let latest: Awaited<
-      ReturnType<typeof github.listRecentWebhookDeliveries>
-    >[number] | null = null;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 2_500));
-      const deliveries = await github.listRecentWebhookDeliveries();
-      latest = deliveries.find((entry) => entry.event === "ping") ?? null;
-      if (latest) break;
-    }
+    // 第二步：最近投递记录（新→旧）的成功率。
+    const deliveries = await github.listRecentWebhookDeliveries();
+    const recent = deliveries.slice(0, 5);
+    const okCount = recent.filter(
+      (entry) => entry.statusCode !== null && entry.statusCode < 400,
+    ).length;
+    const latest = recent[0] ?? null;
 
-    const urlLooksRight = hookConfig.url.endsWith(expectedPath);
-    const delivered =
-      latest !== null &&
-      latest.statusCode !== null &&
-      latest.statusCode >= 200 &&
-      latest.statusCode < 300;
-    const diagnosis = !urlLooksRight
-      ? `webhook URL 应以 ${expectedPath} 结尾，当前为「${hookConfig.url || "（空）"}」——这是投递失败最常见的原因`
-      : !delivered
-        ? "ping 已受理但未在投递记录中看到结果：检查入口连通性（域名/隧道是否指向本服务）"
-        : `链路正常：ping 投递返回 ${latest?.statusCode}`;
+    const urlLooksRight = hookConfig.url.endsWith("/github/webhook");
+    let diagnosis: string;
+    if (!hookConfig.active) {
+      diagnosis = "webhook 在 GitHub 侧处于停用状态，请到 GitHub App 设置页启用";
+    } else if (!urlLooksRight) {
+      diagnosis = `webhook URL 应以 /github/webhook 结尾，当前为「${hookConfig.url || "（空）"}」——这是投递失败最常见的原因，请在 GitHub App 设置页修正`;
+    } else if (recent.length === 0) {
+      diagnosis =
+        "配置正确但还没有任何投递记录：新建或编辑一个 Issue 即会产生事件，几秒后再点一次自检";
+    } else if (okCount === recent.length) {
+      diagnosis = `链路正常：最近 ${recent.length} 次投递全部成功（最新 ${latest?.event} → ${latest?.statusCode}）`;
+    } else {
+      const lastFail = recent.find((entry) => entry.statusCode !== null && entry.statusCode >= 400);
+      diagnosis = `最近 ${recent.length} 次投递中 ${recent.length - okCount} 次失败（如 ${lastFail?.event} → ${lastFail?.statusCode}）：签名不一致通常表现为非 2xx，请核对 Webhook 签名密钥与 env 是否一致`;
+    }
 
     audit(request, "webhook.selftest", hookConfig.url, {
       urlLooksRight,
-      delivered,
-      statusCode: latest?.statusCode ?? null,
+      okCount,
+      total: recent.length,
     });
     json(
       response,
@@ -758,9 +757,11 @@ async function handleWebhookSelfTest(
         urlLooksRight,
         active: hookConfig.active,
         contentType: hookConfig.contentType,
-        pingDelivered: delivered,
-        pingStatusCode: latest?.statusCode ?? null,
-        pingDeliveredAt: latest?.deliveredAt ?? null,
+        recentDeliveries: recent.map((entry) => ({
+          event: entry.event,
+          statusCode: entry.statusCode,
+          deliveredAt: entry.deliveredAt,
+        })),
         diagnosis,
       },
       requestId,
