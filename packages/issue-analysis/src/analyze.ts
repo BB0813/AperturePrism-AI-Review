@@ -106,9 +106,11 @@ function applyResultSections(
 ): GradedIssueAnalysis {
   if (!sections) return graded;
   const result = graded.result;
+  // 先剔除可选字段：条件展开只能「加」不能「删」，留着会在 ...result 时被原样带回。
+  const { suggestedTitle: _title, probableCause: _cause, ...rest } = result;
 
   const next: IssueAnalysisResult = {
-    ...result,
+    ...rest,
     troubleshooting: sections.has("troubleshooting")
       ? result.troubleshooting
       : [],
