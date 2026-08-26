@@ -2988,7 +2988,7 @@ function settingDefaultValue(key: string): string {
   if (key === "log_level") return config.logLevel;
   if (key === "issue_reanalyze_min_change")
     return String(DEFAULT_MIN_CHANGE_RATIO);
-  if (key === "issue_prompt_version") return "v5";
+  if (key === "issue_prompt_version") return "v6";
   if (key === "embedding_model") return config.embedding.model;
   if (key === "qq_official_intents") return String(config.qqOfficialIntents);
   if (key === "alert_queue_backlog_threshold")

@@ -35,7 +35,7 @@ export type IssueAnalyzerOptions = {
   now?: () => number;
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   /**
-   * Issue 系统提示词版本（如 "v5"）。缺省用当前版本；改「分析设置 → Issue 提示词
+   * Issue 系统提示词版本（如 "v6"）。缺省用当前版本；改「分析设置 → Issue 提示词
    * 版本」可在线回退到历史版本，无需重新部署。
    */
   promptVersion?: string;

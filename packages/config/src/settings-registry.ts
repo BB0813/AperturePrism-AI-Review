@@ -223,7 +223,7 @@ export const SETTINGS_REGISTRY: readonly SettingSpec[] = [
     hotReload: "poll",
     label: "Issue 提示词版本",
     hint: "在线切换 Issue 分析的系统提示词版本；新版翻车时可改回历史版本回滚，无需重新部署",
-    options: ["v4", "v5"],
+    options: ["v4", "v5", "v6"],
   },
   // ── PR 审查 ──
   {

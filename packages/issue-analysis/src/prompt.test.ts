@@ -213,4 +213,14 @@ describe("提示词版本化与回滚", () => {
     )?.content;
     expect(systemV4).not.toContain("低信息量也要先给方向");
   });
+
+  it("v6 包含分类差异化：功能请求轻量直达实现、缺陷类保持信息量", () => {
+    const v6 = getIssueSystemPrompt("v6");
+    const v5 = getIssueSystemPrompt("v5");
+    expect(v6).toContain("分类差异化");
+    expect(v6).toContain("feature（功能请求）—— 轻量直达实现");
+    expect(v6).toContain("缺陷类 —— 保持信息量要求");
+    expect(v5).not.toContain("分类差异化");
+    expect(v6).not.toBe(v5);
+  });
 });
