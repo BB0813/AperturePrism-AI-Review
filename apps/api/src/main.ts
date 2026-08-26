@@ -2899,12 +2899,30 @@ async function githubAppSlug(): Promise<string | null> {
   }
 }
 
+/**
+ * GitHub App 是否「真的可用」：凭据可以是环境变量，也可以是在 WebUI 保存到
+ * system_settings 的那一份（DB 优先）。此前 /config 只看环境变量，用户在界面上
+ * 配好 App、同步也能跑，页面却显示「未配置」，导致「安装 / 授权仓库」引导区被
+ * 隐藏 —— 这正是用户安装后看不到该区块的原因。
+ */
+async function githubAppConfiguredFlag(): Promise<boolean> {
+  try {
+    return (await loadGithubAppCredentials()) !== null;
+  } catch (error) {
+    logger.warn({ err: error }, "github app configured check failed");
+    return false;
+  }
+}
+
 async function handleConfig(
   response: ServerResponse,
   requestId: string,
 ): Promise<void> {
   const modelProviders = Object.keys(config.modelProviderBaseUrls);
-  const appSlug = await githubAppSlug();
+  const [appSlug, appConfigured] = await Promise.all([
+    githubAppSlug(),
+    githubAppConfiguredFlag(),
+  ]);
   json(
     response,
     200,
@@ -2913,9 +2931,7 @@ async function handleConfig(
       port: config.port,
       logLevel: config.logLevel,
       githubWebhookConfigured: Boolean(config.githubWebhookSecret),
-      githubAppConfigured: Boolean(
-        config.githubAppId && config.githubAppPrivateKeyPath,
-      ),
+      githubAppConfigured: appConfigured,
       githubAppSlug: appSlug,
       webuiAuthEnabled: Boolean(config.webuiApiToken),
       modelProviders,
@@ -3772,6 +3788,7 @@ async function handleSetupStatus(
   const providerKey = Object.keys(config.modelProviderBaseUrls)[0] ?? "";
   const initialized =
     dbOk && tablesReady === 6 && policyCount >= DEFAULT_POLICIES.length;
+  const appConfigured = await githubAppConfiguredFlag();
   json(
     response,
     200,
@@ -3784,9 +3801,7 @@ async function handleSetupStatus(
       },
       policies: { count: policyCount, required: DEFAULT_POLICIES.length },
       githubWebhookConfigured: Boolean(config.githubWebhookSecret),
-      githubAppConfigured: Boolean(
-        config.githubAppId && config.githubAppPrivateKeyPath,
-      ),
+      githubAppConfigured: appConfigured,
       oauthConfigured: oauthConfigured(),
       embeddingConfigured: Boolean(
         embeddingConfig().baseUrl && embeddingConfig().apiKey,
