@@ -35,7 +35,7 @@ COPY --from=docker:cli /usr/local/libexec/docker/cli-plugins/docker-compose /usr
 # curl 供 update.sh 做健康检查与 nginx 层探测（alpine 默认不含）。
 RUN apk add --no-cache curl
 COPY scripts ./scripts
-RUN chmod +x scripts/update.sh
+RUN chmod +x scripts/update.sh scripts/botctl.sh
 COPY docker/docker-compose.prod.yml ./docker/docker-compose.prod.yml
 COPY docker/compose.verify.yml ./docker/compose.verify.yml
 COPY docker/docker-compose.dev.yml ./docker/docker-compose.dev.yml

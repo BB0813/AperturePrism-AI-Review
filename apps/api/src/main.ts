@@ -80,6 +80,11 @@ import {
   handleUpdateStatus,
 } from "./update.js";
 import {
+  handleBotStart,
+  handleBotStatus,
+  handleBotStop,
+} from "./botctl.js";
+import {
   createGitHubClient,
   GitHubApiError,
   normalizeGitHubEvent,
@@ -437,6 +442,7 @@ const protectedPaths = [
   "/memory",
   "/update",
   "/scans",
+  "/bot",
 ];
 const EVENT_CHANNEL = "apertureprism:task:events";
 
@@ -4712,6 +4718,56 @@ async function handleRequest(
       database.db,
       (detail) => audit(request, "update.apply", undefined, detail),
     );
+    return;
+  }
+
+  if (path === "/bot/status") {
+    if (request.method !== "GET") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    if (!(await isAdminRequest(request))) {
+      json(
+        response,
+        403,
+        { status: "error", reason: "admin required" },
+        requestId,
+      );
+      return;
+    }
+    await handleBotStatus(response, requestId);
+    return;
+  }
+
+  if (path === "/bot/start" || path === "/bot/stop") {
+    if (request.method !== "POST") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    if (!(await isAdminRequest(request))) {
+      json(
+        response,
+        403,
+        { status: "error", reason: "admin required" },
+        requestId,
+      );
+      return;
+    }
+    if (path === "/bot/start") {
+      await handleBotStart(response, requestId);
+    } else {
+      await handleBotStop(response, requestId);
+    }
     return;
   }
 

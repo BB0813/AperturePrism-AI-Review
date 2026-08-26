@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   bumpCache,
+  fetchBotStatus,
   fetchConfig,
   fetchSettings,
   saveSetting,
+  startBot,
+  stopBot,
+  type BotStatus,
   type RuntimeConfig,
 } from "../lib/api";
 import {
@@ -90,12 +94,14 @@ export function BotPage() {
   const [secretConfigured, setSecretConfigured] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [bot, setBot] = useState<BotStatus | null>(null);
+  const [botBusy, setBotBusy] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
-    Promise.all([fetchConfig(), fetchSettings()])
-      .then(([c, s]) => {
+    Promise.all([fetchConfig(), fetchSettings(), fetchBotStatus()])
+      .then(([c, s, b]) => {
         setCfg(c);
         const map = new Map(s.items.map((it) => [it.key, it.value]));
         const secretHasValue = Boolean(map.get("qq_official_app_secret"));
@@ -108,6 +114,7 @@ export function BotPage() {
         setProtocols(parseProtocols(map.get("qq_bot_protocols")));
         // 记录是否有已设置的密钥，用于提示「留空保留」
         setSecretConfigured(secretHasValue);
+        setBot(b);
       })
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : "failed to load bot config");
@@ -116,6 +123,37 @@ export function BotPage() {
   }, []);
 
   useEffect(() => load(), [load]);
+
+  // qq-bot 容器启动 / 停止（管理员）。
+  const toggleBot = async (action: "start" | "stop") => {
+    setBotBusy(true);
+    try {
+      if (action === "start") {
+        await startBot();
+        toast.success("qq-bot 已启动，正在连接官方网关…");
+      } else {
+        await stopBot();
+        toast.success("qq-bot 已停止");
+      }
+      bumpCache();
+      const fresh = await fetchBotStatus();
+      setBot(fresh);
+    } catch (err) {
+      toast.error(`操作失败：${err instanceof Error ? err.message : err}`);
+    } finally {
+      setBotBusy(false);
+    }
+  };
+
+  // 每 15s 自动刷新容器状态（启停后状态变化可自动更新）。
+  useEffect(() => {
+    const timer = setInterval(() => {
+      fetchBotStatus()
+        .then(setBot)
+        .catch(() => undefined);
+    }, 15_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const saveOfficial = async () => {
     setSaving("official");
@@ -227,9 +265,45 @@ export function BotPage() {
                   )}
                 </span>
               </div>
+              <div className="dist-row">
+                <span className="dist-label">qq-bot 容器</span>
+                <span>
+                  {bot ? (
+                    bot.status === "running" ? (
+                      <span className="pill pill-ok"><CheckCircleIcon size={12} /> 运行中</span>
+                    ) : bot.status === "absent" ? (
+                      <span className="pill pill-dim"><XCircleIcon size={12} /> 未创建</span>
+                    ) : (
+                      <span className="pill pill-warn"><XCircleIcon size={12} /> 已停止（{bot.status}）</span>
+                    )
+                  ) : (
+                    <span className="pill pill-dim">未知</span>
+                  )}
+                  <span className="faint" style={{ fontSize: 12, marginLeft: 8 }}>
+                    {bot?.configured ? "已配置凭据" : "未配置凭据"}
+                  </span>
+                </span>
+                <span style={{ display: "flex", gap: 8 }}>
+                  <button
+                    className="btn btn-primary"
+                    disabled={botBusy || bot?.status === "running"}
+                    onClick={() => toggleBot("start")}
+                  >
+                    {botBusy ? "处理中…" : "启动机器人"}
+                  </button>
+                  <button
+                    className="btn"
+                    disabled={botBusy || bot?.status !== "running"}
+                    onClick={() => toggleBot("stop")}
+                  >
+                    {botBusy ? "处理中…" : "停止机器人"}
+                  </button>
+                </span>
+              </div>
             </div>
             <p className="faint" style={{ marginTop: 12, fontSize: 12 }}>
-              配置保存在数据库（覆盖环境变量），保存后需重启 qq-bot 容器生效：<code className="mono">docker restart docker-qq-bot-1</code>
+              配置保存在数据库（覆盖环境变量）。启动/停止会操作 qq-bot 容器（compose --profile qq），
+              配置变更后建议「停止 → 启动」一次以加载最新配置。
             </p>
           </section>
 
