@@ -184,6 +184,41 @@ export function GitHubAccessPage() {
             </div>
           </section>
 
+          {!cfg?.githubWebhookConfigured ? (
+            <section
+              className="panel"
+              style={{ borderColor: "var(--warn-bd)", background: "var(--warn-bg)" }}
+            >
+              <div className="panel-title">
+                <h2 style={{ color: "var(--warn)" }}>⚠ Webhook 未配置</h2>
+              </div>
+              <div className="stack" style={{ gap: 8, fontSize: 13 }}>
+                <p style={{ margin: 0 }}>
+                  未配置 Webhook 时，GitHub 的新 Issue / PR{" "}
+                  <strong>不会实时通知本系统</strong>，只能依赖定期扫描与手动触发，存在以下风险：
+                </p>
+                <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.7 }}>
+                  <li>
+                    新 Issue / PR 可能很久才被分析：定期扫描默认<strong>每个仓库每 24 小时</strong>才跑一次。
+                  </li>
+                  <li>
+                    已经分析过且内容未变化的 Issue / PR{" "}
+                    <strong>不会被重新分析</strong>（按更新时间去重）；改了 Prompt 版本 / 模式后想刷新
+                    旧分析，只能手动触发。
+                  </li>
+                  <li>
+                    Issue / PR 的编辑、关闭、评论等实时事件全部丢失，bot 也无法响应仓库评论命令。
+                  </li>
+                </ul>
+                <p style={{ margin: 0 }}>
+                  建议在下方「Webhook 事件入口」配置。若使用 GitHub App，请在 GitHub App 设置页面
+                  （<code className="mono">Settings → Developer settings → GitHub Apps → 你的 App → Webhooks</code>）
+                  填入 Webhook URL 与 Secret —— App 级 Webhook 覆盖所有已安装仓库，无需逐个仓库配置。
+                </p>
+              </div>
+            </section>
+          ) : null}
+
           <GithubAppForm
             configured={Boolean(cfg?.githubAppConfigured)}
             onSaved={load}
@@ -247,7 +282,7 @@ export function GitHubAccessPage() {
           <SettingsSection
             keys={["github_webhook_enabled", "github_webhook_secret"]}
             title="Webhook 事件入口"
-            desc="在 GitHub 仓库 Settings → Webhooks 指向下方地址；Secret 粘贴到仓库的 Secret 字段"
+            desc="GitHub App 请在其 App 设置里配置 Webhook URL 与 Secret（覆盖所有已安装仓库）；仓库级 Webhook 需逐个仓库指向下方地址。未配置时新 Issue / PR 不会实时触发分析，只能依赖定期扫描（默认每仓库每 24h）与手动触发。"
             onSaved={load}
           />
         </div>
