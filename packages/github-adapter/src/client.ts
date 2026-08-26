@@ -109,6 +109,32 @@ export type GitHubClient = {
   getAppMetadata: (
     signal?: AbortSignal,
   ) => Promise<{ id: number; slug: string; name: string }>;
+  /**
+   * 读取 App 级 webhook 配置（GET /app/hook/config，App JWT 认证）。
+   * Webhook 自检第一步：先让用户看到 GitHub 侧实际配的 URL 是什么。
+   */
+  getWebhookConfig: (signal?: AbortSignal) => Promise<{
+    url: string;
+    active: boolean;
+    contentType: string;
+  }>;
+  /**
+   * 触发 App webhook 测试投递（POST /app/hook/pings，App JWT 认证）。GitHub
+   * 会向配置的 URL 投递一个 ping 事件；204 表示 GitHub 已受理投递，实际到不到
+   * 本服务还要看签名与入口连通性 —— 由随后查询最近投递结果来闭环。
+   */
+  pingAppWebhook: (signal?: AbortSignal) => Promise<void>;
+  /** Webhook 最近投递概要（GET /app/hook/deliveries，App JWT 认证），新→旧。 */
+  listRecentWebhookDeliveries: (
+    signal?: AbortSignal,
+  ) => Promise<
+    readonly {
+      id: string;
+      event: string;
+      statusCode: number | null;
+      deliveredAt: string;
+    }[]
+  >;
   getIssue: (
     input: {
       installationId: string;
@@ -646,6 +672,56 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
         slug: typeof app.slug === "string" ? app.slug : "",
         name: typeof app.name === "string" ? app.name : "",
       };
+    },
+
+    getWebhookConfig: async (signal) => {
+      const hook = await request<{
+        active?: unknown;
+        config?: { url?: unknown; content_type?: unknown };
+      }>("/app/hook/config", {
+        method: "GET",
+        token: signAppJwt(options.appId, options.privateKeyPem, now()),
+        ...(signal ? { signal } : {}),
+      });
+      return {
+        url:
+          typeof hook.config?.url === "string" ? hook.config.url : "",
+        active: hook.active === true,
+        contentType:
+          typeof hook.config?.content_type === "string"
+            ? hook.config.content_type
+            : "",
+      };
+    },
+
+    pingAppWebhook: async (signal) => {
+      await request<Record<string, unknown>>("/app/hook/pings", {
+        method: "POST",
+        token: signAppJwt(options.appId, options.privateKeyPem, now()),
+        ...(signal ? { signal } : {}),
+      });
+    },
+
+    listRecentWebhookDeliveries: async (signal) => {
+      const deliveries = await request<
+        {
+          id?: unknown;
+          event?: unknown;
+          status_code?: unknown;
+          delivered_at?: unknown;
+        }[]
+      >("/app/hook/deliveries?per_page=10", {
+        method: "GET",
+        token: signAppJwt(options.appId, options.privateKeyPem, now()),
+        ...(signal ? { signal } : {}),
+      });
+      return deliveries.map((entry) => ({
+        id: typeof entry.id === "string" || typeof entry.id === "number" ? String(entry.id) : "",
+        event: typeof entry.event === "string" ? entry.event : "unknown",
+        statusCode: typeof entry.status_code === "number" ? entry.status_code : null,
+        deliveredAt:
+          typeof entry.delivered_at === "string" ? entry.delivered_at : "",
+      }));
     },
 
     getIssue: async ({ installationId, owner, name, number }, signal) => {

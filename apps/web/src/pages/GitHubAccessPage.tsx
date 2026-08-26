@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import {
   bumpCache,
   fetchConfig,
+  runWebhookSelfTest,
   saveGithubApp,
   type RuntimeConfig,
+  type WebhookSelfTestResult,
 } from "../lib/api";
 import { GearIcon, RefreshIcon } from "../components/icons";
 import { ErrorPanel, LoadingRows } from "../components/ui";
@@ -119,6 +121,11 @@ export function GitHubAccessPage() {
   const [cfg, setCfg] = useState<RuntimeConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Webhook 自检（v1.0.64）：路径配错 / 签名不一致 / 入口不通一次闭环验证。
+  const [selfTesting, setSelfTesting] = useState(false);
+  const [selfTestResult, setSelfTestResult] =
+    useState<WebhookSelfTestResult | null>(null);
+  const [selfTestError, setSelfTestError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -130,6 +137,20 @@ export function GitHubAccessPage() {
   }, []);
 
   useEffect(() => load(), [load]);
+
+  const runSelfTest = useCallback(async () => {
+    setSelfTesting(true);
+    setSelfTestError(null);
+    setSelfTestResult(null);
+    try {
+      const result = await runWebhookSelfTest();
+      setSelfTestResult(result);
+    } catch (err: unknown) {
+      setSelfTestError(explainUnknown(err));
+    } finally {
+      setSelfTesting(false);
+    }
+  }, []);
 
   return (
     <div className="stack">
@@ -180,8 +201,43 @@ export function GitHubAccessPage() {
                 <span className="faint" style={{ fontSize: 12 }}>
                   {window.location.origin}/github/webhook
                 </span>
+                <button
+                  className="btn"
+                  onClick={() => void runSelfTest()}
+                  disabled={selfTesting || !cfg?.githubAppConfigured}
+                  title={!cfg?.githubAppConfigured ? "先配置 GitHub App 才能自检" : "向 GitHub 发送测试投递并回查结果"}
+                >
+                  {selfTesting ? "自检中（约 10 秒）…" : "发送测试投递"}
+                </button>
               </StatusItem>
             </div>
+
+            {selfTestError ? (
+              <p className="faint" style={{ margin: "10px 0 0", fontSize: 12, color: "var(--err)" }}>
+                自检失败：{selfTestError}
+              </p>
+            ) : null}
+            {selfTestResult ? (
+              <div
+                className="result-card"
+                style={{
+                  marginTop: 12,
+                  borderColor: selfTestResult.pingDelivered && selfTestResult.urlLooksRight ? "var(--ok-bd)" : "var(--warn-bd)",
+                }}
+              >
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <span className={`pill ${selfTestResult.pingDelivered && selfTestResult.urlLooksRight ? "pill-ok" : "pill-warn"}`}>
+                    {selfTestResult.pingDelivered && selfTestResult.urlLooksRight ? "链路正常" : "发现问题"}
+                  </span>
+                  <span className="faint mono" style={{ fontSize: 12 }}>
+                    GitHub 侧 URL：{selfTestResult.webhookUrl || "（未配置）"}
+                  </span>
+                </div>
+                <p style={{ margin: "8px 0 0", fontSize: 12.5, lineHeight: 1.7 }}>
+                  {selfTestResult.diagnosis}
+                </p>
+              </div>
+            ) : null}
           </section>
 
           {!cfg?.githubWebhookConfigured ? (

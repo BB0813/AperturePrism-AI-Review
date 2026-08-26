@@ -1481,3 +1481,42 @@ export async function startBot(): Promise<BotActionResult> {
 export async function stopBot(): Promise<BotActionResult> {
   return botAction("stop");
 }
+
+/** Webhook 自检结果：GitHub 侧配置 + ping 投递实测 + 中文诊断。 */
+export type WebhookSelfTestResult = {
+  status: string;
+  webhookUrl: string;
+  urlLooksRight: boolean;
+  active: boolean;
+  contentType: string;
+  pingDelivered: boolean;
+  pingStatusCode: number | null;
+  pingDeliveredAt: string | null;
+  diagnosis: string;
+};
+
+/**
+ * POST /webhook-selftest — 触发 App webhook 测试投递并回查结果（管理员）。
+ * 路径配错 / 签名不一致 / 入口不通三类故障在这里一次闭环。
+ */
+export async function runWebhookSelfTest(): Promise<WebhookSelfTestResult> {
+  const response = await fetch("/webhook-selftest", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...authHeaders() },
+  });
+  const text = await response.text();
+  let parsed: (Partial<WebhookSelfTestResult> & { reason?: string; detail?: string }) = {};
+  try {
+    parsed = text ? JSON.parse(text) : {};
+  } catch {
+    // keep default
+  }
+  if (response.status === 401) {
+    notifyUnauthorized();
+    throw new Error("unauthorized");
+  }
+  if (!response.ok) {
+    throw new Error(parsed.detail || parsed.reason || `selftest ${response.status}`);
+  }
+  return parsed as WebhookSelfTestResult;
+}

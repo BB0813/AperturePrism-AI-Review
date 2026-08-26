@@ -483,6 +483,8 @@ const protectedPaths = [
   "/update",
   "/scans",
   "/bot",
+  // 独立自检路径（不能写成 /github/webhook —— 那是 GitHub 公开投递入口）。
+  "/webhook-selftest",
 ];
 const EVENT_CHANNEL = "apertureprism:task:events";
 
@@ -690,6 +692,91 @@ async function handleIssueCommentCommand(
     logger.warn({ err: error }, "command review trigger failed");
     void postComment("触发 PR 审查失败：无法读取该 PR 的最新提交。");
     return { kind: "error", reason: "pr_fetch_failed" };
+  }
+}
+
+/**
+ * Webhook 自检（issue #22/#23 排查经验的沉淀）：GitHub 侧路径配错、签名不一致、
+ * 入口不通，这三类故障此前只能靠人肉对比配置 + 手工 curl。此端点三步闭环：
+ * 读 GitHub 侧实际配置 → 触发 ping 投递 → 回查最近投递状态码。
+ */
+async function handleWebhookSelfTest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const github = await githubClientPromise;
+  if (!github) {
+    json(
+      response,
+      503,
+      { status: "error", reason: "github_app_not_configured" },
+      requestId,
+    );
+    return;
+  }
+  const expectedPath = "/github/webhook";
+  try {
+    // 第一步：GitHub 侧实际配置（URL 错误是最常见根因）。
+    const hookConfig = await github.getWebhookConfig();
+    // 第二步：触发 ping 投递（GitHub 受理即 204；到不到本服务另说）。
+    await github.pingAppWebhook();
+    // 等投递落账后回查最近记录（GitHub deliveries 有秒级延迟，轮询三次）。
+    let latest: Awaited<
+      ReturnType<typeof github.listRecentWebhookDeliveries>
+    >[number] | null = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2_500));
+      const deliveries = await github.listRecentWebhookDeliveries();
+      latest = deliveries.find((entry) => entry.event === "ping") ?? null;
+      if (latest) break;
+    }
+
+    const urlLooksRight = hookConfig.url.endsWith(expectedPath);
+    const delivered =
+      latest !== null &&
+      latest.statusCode !== null &&
+      latest.statusCode >= 200 &&
+      latest.statusCode < 300;
+    const diagnosis = !urlLooksRight
+      ? `webhook URL 应以 ${expectedPath} 结尾，当前为「${hookConfig.url || "（空）"}」——这是投递失败最常见的原因`
+      : !delivered
+        ? "ping 已受理但未在投递记录中看到结果：检查入口连通性（域名/隧道是否指向本服务）"
+        : `链路正常：ping 投递返回 ${latest?.statusCode}`;
+
+    audit(request, "webhook.selftest", hookConfig.url, {
+      urlLooksRight,
+      delivered,
+      statusCode: latest?.statusCode ?? null,
+    });
+    json(
+      response,
+      200,
+      {
+        status: "ok",
+        webhookUrl: hookConfig.url,
+        urlLooksRight,
+        active: hookConfig.active,
+        contentType: hookConfig.contentType,
+        pingDelivered: delivered,
+        pingStatusCode: latest?.statusCode ?? null,
+        pingDeliveredAt: latest?.deliveredAt ?? null,
+        diagnosis,
+      },
+      requestId,
+    );
+  } catch (error) {
+    logger.warn({ err: error }, "webhook self-test failed");
+    json(
+      response,
+      502,
+      {
+        status: "error",
+        reason: "selftest_failed",
+        detail: error instanceof Error ? error.message : String(error),
+      },
+      requestId,
+    );
   }
 }
 
@@ -4863,6 +4950,20 @@ async function handleRequest(
       return;
     }
     await setupHandler(request, response, requestId);
+    return;
+  }
+
+  if (path === "/webhook-selftest" && request.method === "POST") {
+    if (!(await isAdminRequest(request))) {
+      json(
+        response,
+        403,
+        { status: "error", reason: "admin required" },
+        requestId,
+      );
+      return;
+    }
+    await handleWebhookSelfTest(request, response, requestId);
     return;
   }
 
