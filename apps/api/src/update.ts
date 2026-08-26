@@ -214,6 +214,7 @@ async function runUpdate(
     response.write(serializeSseEvent({ seq, type: "log", data: { level, message } }));
   };
   const done = (ok: boolean, reason: string | undefined): void => {
+    clearInterval(heartbeat);
     response.write(
       serializeSseEvent({
         seq: seq + 1,
@@ -234,6 +235,14 @@ async function runUpdate(
     "x-request-id": requestId,
   });
   response.write(": update stream\n\n");
+
+  // 更新可能长时间静默（compose pull 的进度条用 `\r` 原地刷新、不产生换行，
+  // api 按 `\n` 切分后攒在缓冲区）。nginx 的 proxy_read_timeout 一旦超过静默
+  // 期就掐断连接，浏览器报 "network error"。每 30s 写一个 SSE 注释字节保持
+  // 连接存活；EventSource/手动 reader 都会忽略注释行。
+  const heartbeat = setInterval(() => {
+    response.write(": keepalive\n\n");
+  }, 30_000);
 
   const args = [
     "--target", target,
@@ -299,6 +308,7 @@ async function runUpdate(
   });
 
   response.on("close", () => {
+    clearInterval(heartbeat);
     if (child.exitCode === null) child.kill("SIGKILL");
     updateRunning = false;
   });
