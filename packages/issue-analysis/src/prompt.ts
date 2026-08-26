@@ -12,7 +12,7 @@ import type { IssueContext } from "./context.js";
 export { fenceUntrusted, UNTRUSTED_CLOSE, UNTRUSTED_OPEN };
 
 /** Bump when the prompt semantics change so the idempotency key changes too. */
-export const ISSUE_ANALYSIS_PROMPT_VERSION = "v7" as const;
+export const ISSUE_ANALYSIS_PROMPT_VERSION = "v8" as const;
 /** Policy version embedded in task dedupe keys; must include the prompt version. */
 export const ISSUE_ANALYSIS_POLICY_VERSION =
   `issue-analysis-${ISSUE_ANALYSIS_PROMPT_VERSION}` as const;
@@ -83,7 +83,7 @@ const SYSTEM_PROMPT_V6 = `${SYSTEM_PROMPT_V5}
 - **bug / security / performance 等缺陷类 —— 保持信息量要求**：上方对缺陷的规则继续适用 —— 优先索取版本、复现步骤、截图/录屏、报错原文、相关日志；missingInformation 详尽列出能推进定位的缺失项；关键信息缺失时该判 incomplete 就判 incomplete。`;
 
 /**
- * v7（当前）：在 v6 基础上增强「已执行操作」约束 —— 分析必须通读正文与全部评论，
+ * v7：在 v6 基础上增强「已执行操作」约束 —— 分析必须通读正文与全部评论，
  * 识别报告者已尝试/已执行的操作，建议不得重复这些已执行动作（#19）。
  */
 const SYSTEM_PROMPT_V7 = `${SYSTEM_PROMPT_V6}
@@ -95,6 +95,23 @@ const SYSTEM_PROMPT_V7 = `${SYSTEM_PROMPT_V6}
 - 这一条优先于上方所有「先给方向」的规则：重复建议已执行操作比信息不足更伤害信任。`;
 
 /**
+ * v8（当前）：优先级评级校准（#24）——修正此前评级系统性偏低的问题：
+ * 缺陷类基线 P2、功能请求基线 P2，不再动辄 P3/needs_triage；已修复/已存在/
+ * 宣传类才降 P3。服务端的证据降级护栏保持不变。
+ */
+const SYSTEM_PROMPT_V8 = `${SYSTEM_PROMPT_V7}
+
+优先级评级校准（补充规则，必须遵守；与上方冲突时以此为准）：
+- **缺陷类（bug / security / performance）基线 P2**：一个确认存在的真实缺陷，即使证据不足 P1，也应当给 P2，不要因为描述简短就压到 P3 或 needs_triage。带复现步骤、日志、堆栈或影响核心功能的给 P1 及以上（P0 仅限灾难性）；无法判断是否仍复现、或属于提问性质的，才用 needs_triage。
+- **功能请求基线 P2**：具备合理价值与可行性的新能力请求默认 P2，不要默认压到 low；方向尚不明确、依赖条件很多的意向性提案，或琐碎小改动，可给 P3。
+- **以下情形降为 P3 并在摘要说明依据**：
+  - 描述的问题在代码中已修复，或请求的功能已经存在（尽可能指出对应位置）；
+  - 内容属于宣传、广告或与本仓库无关的内容；
+  - 纯粹的意见征询且不影响现有使用。
+- severity 与 priority 相互独立：severity 仍按实际影响面评，不要为了拉高 priority 而虚报 severity。
+- 本条校准不改变服务端护栏：没有实质证据时，模型给出的 P0/P1 仍会被服务端降级——所以缺证据的缺陷请直接标 P2 而不是去猜高优先级。`;
+
+/**
  * 按版本登记的系统提示词。`ISSUE_ANALYSIS_PROMPT_VERSION` 指向当前版本；历史版本
  * 保留在此以便线上回滚（改「分析设置 → Issue 提示词版本」即可切回，无需重新部署）。
  *
@@ -102,8 +119,10 @@ const SYSTEM_PROMPT_V7 = `${SYSTEM_PROMPT_V6}
  * 快照登记进本表，再写新版本正文 —— 这样新版本翻车时可一键回退。
  */
 const ISSUE_SYSTEM_PROMPTS: Readonly<Record<string, string>> = {
-  // v7（当前）：在 v6 基础上增强「已执行操作」约束（#19）。
-  [ISSUE_ANALYSIS_PROMPT_VERSION]: SYSTEM_PROMPT_V7,
+  // v8（当前）：优先级评级校准 —— bug/feature 基线 P2，不再动辄 low（#24）。
+  [ISSUE_ANALYSIS_PROMPT_VERSION]: SYSTEM_PROMPT_V8,
+  // v7：增强「已执行操作」约束（#19）。
+  v7: SYSTEM_PROMPT_V7,
   // v6：分类差异化 —— 功能请求轻量直达实现，缺陷类保持信息量。
   v6: SYSTEM_PROMPT_V6,
   // v5：功能缺陷信息不完整时先给方向、再要信息（#16）。

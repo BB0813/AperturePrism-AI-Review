@@ -253,6 +253,19 @@ describe("提示词版本化与回滚", () => {
     expect(v6).not.toContain("已执行操作约束");
     expect(v7).not.toBe(v6);
   });
+
+  it("v8 追加优先级评级校准：缺陷/功能基线 P2，已存在与宣传降 P3（#24）", () => {
+    const v8 = getIssueSystemPrompt("v8");
+    const v7 = getIssueSystemPrompt("v7");
+    expect(v8).toContain("已执行操作约束"); // 继承 v7
+    expect(v8).toContain("优先级评级校准");
+    expect(v8).toContain("缺陷类（bug / security / performance）基线 P2");
+    expect(v8).toContain("功能请求基线 P2");
+    expect(v8).toContain("降为 P3 并在摘要说明依据");
+    // 校准不虚高：服务端证据护栏的提醒必须在场。
+    expect(v8).toContain("仍会被服务端降级");
+    expect(v7).not.toContain("优先级评级校准");
+  });
 });
 
 describe("Issue 结果区块开关", () => {
