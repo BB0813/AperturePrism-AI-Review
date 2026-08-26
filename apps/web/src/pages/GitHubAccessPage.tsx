@@ -160,6 +160,16 @@ export function GitHubAccessPage() {
               <StatusItem label="GitHub App">
                 <BoolBadge ok={Boolean(cfg?.githubAppConfigured)} yes="已配置" no="未配置" />
                 <span className="faint" style={{ fontSize: 12 }}>仓库访问 / 同步 / 分析</span>
+                {cfg?.githubAppConfigured && cfg.githubAppSlug ? (
+                  <a
+                    className="btn"
+                    href={`https://github.com/apps/${cfg.githubAppSlug}/installations/new`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    安装 GitHub Apps ↗
+                  </a>
+                ) : null}
               </StatusItem>
               <StatusItem label="GitHub OAuth">
                 <BoolBadge ok={Boolean(cfg?.oauthConfigured)} yes="已配置" no="未配置" />
@@ -200,7 +210,7 @@ export function GitHubAccessPage() {
                       target="_blank"
                       rel="noreferrer"
                     >
-                      安装到账号并选择仓库 ↗
+                      安装 GitHub Apps 并选择仓库 ↗
                     </a>
                   </span>
                 </div>
