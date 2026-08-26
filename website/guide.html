@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>部署与配置教程 — AperturePrism</title>
+  <meta name="description" content="AperturePrism 完整部署与配置教程：一键安装、环境变量、GitHub App 与 OAuth、模型路由与嵌入模型、WebUI 初始化、能力开关、QQ 机器人、备份恢复、在线更新与常见问题。" />
+  <meta property="og:title" content="部署与配置教程 — AperturePrism" />
+  <link rel="preload" href="assets/fonts/cabinet-800.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="assets/fonts/geist.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="assets/fonts/geist-mono.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="assets/style.css?v=2" />
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到正文</a>
+
+  <header class="nav" id="nav">
+    <div class="container nav__inner">
+      <a class="brand" href="index.html" aria-label="AperturePrism 首页">
+        <img class="brand__mark" src="assets/logo.png" alt="AperturePrism" />
+      </a>
+      <nav class="nav__links" aria-label="主导航">
+        <a href="index.html">官网</a>
+        <a href="index.html#capabilities">核心能力</a>
+        <a href="index.html#architecture">系统架构</a>
+        <a href="index.html#console">控制台</a>
+        <a href="#overview" class="active">配置教程</a>
+      </nav>
+      <div class="nav__actions">
+        <a class="btn btn--ghost" href="https://github.com/BB0813/AperturePrism-AI-Review" target="_blank" rel="noreferrer">GitHub</a>
+        <a class="btn btn--primary" href="index.html#quickstart">开始部署</a>
+        <button class="nav__toggle" id="navToggle" aria-label="打开菜单" aria-expanded="false">
+          <span></span><span></span><span></span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div class="drawer" id="drawer" aria-hidden="true">
+    <nav class="drawer__links" aria-label="移动端导航">
+      <a href="index.html">官网</a>
+      <a href="index.html#capabilities">核心能力</a>
+      <a href="index.html#architecture">系统架构</a>
+      <a href="index.html#console">控制台</a>
+      <a href="#overview">配置教程</a>
+      <a href="https://github.com/BB0813/AperturePrism-AI-Review" target="_blank" rel="noreferrer">GitHub ↗</a>
+    </nav>
+  </div>
+
+  <main id="main">
+    <div class="guide-hero">
+      <div class="container">
+        <p class="hero__eyebrow mono">GUIDE · 部署与配置</p>
+        <h1 class="guide-hero__title">一套能跑通、能排障的配置教程</h1>
+        <p class="guide-hero__sub">从零部署 AperturePrism，接通 GitHub、模型与外围能力。步骤均来自项目文档与真实运维经验，可对照操作。</p>
+      </div>
+    </div>
+
+    <div class="container guide">
+      <!-- 侧栏目录 -->
+      <aside class="guide__toc" id="toc">
+        <div class="toc__inner">
+          <p class="toc__label mono">目录</p>
+          <a href="#overview">概览 · 系统怎么搭</a>
+          <a href="#install">一、选择安装方式</a>
+          <a href="#env">二、准备环境文件</a>
+          <a href="#github">三、接入 GitHub</a>
+          <a href="#models">四、配置模型</a>
+          <a href="#webui">五、WebUI 初始化</a>
+          <a href="#features">六、能力开关</a>
+          <a href="#qq">七、QQ 机器人</a>
+          <a href="#backup">八、迁移 / 备份 / 恢复</a>
+          <a href="#update">九、在线更新</a>
+          <a href="#override">十、受限环境 override</a>
+          <a href="#faq">常见问题</a>
+        </div>
+      </aside>
+
+      <!-- 正文 -->
+      <article class="guide__body">
+        <section id="overview" class="gsec reveal">
+          <h2>概览 · 这套系统怎么搭</h2>
+          <p>AperturePrism 由 <code>api</code> + 若干 worker + <code>web</code> 组成，底层依赖 PostgreSQL（含 pgvector）与 Redis。简单说需要准备四类东西：</p>
+          <ol>
+            <li><strong>基础设施</strong>：一台能跑 Docker 的主机、PostgreSQL + pgvector、Redis。</li>
+            <li><strong>GitHub 接入</strong>：一个 GitHub App（用于读仓库、发评论 / Review）+ 可选 GitHub OAuth App（用于 WebUI 登录）。</li>
+            <li><strong>模型凭据</strong>：你自配的任一 OpenAI 兼容 API（自己的中转 / 厂商官方接口），以及一个加密主密钥。</li>
+            <li><strong>可选外围</strong>：QQ 机器人网关注册、告警 Webhook 等。</li>
+          </ol>
+          <div class="callout">
+            <p class="callout__label mono">模型不绑定</p>
+            <p>项目不绑定任何特定模型或厂商。模型由你自配的 OpenAI 兼容 API 驱动，在「模型路由」配置 Provider 后即可。</p>
+          </div>
+        </section>
+
+        <section id="install" class="gsec reveal">
+          <h2>一、选择安装方式</h2>
+          <p>推荐用内置一键安装 CLI，也可源码本地开发。</p>
+
+          <h3>方式 A · 一键安装（推荐）</h3>
+          <p>支持<strong>源码安装</strong>与 <strong>Docker Compose 全栈安装</strong>二选一（交互选择，或 <code>--mode</code> 指定）。可直接从 GitHub 直跑，无需先 clone：</p>
+          <div class="code" data-cmd>curl -fsSL https://raw.githubusercontent.com/BB0813/AperturePrism-AI-Review/main/scripts/bootstrap.sh | bash</div>
+          <p>常用参数：</p>
+          <ul>
+            <li><code>--mode=source|compose</code>：指定安装方式（1=源码，2=Docker 全栈）。</li>
+            <li><code>--yes</code>：跳过交互确认。</li>
+            <li><code>--auto-install</code>：缺失 Node / Docker 时自动安装（需 root/sudo）。</li>
+            <li><code>--skip-docker</code> / <code>--skip-deps</code> / <code>--skip-migrate</code>：跳过对应步骤。</li>
+            <li><code>--verify</code>：Docker 地址池耗尽场景下叠加 <code>compose.verify.yml</code>（见第十节）。</li>
+          </ul>
+          <p>环境变量覆盖：<code>APERTUREPRISM_SRC_DIR</code>（源码目录）、<code>APERTUREPRISM_REF</code>（分支/标签）、<code>APERTUREPRISM_REPO_URL</code>（仓库地址）、<code>APERTUREPRISM_AUTO_INSTALL=1</code>。</p>
+
+          <h3>方式 B · 本地开发（分步）</h3>
+          <div class="code" data-cmd>npm install && npm run build && node scripts/migrate.mjs</div>
+          <p>分别启动后端（各占一个终端）：</p>
+          <div class="code" data-cmd>npm run dev --workspace apps/api
+npm run dev --workspace apps/analysis-worker
+npm run dev --workspace apps/index-worker
+npm run dev --workspace apps/scheduler</div>
+          <p>Web 独立 workspace：<code>cd apps/web &amp;&amp; npm install &amp;&amp; npm run dev</code>。API 在 <code>http://127.0.0.1:30001</code>，Web 在 <code>http://localhost:5174</code>。</p>
+          <div class="callout callout--warn">
+            <p class="callout__label mono">注意</p>
+            <p>首次部署先把迁移跑完再启动应用。迁移可重入、失败可重跑。</p>
+          </div>
+        </section>
+
+        <section id="env" class="gsec reveal">
+          <h2>二、准备环境文件</h2>
+          <p>先复制一份环境文件并填写（密钥只放环境文件，绝不入库）：</p>
+          <div class="code" data-cmd>cp .env.example .env.production</div>
+          <table class="gtable">
+            <thead><tr><th>变量</th><th>说明</th></tr></thead>
+            <tbody>
+              <tr><td><code>DATABASE_URL</code> / <code>REDIS_URL</code></td><td>PostgreSQL（需 pgvector 扩展）/ Redis 连接串</td></tr>
+              <tr><td><code>HOST</code> / <code>PORT</code> / <code>LOG_LEVEL</code></td><td>API 监听与日志级别（默认 <code>30001</code> / <code>info</code>）</td></tr>
+              <tr><td><code>WEBUI_API_TOKEN</code></td><td>可选 Bearer 令牌保护 WebUI API；留空则开放（仅开发/内网）</td></tr>
+              <tr><td><code>GITHUB_APP_ID</code> / <code>GITHUB_APP_PRIVATE_KEY_PATH</code> / <code>GITHUB_WEBHOOK_SECRET</code></td><td>GitHub App：验签、installation token、评论发布</td></tr>
+              <tr><td><code>GITHUB_OAUTH_CLIENT_ID</code> / <code>GITHUB_OAUTH_CLIENT_SECRET</code></td><td>WebUI 登录；回调必须指向本实例</td></tr>
+              <tr><td><code>MODEL_PROVIDER_BASE_URLS</code></td><td>Provider → OpenAI 兼容 baseUrl 的 JSON 映射</td></tr>
+              <tr><td><code>CREDENTIAL_MASTER_KEY</code></td><td>AES-GCM 主密钥：解密 provider 密钥 / 记忆与专家团队模型调用</td></tr>
+              <tr><td><code>DEFAULT_LLM_MODEL</code></td><td>安装向导预填的模型名（默认 <code>gpt-4o-mini</code>，按你的网关实际可用模型改）</td></tr>
+              <tr><td><code>EMBEDDING_BASE_URL</code> / <code>EMBEDDING_API_KEY</code> / <code>EMBEDDING_MODEL</code></td><td>与 review 模型独立配置（默认 <code>nvidia/nv-embed-v1</code>，4096 维）</td></tr>
+              <tr><td><code>QQ_BOT_PROTOCOLS</code></td><td>NTQQ 网关 JSON（onebot11 / satori / milky）</td></tr>
+              <tr><td><code>QQ_OFFICIAL_APP_ID</code> / <code>QQ_OFFICIAL_APP_SECRET</code> / 网关 / Intents</td><td>官方开放平台 api-v2</td></tr>
+              <tr><td><code>ALERT_WEBHOOK_URL</code></td><td>告警 Webhook（飞书/钉钉/自定义），可在 WebUI 覆盖</td></tr>
+            </tbody>
+          </table>
+          <p>生成一个随机主密钥：</p>
+          <div class="code" data-cmd>node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"</div>
+        </section>
+
+        <section id="github" class="gsec reveal">
+          <h2>三、接入 GitHub</h2>
+
+          <h3>GitHub App（读取与发布）</h3>
+          <p>在 GitHub 创建一个 App，授权它读取你的仓库，把 <code>APP_ID</code>、私钥文件路径与 <code>WEBHOOK_SECRET</code> 填入环境文件。App 用于：</p>
+          <ul>
+            <li>签发 installation token 读取仓库 / Issue / PR 内容；</li>
+            <li>发布评论、PR Review、Check Runs 与标签（幂等）。</li>
+          </ul>
+          <p>App 的 Webhook 指向本实例：<code>https://&lt;你的域名&gt;/github/webhook</code>。若想接收 issue 评论事件，需在 GitHub 侧自己配置 Webhook（App 无 Webhooks 管理权限时需手动指到该地址）。</p>
+
+          <h3>WebUI 登录（可选 OAuth）</h3>
+          <p>想用 GitHub 账号登录控制台，就再建一个 OAuth App，配置回调（Authorization callback URL）为：</p>
+          <div class="code" data-cmd>http://&lt;你的主机&gt;:30001/auth/callback</div>
+          <p>线上走域名/反代时用对应域名（如 <code>https://review.example.com/auth/callback</code>），必须与注册的回调一致。若回调指向别的域名，本地授权后的 code 会送错地址导致 <code>state</code> 校验失败。</p>
+
+          <h3>Bearer 令牌（可选）</h3>
+          <p>不配 OAuth 时，可设 <code>WEBUI_API_TOKEN</code>，接口用 <code>Authorization: Bearer &lt;token&gt;</code>（或 SSE <code>?token=</code>）访问。</p>
+        </section>
+
+        <section id="models" class="gsec reveal">
+          <h2>四、配置模型</h2>
+          <h3>LLM Provider（OpenAI 兼容）</h3>
+          <p>在「数据与运维 → 模型路由」配置 Provider（baseUrl + API Key + 模型名），或通过 <code>MODEL_PROVIDER_BASE_URLS</code> 预置：</p>
+          <div class="code" data-cmd>MODEL_PROVIDER_BASE_URLS={"my-gateway":"https://gateway.example.com/v1"}
+DEFAULT_LLM_MODEL=gpt-4o-mini</div>
+          <p>baseUrl 必须包含 <code>/v1</code>，adapter 会追加 <code>/chat/completions</code>。配置 Provider 后，<code>model_role_policies</code> 表会给对应角色写入 <code>candidates</code> 候选。角色策略包括：</p>
+          <ul>
+            <li><code>issue_analysis</code> — Issue 分析；</li>
+            <li><code>pr_review</code> — PR 审查；</li>
+            <li><code>duplicate_judgment</code> — 重复裁决；</li>
+            <li><code>expert_review</code> — 专家团队（可选）；</li>
+            <li><code>memory_consolidation</code> — 记忆合并（可选）；</li>
+            <li><code>spam_detection</code> — 垃圾识别。</li>
+          </ul>
+          <p>想启用切换故障转移，可让每个角色的 <code>candidates</code> 同时列出主、备两个 Provider（主在前）。worker 每次任务都从数据库读策略，<strong>改动即时生效，无需重启</strong>。</p>
+
+          <h3>API Key 加密存储</h3>
+          <p>Provider 的 key <strong>不放在 .env</strong>，而是经 AES-GCM 加密存 <code>provider_accounts</code>，worker 用 <code>CREDENTIAL_MASTER_KEY</code> 解密（见第二节）。</p>
+
+          <h3>嵌入模型（独立配置）</h3>
+          <p>向量召回用独立嵌入配置：</p>
+          <div class="code" data-cmd>EMBEDDING_BASE_URL=https://gateway.example.com/v1
+EMBEDDING_API_KEY=xxx
+EMBEDDING_MODEL=nvidia/nv-embed-v1</div>
+          <p>默认 <code>nv-embed-v1</code>（4096 维）。注意：向量只用于召回，重复等最终裁决由服务端策略完成。</p>
+        </section>
+
+        <section id="webui" class="gsec reveal">
+          <h2>五、WebUI 初始化</h2>
+          <ul>
+            <li>首次打开进入 <code>/setup</code> 安装向导：检测环境并一键初始化（管理员）。</li>
+            <li>首个通过 OAuth 登录的用户自动成为<strong>管理员</strong>；可到「用户管理」切换角色。</li>
+            <li>「数据与运维 → 仓库」同步 GitHub App 安装的仓库（<code>POST /repositories/sync</code>，后台每 12 小时自动拉取），再在仓库页手动触发一次分析验证链路。</li>
+            <li>配置好 Provider 后，在「已安装仓库」页下拉选择最近 open 的 Issue / PR 手动触发，任务状态变为 <code>completed</code> 即链路正常。</li>
+          </ul>
+          <div class="callout">
+            <p class="callout__label mono">验证链路</p>
+            <p>手动触发一次分析 → 任务 <code>completed</code>、GitHub 出现评论，即代表 Webhook/模型/发布全链路已通。</p>
+          </div>
+        </section>
+
+        <section id="features" class="gsec reveal">
+          <h2>六、能力开关</h2>
+          <table class="gtable">
+            <thead><tr><th>能力</th><th>在哪开</th></tr></thead>
+            <tbody>
+              <tr><td>Issue 自动指派 / 标题改写 / 自动打标</td><td>系统配置（<code>issue_auto_assign</code> / <code>issue_rewrite_title</code> / 标签规则）</td></tr>
+              <tr><td>PR 自动审查 / Check Runs</td><td>系统配置（<code>pr_auto_review</code> / <code>pr_check_run</code>）</td></tr>
+              <tr><td>仓库扫描</td><td>「数据与运维 → 仓库扫描」：全局开关 + 逐仓库配置，自动建分析任务 / 可选建跟踪 Issue</td></tr>
+              <tr><td>标签配置</td><td>「数据与运维 → 标签配置」：三要素表单（字段下拉 + 取值 + 标签名），不用手写前缀</td></tr>
+              <tr><td>Agent Skills / 专家团队</td><td><code>/capabilities</code> 开关；需先配 <code>expert_review</code> 角色策略，未配置自动降级单模型</td></tr>
+              <tr><td>仓库记忆</td><td>分析/审查自动沉淀反思，Scheduler 定期合并回灌；记忆页可管理</td></tr>
+              <tr><td>安全管理</td><td>独立安全页：访问控制 + 速率限制 + 操作审计（<code>/audit</code>）+ 管理员门禁</td></tr>
+            </tbody>
+          </table>
+          <p>运行时配置可通过 <code>PUT /settings</code> 热更新（约 8s 生效），无需重启。</p>
+        </section>
+
+        <section id="qq" class="gsec reveal">
+          <h2>七、QQ 机器人</h2>
+          <p>在 WebUI「数据与运维 → 机器人」页配置即可（密钥留空保留）；也可在环境变量中配置：</p>
+          <h3>第三方协议（NTQQ）</h3>
+          <div class="code" data-cmd>QQ_BOT_PROTOCOLS={"onebot11":{"baseUrl":"http://127.0.0.1:3000","accessToken":"...","gatewayUrl":"ws://127.0.0.1:3001"}}</div>
+          <p>支持 OneBot 11 / Satori / Milky。按你的 NTQQ 客户端配置 <code>baseUrl</code>、<code>gatewayUrl</code> 与 <code>accessToken</code>。</p>
+          <h3>官方开放平台 api-v2</h3>
+          <div class="code" data-cmd>QQ_OFFICIAL_APP_ID=xxx
+QQ_OFFICIAL_APP_SECRET=xxx
+QQ_OFFICIAL_INTENTS=33554432</div>
+          <p>默认网关 <code>wss://api.sgroup.qq.com/websocket</code>；Intents 默认 1&lt;&lt;25 启用 C2C + GROUP_AT 消息事件（33554432）。</p>
+          <p>容器内 qq-bot 默认不随全栈启动（无凭据会重启循环），需在 WebUI 配置凭据后手动以 <code>--profile qq up -d</code> 启动。</p>
+        </section>
+
+        <section id="backup" class="gsec reveal">
+          <h2>八、迁移 / 备份 / 恢复</h2>
+          <h3>迁移</h3>
+          <div class="code" data-cmd">DATABASE_URL=... node scripts/migrate.mjs</div>
+          <p>自研执行器按 <code>_journal.json</code> 顺序执行迁移并记录，可重入。不要用 <code>drizzle-kit migrate</code> 应用（对无 snapshot 的手写 SQL 会静默失败）。</p>
+          <h3>备份 / 恢复</h3>
+          <div class="code" data-cmd">node scripts/backup.mjs   # 输出到 ./backups/&lt;iso&gt;.sql
+
+docker compose -f docker/docker-compose.prod.yml exec -T postgres \
+  psql -U apertureprism -d apertureprism &lt; backups/&lt;iso&gt;.sql</div>
+          <p>建议每日备份并保留 N 份。<code>issue_documents</code> 可由 index-worker 重建，恢复后可选重建而非依赖其备份。</p>
+        </section>
+
+        <section id="update" class="gsec reveal">
+          <h2>九、在线更新</h2>
+          <ul>
+            <li>WebUI「系统配置 → 版本与更新」点击「更新到最新」：自动 pull → migrate → 重建容器 → 健康检查，失败自动回滚。</li>
+            <li>进度以 SSE 分阶段推送，api 重建属预期断连；完成倒计时自动刷新页面。</li>
+            <li>命令行方式：改 <code>docker/.env.production</code> 的 <code>IMAGE_TAG</code>，再 <code>pull</code> → <code>run --rm migrate</code> → <code>up -d</code>。</li>
+            <li>v1.0.7 之前的旧版本无法在线自更新，需手动升级一次到 v1.0.7+。</li>
+          </ul>
+        </section>
+
+        <section id="override" class="gsec reveal">
+          <h2>十、受限环境（override）</h2>
+          <p>当 NAS 等环境无法直连 <code>ghcr.io</code>（TLS 握手超时）或 Docker 地址池耗尽时，叠加两个 override 文件：</p>
+          <ul>
+            <li><code>docker/images-mirror.yml</code>：用国内镜像站（如 <code>ghcr.nju.edu.cn</code>）重写各服务镜像；新增容器服务需同步补条目。</li>
+            <li><code>docker/compose.verify.yml</code>：把全部服务挂到 external 网络 <code>apnet</code>，并设 <code>AP_VERIFY=1</code> 让在线更新器使用同一组文件。</li>
+          </ul>
+          <div class="code" data-cmd">docker compose --env-file .env.production \
+  -f docker/docker-compose.prod.yml \
+  -f docker/compose.verify.yml \
+  -f docker/images-mirror.yml \
+  pull
+docker compose --env-file .env.production \
+  -f docker/docker-compose.prod.yml \
+  -f docker/compose.verify.yml \
+  -f docker/images-mirror.yml \
+  run --rm migrate
+docker compose --env-file .env.production \
+  -f docker/docker-compose.prod.yml \
+  -f docker/compose.verify.yml \
+  -f docker/images-mirror.yml \
+  up -d</div>
+        </section>
+
+        <section id="faq" class="gsec reveal">
+          <h2>常见问题</h2>
+          <div class="faq">
+            <details>
+              <summary>任务反复失败 / 队列堆积，怎么办？</summary>
+              <p>优先检查模型层：模型余额不足或通道异常会返回 <code>402</code> / <code>405</code>，导致所有任务 <code>handler_error</code>。确认 Provider baseUrl 可达、Key 有效，可用 <code>GET {baseUrl}/models</code>（带鉴权头）验证。改 <code>model_role_policies</code> 的 <code>candidates</code> 模型名即时生效。</p>
+            </details>
+            <details>
+              <summary>webhook 返回 401？</summary>
+              <p>校验 <code>GITHUB_WEBHOOK_SECRET</code> 与签名是否一致。</p>
+            </details>
+            <details>
+              <summary>worker 报 authentication_failed？</summary>
+              <p>校验 <code>CREDENTIAL_MASTER_KEY</code> 与 <code>provider_accounts</code> 密文是否匹配。</p>
+            </details>
+            <details>
+              <summary>/health/ready 非 200？</summary>
+              <p>检查 DB / Redis 容器健康与连接串；ready 返回 200 才代表 DB+Redis 均就绪。</p>
+            </details>
+            <details>
+              <summary>任务一直 retry_wait 不恢复？</summary>
+              <p>确认 scheduler 存活——lease/retry 由它回收释放。</p>
+            </details>
+            <details>
+              <summary>GitHub 被限流？</summary>
+              <p>github-adapter 已对 <code>authentication_failed</code> 做一次性重试；429/5xx 由 worker 重试策略处理。可检查最近 <code>/index/status</code> 与索引日志是否因 token 限流失败。</p>
+            </details>
+          </div>
+        </section>
+
+        <div class="gsec__end">
+          <p>还没覆盖到你的场景？到 <a href="https://github.com/BB0813/AperturePrism-AI-Review" target="_blank" rel="noreferrer">GitHub 仓库 ↗</a> 提 Issue。</p>
+        </div>
+      </article>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer__inner">
+      <div class="footer__brand">
+        <img class="footer__mark" src="assets/logo.png" alt="AperturePrism" />
+        <p>把 AI 代码审查做成一条可落地的产品链路。</p>
+      </div>
+      <div class="footer__links">
+        <a href="index.html">官网</a>
+        <a href="index.html#capabilities">核心能力</a>
+        <a href="index.html#architecture">系统架构</a>
+        <a href="#overview">配置教程</a>
+      </div>
+      <div class="footer__links">
+        <a href="index.html#quickstart">快速开始</a>
+        <a href="index.html#console">控制台</a>
+        <a href="index.html#pipeline">工作链路</a>
+      </div>
+      <p class="footer__copy mono">APERTUREPRISM © <span id="year"></span> · 开源 · MIT License</p>
+    </div>
+  </footer>
+
+  <script src="assets/app.js?v=2"></script>
+  <script>
+    /* guide 目录：滚动高亮当前小节（scrollspy） */
+    (function () {
+      if (!("IntersectionObserver" in window)) return;
+      var links = document.querySelectorAll("#toc a");
+      var map = {};
+      var targets = document.querySelectorAll(".gsec[id]");
+      var spy = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) {
+          if (en.isIntersecting) {
+            links.forEach(function (l) {
+              l.classList.toggle("active", l.getAttribute("href") === "#" + en.target.id);
+            });
+          }
+        });
+      }, { rootMargin: "-20% 0px -70% 0px" });
+      targets.forEach(function (t) { spy.observe(t); });
+    })();
+
+    /* 移动端：目录收入抽屉式折叠（可选）——保持简单，仅保证可滚动 */
+  </script>
+</body>
+</html>

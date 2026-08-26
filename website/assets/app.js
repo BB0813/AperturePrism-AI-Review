@@ -64,43 +64,41 @@
   }
 
   /* ---------- copy on click for command blocks ---------- */
-  document.querySelectorAll(".code[data-cmd]").forEach(function (block) {
+  document.querySelectorAll(".code").forEach(function (block) {
+    var text =
+      block.getAttribute("data-cmd") ||
+      block.textContent.replace(/^\s*\$\s?/, "").trim();
     var btn = document.createElement("button");
     btn.type = "button";
     btn.className = "code__copy";
     btn.textContent = "复制";
     btn.setAttribute("aria-label", "复制命令");
-    btn.style = [
-      "position:absolute;top:14px;right:14px;flex-shrink:0;padding:4px 10px;border-radius:8px;",
-      "border:1px solid rgba(148,166,194,.28);background:rgba(255,255,255,.04);color:#c9d6e8;",
-      "font-family:inherit;font-size:12px;cursor:pointer;transition:background .2s,border-color .2s;z-index:1;"
-    ].join("");
-    btn.addEventListener("mouseenter", function () { btn.style.borderColor = "rgba(34,211,238,.6)"; });
-    btn.addEventListener("mouseleave", function () { btn.style.borderColor = ""; });
     btn.addEventListener("click", function () {
-      var text = block.getAttribute("data-cmd");
       var done = function () {
         btn.textContent = "已复制 ✓";
         setTimeout(function () { btn.textContent = "复制"; }, 1600);
       };
+      var fail = function () { btn.textContent = "复制失败"; };
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(done).catch(() => fallback(text, done));
+        navigator.clipboard.writeText(text).then(done).catch(function () {
+          fallback(text, done, fail);
+        });
       } else {
-        fallback(text, done);
+        fallback(text, done, fail);
       }
     });
-    block.style.position = "relative";
+    block.classList.add("has-copy");
     block.appendChild(btn);
   });
 
-  function fallback(text, done) {
+  function fallback(text, done, fail) {
     var ta = document.createElement("textarea");
     ta.value = text;
     ta.style.position = "fixed";
     ta.style.opacity = "0";
     document.body.appendChild(ta);
     ta.select();
-    try { document.execCommand("copy"); done(); } catch (e) { btn.textContent = "复制失败"; }
+    try { document.execCommand("copy"); done(); } catch (e) { fail(); }
     document.body.removeChild(ta);
   }
 

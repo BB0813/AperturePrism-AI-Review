@@ -11,7 +11,7 @@
   <link rel="preload" href="assets/fonts/cabinet-800.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="preload" href="assets/fonts/geist.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="preload" href="assets/fonts/geist-mono.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="stylesheet" href="assets/style.css" />
+  <link rel="stylesheet" href="assets/style.css?v=2" />
 </head>
 <body>
   <a class="skip-link" href="#main">跳到主要内容</a>
@@ -29,6 +29,7 @@
         <a href="#architecture">系统架构</a>
         <a href="#console">控制台</a>
         <a href="#quickstart">快速开始</a>
+        <a href="guide.html">配置教程</a>
       </nav>
 
       <div class="nav__actions">
@@ -49,6 +50,7 @@
       <a href="#architecture">系统架构</a>
       <a href="#console">控制台</a>
       <a href="#quickstart">快速开始</a>
+      <a href="guide.html">配置教程</a>
       <a href="https://github.com/BB0813/AperturePrism-AI-Review" target="_blank" rel="noreferrer">GitHub ↗</a>
     </nav>
   </div>
@@ -366,6 +368,37 @@
       </div>
     </section>
 
+    <!-- ============ 配置速览 ============ -->
+    <section class="section section--alt" id="setup">
+      <div class="container">
+        <header class="section__head reveal">
+          <h2 class="section__title">三步跑通配置</h2>
+          <p class="section__desc">接入只需三类东西：GitHub App、一个自配的 OpenAI 兼容接口、一份环境文件。完整步骤看<a href="guide.html" class="ilink">配置教程 ↗</a>。</p>
+        </header>
+
+        <div class="setup">
+          <div class="setup__step reveal">
+            <span class="setup__num mono">01</span>
+            <h3>环境文件</h3>
+            <p>复制 <code>.env.example</code> 为 <code>.env.production</code>，填好数据库 / Redis / 主密钥。</p>
+            <div class="code" data-cmd>cp .env.example .env.production</div>
+          </div>
+          <div class="setup__step reveal">
+            <span class="setup__num mono">02</span>
+            <h3>GitHub + 模型</h3>
+            <p>配置 GitHub App 与 OAuth；在「模型路由」填一个 OpenAI 兼容 Provider，再用主密钥加密 Key。</p>
+            <div class="code" data-cmd>MODEL_PROVIDER_BASE_URLS={"gw":"https://gateway.example.com/v1"}</div>
+          </div>
+          <div class="setup__step reveal">
+            <span class="setup__num mono">03</span>
+            <h3>起服务 · 验证</h3>
+            <p>跑迁移 → 拉起全栈 → 手动触发一次分析，任务 <code>completed</code> 即链路全通。</p>
+            <div class="code" data-cmd>node scripts/migrate.mjs &amp;&amp; curl http://&lt;host&gt;/health/ready</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- ============ 社区 / CTA ============ -->
     <section class="section cta">
       <div class="container">
@@ -376,7 +409,7 @@
             <a class="btn btn--primary btn--lg" href="https://github.com/BB0813/AperturePrism-AI-Review" target="_blank" rel="noreferrer">
               GitHub 仓库 <span aria-hidden="true">↗</span>
             </a>
-            <a class="btn btn--ghost btn--lg" href="#quickstart">返回部署指引</a>
+            <a class="btn btn--ghost btn--lg" href="guide.html">查看完整配置教程</a>
           </div>
         </div>
       </div>
@@ -394,10 +427,11 @@
         <a href="#capabilities">核心能力</a>
         <a href="#pipeline">工作链路</a>
         <a href="#architecture">系统架构</a>
-        <a href="#quickstart">快速开始</a>
+        <a href="#setup">配置速览</a>
       </div>
       <div class="footer__links">
-        <a href="https://github.com/BB0813/AperturePrism-AI-Review" target="_blank" rel="noreferrer">GitHub 仓库 ↗</a>
+        <a href="guide.html">完整配置教程 ↗</a>
+        <a href="#quickstart">快速开始</a>
         <a href="https://www.aprism.top" target="_blank" rel="noreferrer">aprism.top ↗</a>
         <a href="https://linux.do" target="_blank" rel="noreferrer">技术社区 · Linux.do ↗</a>
       </div>
@@ -405,6 +439,6 @@
     </div>
   </footer>
 
-  <script src="assets/app.js"></script>
+  <script src="assets/app.js?v=2"></script>
 </body>
 </html>
