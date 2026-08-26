@@ -106,7 +106,11 @@ if [ -n "$AVAIL_MB" ]; then
 fi
 
 log info "pulling $TARGET…"
-if ! compose $PROFILE_ARG pull $APP_SERVICES 2>&1; then
+# --progress plain：compose pull 默认的进度条用 `\r` 原地刷新（不产生换行），
+# api 按 `\n` 切分后攒在缓冲区不往 SSE 写，超过 nginx proxy_read_timeout 的静默
+# 期连接被掐断，前端报 "network error"。plain 模式下每一行都以换行结束，SSE 持续
+# 有字节流出，连接保持。
+if ! compose $PROFILE_ARG pull --progress plain $APP_SERVICES 2>&1; then
   log error "pull failed"
   exit 1
 fi
@@ -135,7 +139,7 @@ for svc in $APP_SERVICES; do
     *) SERVICES="$SERVICES $svc" ;;
   esac
 done
-if ! compose $PROFILE_ARG up -d --force-recreate --no-deps $SERVICES 2>&1; then
+if ! compose $PROFILE_ARG up -d --force-recreate --no-deps --progress plain $SERVICES 2>&1; then
   log error "up failed"
   exit 1
 fi
@@ -157,7 +161,7 @@ done
 if [ "$attempt" -ge 12 ]; then
   log error "health check failed; rolling back to $OLD_TAG"
   sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=$OLD_TAG/" "$ENV_FILE"
-  if compose $PROFILE_ARG up -d --force-recreate --no-deps $SERVICES 2>&1; then
+  if compose $PROFILE_ARG up -d --force-recreate --no-deps --progress plain $SERVICES 2>&1; then
     log info "rolled back to $OLD_TAG"
   else
     log error "rollback failed; manual intervention required"
@@ -194,7 +198,7 @@ ENV_B64="$(base64 "$ENV_FILE" | tr -d '\n')"
 if docker run -d --rm --name "aprism-api-recreate-$(date +%s)" \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   "$API_IMAGE" \
-  /bin/sh -c "echo '$ENV_B64' | base64 -d > /app/docker/.env.production && sleep 3 && docker compose --project-name '$PROJECT' $COMPOSE_FILES --env-file /app/docker/.env.production up -d --no-deps api && sleep 5 && docker image prune -f" \
+  /bin/sh -c "echo '$ENV_B64' | base64 -d > /app/docker/.env.production && sleep 3 && docker compose --project-name '$PROJECT' $COMPOSE_FILES --env-file /app/docker/.env.production up -d --no-deps --progress plain api && sleep 5 && docker image prune -f" \
   >/dev/null 2>&1; then
   log info "api restart scheduled; the page will reload automatically"
 else
