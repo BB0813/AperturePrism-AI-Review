@@ -185,11 +185,13 @@ export async function syncRepositories(): Promise<RepoSyncResult> {
     method: "POST",
     headers: { accept: "application/json", ...authHeaders() },
   });
-  const body = (await response.json().catch(() => null)) as {
+  // 只读一次 body：Response.body 是流，读完再读会抛
+  // "Failed to execute 'json' on 'Response': body stream already read"。
+  const body = (await response.json().catch(() => null)) as (RepoSyncResult & {
     reason?: string;
     detail?: string;
     rateLimitedUntil?: string | null;
-  } | null;
+  }) | null;
   if (response.status === 401) {
     notifyUnauthorized();
     throw new Error("unauthorized");
@@ -209,7 +211,7 @@ export async function syncRepositories(): Promise<RepoSyncResult> {
   if (!response.ok) {
     throw new Error(body?.detail ?? body?.reason ?? `sync repositories ${response.status}`);
   }
-  return (await response.json()) as RepoSyncResult;
+  return body as RepoSyncResult;
 }
 
 /** Lists installed GitHub repos + per-repo task/result counts. */
