@@ -276,7 +276,8 @@ describe("Issue 结果区块开关", () => {
     const parsed = parseIssueResultSections("summary,missing_information,bogus");
     expect(parsed.has("summary")).toBe(true);
     expect(parsed.has("missing_information")).toBe(true);
-    expect(parsed.has("bogus")).toBe(false);
+    // 非法项被忽略：只有两个合法区块。
+    expect(parsed.size).toBe(2);
     const all = parseIssueResultSections(ISSUE_RESULT_SECTIONS.join(","));
     expect(all.size).toBe(ISSUE_RESULT_SECTIONS.length);
   });

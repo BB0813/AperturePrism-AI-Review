@@ -4,6 +4,7 @@ import type {
   ModelProviderAdapter,
 } from "../../../packages/domain/src/index.js";
 import type { IssueContext } from "./context.js";
+import type { IssueResultSection } from "./prompt.js";
 import { analyzeIssue, type IssueAnalyzerOptions } from "./analyze.js";
 
 const candidate: ModelCandidate = {
@@ -217,7 +218,7 @@ describe("结果区块后置过滤", () => {
   it("关闭的区块在校验后被强制清空，其余区块保留", async () => {
     const { adapter } = scriptedAdapter("provider-a", [richIssueJson]);
     // 模拟默认设置：关闭 missing_information 与 suggested_actions。
-    const sections = new Set([
+    const sections = new Set<IssueResultSection>([
       "summary",
       "suggested_title",
       "probable_cause",
@@ -245,7 +246,7 @@ describe("结果区块后置过滤", () => {
 
   it("关闭建议标题 / 可能原因等可选字段时整个字段被移除", async () => {
     const { adapter } = scriptedAdapter("provider-a", [richIssueJson]);
-    const sections = new Set([
+    const sections = new Set<IssueResultSection>([
       "summary",
       "troubleshooting",
       "evidence",
