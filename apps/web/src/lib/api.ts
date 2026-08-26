@@ -173,6 +173,10 @@ export type RepoSyncResult = {
   /** 已有同步在进行，本次被跳过。 */
   skipped?: boolean;
   details?: { installationId: string; reason: string }[];
+  /** 本次生效的同步范围（metadata / issues_pr / full）。 */
+  scope?: string;
+  /** 是否触发了后续扫描/索引（范围 > metadata 时）。 */
+  scanned?: boolean;
 };
 
 /** Pulls installed repositories from the GitHub App and upserts them (admin). */
@@ -181,18 +185,30 @@ export async function syncRepositories(): Promise<RepoSyncResult> {
     method: "POST",
     headers: { accept: "application/json", ...authHeaders() },
   });
+  const body = (await response.json().catch(() => null)) as {
+    reason?: string;
+    detail?: string;
+    rateLimitedUntil?: string | null;
+  } | null;
   if (response.status === 401) {
     notifyUnauthorized();
     throw new Error("unauthorized");
   }
   if (response.status === 403) throw new Error("需要管理员权限（403）");
   if (response.status === 409) {
-    const body = (await response.json().catch(() => null)) as {
-      reason?: string;
-    } | null;
     throw new Error(body?.reason ?? "sync_in_progress");
   }
-  if (!response.ok) throw new Error(`sync repositories ${response.status}`);
+  if (response.status === 429) {
+    throw new Error(
+      body?.detail ??
+        (body?.reason === "rate_limited_until"
+          ? "GitHub 限流暂停窗口内，请稍后再试"
+          : "GitHub 限流，同步已中止"),
+    );
+  }
+  if (!response.ok) {
+    throw new Error(body?.detail ?? body?.reason ?? `sync repositories ${response.status}`);
+  }
   return (await response.json()) as RepoSyncResult;
 }
 

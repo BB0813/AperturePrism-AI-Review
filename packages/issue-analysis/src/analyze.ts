@@ -35,6 +35,11 @@ export type IssueAnalyzerOptions = {
   now?: () => number;
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   /**
+   * Issue 系统提示词版本（如 "v5"）。缺省用当前版本；改「分析设置 → Issue 提示词
+   * 版本」可在线回退到历史版本，无需重新部署。
+   */
+  promptVersion?: string;
+  /**
    * 开启后主分析先做一轮工具探索，让模型读取仓库源码再作答。不开启时模型只能
    * 看到 Issue 文本，无法给出定位到文件与位置的修复建议。默认关闭：探索会显著
    * 增加 token 消耗与单任务耗时。
@@ -107,12 +112,14 @@ export async function analyzeIssue(
   // 仍保留 main 这次路由调用：candidate 供修复阶段 sticky，attempts/usage
   // 供 attempt 记账，两者都无法从循环内部获得。代价是开启探索时多一次调用，
   // 这也是该能力默认关闭的原因之一。
-  const main = await invokeOnce(buildIssueAnalysisRequest(context));
+  const main = await invokeOnce(
+    buildIssueAnalysisRequest(context, options.promptVersion),
+  );
   let mainContent = main.response.content;
   if (options.tools) {
     const loop = await runToolLoop(
       (request) => invokeOnce(request).then((result) => result.response),
-      buildIssueAnalysisMessages(context),
+      buildIssueAnalysisMessages(context, options.promptVersion),
       options.tools.context,
       {
         tools: builtinTools(),
@@ -152,6 +159,7 @@ export async function analyzeIssue(
       // 修复要基于实际待修的那份输出：开启探索时是循环结果，而非被丢弃的首答。
       mainContent,
       validation.issues,
+      options.promptVersion,
     ),
     deadlineMs: remainingMs,
     retryPolicy: options.retryPolicy,

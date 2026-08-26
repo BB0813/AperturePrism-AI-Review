@@ -237,7 +237,9 @@ export function ReposPage() {
         );
       } else {
         toast.success(
-          `已同步 ${result.synced} 个仓库（${result.installations} 个安装）`,
+          `已同步 ${result.synced} 个仓库（${result.installations} 个安装）${
+            result.scanned ? "，已触发扫描/索引" : ""
+          }`,
         );
       }
       bumpCache();

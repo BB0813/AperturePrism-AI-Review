@@ -39,6 +39,8 @@ export type PrReviewerOptions = {
   };
   /** 可选：同一 PR 此前的审查对话（增量续跑）。 */
   history?: readonly ModelMessage[];
+  /** PR 审查提示词版本；缺省用当前版本（机制与 Issue 提示词一致）。 */
+  promptVersion?: string;
 };
 
 export type PrReviewOutcome =
@@ -110,7 +112,11 @@ export async function reviewPullRequest(
     );
 
   const mode = selectReviewMode(context);
-  const baseMessages = buildPrReviewMessages(context, mode);
+  const baseMessages = buildPrReviewMessages(
+    context,
+    mode,
+    options.promptVersion,
+  );
   const messages = options.history
     ? injectReviewHistory(baseMessages, options.history)
     : baseMessages;
@@ -134,7 +140,11 @@ export async function reviewPullRequest(
     );
     mainContent = loop.messages[loop.messages.length - 1]!.content;
   } else {
-    const request = buildPrReviewRequest(context, mode);
+    const request = buildPrReviewRequest(
+      context,
+      mode,
+      options.promptVersion,
+    );
     const main = await invoke(
       options.history ? { ...request, messages } : request,
     );
@@ -167,6 +177,7 @@ export async function reviewPullRequest(
       mainContent,
       validation.issues,
       mode,
+      options.promptVersion,
     ),
     deadlineMs: remainingMs,
     retryPolicy: options.retryPolicy,

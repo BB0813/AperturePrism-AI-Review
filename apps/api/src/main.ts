@@ -5,10 +5,12 @@ import {
   type ServerResponse,
 } from "node:http";
 import {
+  DEFAULT_ALERT_THRESHOLDS,
   diffAlertTransitions,
   evaluateAlerts,
   type AlertRecord,
   type AlertRuleId,
+  type AlertThresholds,
   type AlertTransition,
 } from "./alerts.js";
 import { and, asc, desc, eq, gt, inArray, isNotNull, or } from "drizzle-orm";
@@ -318,6 +320,30 @@ function alertWebhookUrl(): string {
   const override = runtimeSettings.get("alert_webhook_url");
   if (override && override.trim().length > 0) return override.trim();
   return (process.env.ALERT_WEBHOOK_URL ?? "").trim();
+}
+
+/** Effective alert thresholds: runtime settings override; env; app default. */
+function alertThresholds(): AlertThresholds {
+  const num = (key: string, fallback: number): number => {
+    const raw = runtimeSettings.get(key) || process.env[`${key.toUpperCase()}`];
+    if (!raw || raw.trim().length === 0) return fallback;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : fallback;
+  };
+  return {
+    queueBacklog: num(
+      "alert_queue_backlog_threshold",
+      DEFAULT_ALERT_THRESHOLDS.queueBacklog,
+    ),
+    failedTasks: num(
+      "alert_failed_tasks_threshold",
+      DEFAULT_ALERT_THRESHOLDS.failedTasks,
+    ),
+    staleTasks: num(
+      "alert_stale_tasks_threshold",
+      DEFAULT_ALERT_THRESHOLDS.staleTasks,
+    ),
+  };
 }
 
 /** Effective embedding config: runtime settings override, then env. */
@@ -1844,9 +1870,22 @@ async function handleRepositoryIssues(
 const REPOSITORY_SYNC_INTERVAL_MS = 12 * 60 * 60 * 1_000; // 每 12 小时自动同步
 let repositorySyncRunning = false;
 let repositorySyncTimer: ReturnType<typeof setInterval> | null = null;
+/** 命中 GitHub 限流后的「暂停直至重置」时间戳（进程内）；期间自动/手动同步直接跳过。 */
+let repositorySyncRateLimitResetAt = 0;
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
+
+/** 写一个 worker 消费的触发键（scan_trigger / index_trigger）。 */
+async function setTriggerSetting(key: string): Promise<void> {
+  await database.db
+    .insert(systemSettings)
+    .values({ key, value: new Date().toISOString() })
+    .onConflictDoUpdate({
+      target: systemSettings.key,
+      set: { value: new Date().toISOString(), updatedAt: new Date() },
+    });
+}
 
 /** 把 github-adapter 的稳定错误类别映射成 WebUI 能解释的 reason 码。 */
 function reasonOfSyncError(error: unknown): string {
@@ -1875,9 +1914,24 @@ async function syncInstallations(): Promise<{
   skipped?: boolean;
   removed?: number;
   details?: { installationId: string; reason: string }[];
+  reason?: string;
+  rateLimitedUntil?: string;
+  scope?: string;
+  scanned?: boolean;
 }> {
   if (repositorySyncRunning)
     return { installations: 0, synced: 0, errors: 0, skipped: true };
+  // 限流感知：GitHub 429 后暂停至 reset，避免明知会再被限流还硬打一轮。
+  if (Date.now() < repositorySyncRateLimitResetAt) {
+    return {
+      installations: 0,
+      synced: 0,
+      errors: 0,
+      skipped: true,
+      reason: "rate_limited_until",
+      rateLimitedUntil: new Date(repositorySyncRateLimitResetAt).toISOString(),
+    };
+  }
   repositorySyncRunning = true;
   try {
     const github = await githubClientPromise;
@@ -1891,7 +1945,40 @@ async function syncInstallations(): Promise<{
       const installations = await github.listInstallations();
       ids = installations.map((installation) => installation.id);
     } catch (error) {
-      // App JWT 端点偶发失败：回退到本地已知安装，至少维持存量仓库的同步。
+      // 凭据失效预检：App JWT 认证失败 / App 不存在时本地回退毫无意义（本地
+      // 也是这些安装来的，重试只会再撞同一面墙），直接给「App 凭据失效」。
+      if (
+        error instanceof GitHubApiError &&
+        (error.category === "authentication_failed" ||
+          error.category === "not_found")
+      ) {
+        logger.warn(
+          { err: error },
+          "repository sync aborted: GitHub App credentials invalid",
+        );
+        return {
+          installations: 0,
+          synced: 0,
+          errors: 1,
+          details: [{ installationId: "-", reason: "github_auth_failed" }],
+        };
+      }
+      if (
+        error instanceof GitHubApiError &&
+        error.category === "rate_limited"
+      ) {
+        repositorySyncRateLimitResetAt =
+          Date.now() + (error.retryAfterMs ?? 60_000);
+        return {
+          installations: 0,
+          synced: 0,
+          errors: 1,
+          reason: "rate_limited",
+          rateLimitedUntil: new Date(repositorySyncRateLimitResetAt).toISOString(),
+          details: [{ installationId: "-", reason: "rate_limited" }],
+        };
+      }
+      // 网络/服务端抖动：回退到本地已知安装，至少维持存量仓库的同步。
       logger.warn(
         { err: error },
         "listInstallations failed, falling back to local installation ids",
@@ -1934,22 +2021,32 @@ async function syncInstallations(): Promise<{
           break;
         } catch (error) {
           lastError = error;
-          // Rate limit is global, not per-installation: abort the whole pass.
+          // Rate limit is global, not per-installation: abort the whole pass
+          // and pause until the reset window passes.
           if (error instanceof GitHubApiError && error.category === "rate_limited") {
+            repositorySyncRateLimitResetAt =
+              Date.now() + (error.retryAfterMs ?? 60_000);
             errors += 1;
             details.push({ installationId, reason: "rate_limited" });
             logger.warn(
               { installationId, retryAfterMs: error.retryAfterMs },
               "repository sync aborted: GitHub rate limit reached",
             );
-            return { installations: ids.length, synced, errors, details };
+            return {
+              installations: ids.length,
+              synced,
+              errors,
+              details,
+              reason: "rate_limited",
+              rateLimitedUntil: new Date(repositorySyncRateLimitResetAt).toISOString(),
+            };
           }
           if (attempt < 2) {
             logger.warn(
               { err: error, installationId, attempt: attempt + 1 },
               "installation repository sync failed, retrying with backoff",
             );
-            await sleep(400 * (2 ** attempt));
+            await sleep(500 * (2 ** attempt));
           }
         }
       }
@@ -1973,7 +2070,24 @@ async function syncInstallations(): Promise<{
     if (removed > 0) {
       logger.info({ removed }, "pruned repositories no longer installed");
     }
-    return { installations: ids.length, synced, errors, details, removed };
+    // 同步范围：按全局设置决定同步后拉多深的数据。metadata 之外的新仓库由
+    // scan/index 触发键让 worker 下一轮 pass 自动补数据 —— 比等 12h 自动扫描及时。
+    const scope = runtimeSettings.get("repo_sync_scope") || "metadata";
+    if (scope === "issues_pr" || scope === "full") {
+      await setTriggerSetting("scan_trigger");
+    }
+    if (scope === "full") {
+      await setTriggerSetting("index_trigger");
+    }
+    return {
+      installations: ids.length,
+      synced,
+      errors,
+      details,
+      removed,
+      scope,
+      scanned: scope !== "metadata",
+    };
   } finally {
     repositorySyncRunning = false;
   }
@@ -2139,6 +2253,23 @@ async function handleRepositorySync(
   metrics.increment("repositories.sync_runs");
   if (result.removed) metrics.increment("repositories.sync_removed", result.removed);
   audit(request, "repositories.sync", undefined, result);
+  // 限流暂停窗口内再次点同步：显式 429，前端据此提示「GitHub 限流中，稍后再试」。
+  if (result.reason === "rate_limited_until" || result.reason === "rate_limited") {
+    json(
+      response,
+      429,
+      {
+        status: "error",
+        reason: result.reason,
+        rateLimitedUntil: result.rateLimitedUntil ?? null,
+        detail: result.reason === "rate_limited_until"
+          ? "GitHub 限流暂停窗口内，请等待重置后再同步"
+          : "GitHub 限流，同步已中止",
+      },
+      requestId,
+    );
+    return;
+  }
   // 已有同步在进行（进程内锁）：显式返回 409，前端据此提示「正在同步中」，
   // 而不是收到一个静默的 0 结果让用户以为同步没生效。
   if (result.skipped) {
@@ -2146,6 +2277,17 @@ async function handleRepositorySync(
       response,
       409,
       { status: "error", reason: "sync_in_progress" },
+      requestId,
+    );
+    return;
+  }
+  // App 凭据失效：502 + 可操作提示（去 GitHub 接入更换），不要落到 200 让用户以为成功。
+  // 不用 401 —— 401 在 WebUI 语义是「会话失效」，会触发全局登出。
+  if (result.details?.[0]?.reason === "github_auth_failed") {
+    json(
+      response,
+      502,
+      { status: "error", reason: "github_auth_failed", detail: "GitHub App 凭据无效，请到「GitHub 接入」重新配置后重试" },
       requestId,
     );
     return;
@@ -2830,8 +2972,15 @@ function settingDefaultValue(key: string): string {
   if (key === "log_level") return config.logLevel;
   if (key === "issue_reanalyze_min_change")
     return String(DEFAULT_MIN_CHANGE_RATIO);
+  if (key === "issue_prompt_version") return "v5";
   if (key === "embedding_model") return config.embedding.model;
   if (key === "qq_official_intents") return String(config.qqOfficialIntents);
+  if (key === "alert_queue_backlog_threshold")
+    return String(DEFAULT_ALERT_THRESHOLDS.queueBacklog);
+  if (key === "alert_failed_tasks_threshold")
+    return String(DEFAULT_ALERT_THRESHOLDS.failedTasks);
+  if (key === "alert_stale_tasks_threshold")
+    return String(DEFAULT_ALERT_THRESHOLDS.staleTasks);
   return "";
 }
 
@@ -2921,7 +3070,7 @@ async function refreshAlerts(): Promise<void> {
       queueDepth,
       failed,
       stale,
-    });
+    }, new Date(), alertThresholds());
     const transitions = diffAlertTransitions(prev, next);
     alertRecords.clear();
     for (const record of next) alertRecords.set(record.id, record);

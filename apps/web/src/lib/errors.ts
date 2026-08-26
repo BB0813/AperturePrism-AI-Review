@@ -61,6 +61,10 @@ const explanations: Record<string, Explanation> = {
     message: "已触发 GitHub 接口限流。",
     action: "请稍等几分钟后重试；频繁同步会加剧限流。",
   },
+  rate_limited_until: {
+    message: "GitHub 接口限流的暂停窗口尚未结束。",
+    action: "请等待重置后再同步，期间同步会自动跳过。",
+  },
   github_unavailable: {
     message: "GitHub 暂时不可用（网络或服务异常）。",
     action: "请稍后重试；若持续失败，请检查服务器到 GitHub 的网络。",

@@ -67,6 +67,12 @@ export function OpsPage() {
 
   useEffect(() => load(), [load]);
 
+  // 每 15s 自动刷新实时量规与告警（与 Overview/BotPage 一致），无需手动点刷新。
+  useEffect(() => {
+    const timer = setInterval(() => void load(), 15_000);
+    return () => clearInterval(timer);
+  }, [load]);
+
   const counters = data?.counters ?? {};
   const durations = data?.durations ?? {};
   const gauges = data?.gauges ?? {};

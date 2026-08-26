@@ -27,11 +27,24 @@ export type AlertInputs = {
   stale: number;
 };
 
+/** 各规则触发阈值（默认值即旧硬编码值）。 */
+export type AlertThresholds = {
+  queueBacklog: number;
+  failedTasks: number;
+  staleTasks: number;
+};
+
+export const DEFAULT_ALERT_THRESHOLDS: AlertThresholds = {
+  queueBacklog: 20,
+  failedTasks: 1,
+  staleTasks: 1,
+};
+
 type Rule = {
   id: AlertRuleId;
   severity: AlertSeverity;
   /** 触发条件：返回 true 表示异常。 */
-  fired: (inputs: AlertInputs) => boolean;
+  fired: (inputs: AlertInputs, thresholds: AlertThresholds) => boolean;
   message: (inputs: AlertInputs) => string;
   value: (inputs: AlertInputs) => number;
 };
@@ -40,14 +53,14 @@ const RULES: readonly Rule[] = [
   {
     id: "queue_backlog",
     severity: "warning",
-    fired: (inputs) => inputs.queueDepth >= 20,
-    message: (inputs) => `队列积压 ${inputs.queueDepth} 个待处理任务，超过阈值 20。`,
+    fired: (inputs, t) => inputs.queueDepth >= t.queueBacklog,
+    message: (inputs) => `队列积压 ${inputs.queueDepth} 个待处理任务。`,
     value: (inputs) => inputs.queueDepth,
   },
   {
     id: "failed_tasks",
     severity: "warning",
-    fired: (inputs) => inputs.failed >= 1,
+    fired: (inputs, t) => inputs.failed >= t.failedTasks,
     message: (inputs) =>
       `有 ${inputs.failed} 个失败任务（死信），可在「审查队列」重新入队。`,
     value: (inputs) => inputs.failed,
@@ -55,7 +68,7 @@ const RULES: readonly Rule[] = [
   {
     id: "stale_tasks",
     severity: "critical",
-    fired: (inputs) => inputs.stale >= 1,
+    fired: (inputs, t) => inputs.stale >= t.staleTasks,
     message: (inputs) =>
       `${inputs.stale} 个任务心跳超时（疑似 worker 已死），租约恢复机制将自动回收。`,
     value: (inputs) => inputs.stale,
@@ -70,11 +83,12 @@ export function evaluateAlerts(
   current: ReadonlyMap<AlertRuleId, AlertRecord>,
   inputs: AlertInputs,
   now: Date = new Date(),
+  thresholds: AlertThresholds = DEFAULT_ALERT_THRESHOLDS,
 ): AlertRecord[] {
   const next = new Map<AlertRuleId, AlertRecord>();
   for (const rule of RULES) {
     const prev = current.get(rule.id);
-    const fired = rule.fired(inputs);
+    const fired = rule.fired(inputs, thresholds);
     if (fired) {
       const firstAt = prev?.status === "active" ? prev.firstAt : now.toISOString();
       next.set(rule.id, {

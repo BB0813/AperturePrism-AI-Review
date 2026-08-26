@@ -444,6 +444,7 @@ async function main(): Promise<void> {
       const deep = await issueDeepAnalysisEnabled(
         `${context.repository.owner}/${context.repository.name}`,
       );
+      const promptVersion = await resolveIssuePromptVersion();
       return analyzeIssue(
         {
           adapters,
@@ -451,6 +452,7 @@ async function main(): Promise<void> {
           deadlineMs: analysisDeadlineMs,
           retryPolicy: analysisRetryPolicy,
           signal,
+          promptVersion,
           ...(deep
             ? {
                 tools: {
@@ -1232,6 +1234,22 @@ async function issueDeepAnalysisEnabled(
     );
   } catch {
     return false;
+  }
+}
+
+/**
+ * 当前 Issue 分析的提示词版本。读「分析设置 → Issue 提示词版本」；
+ * 缺省或读取失败回落到当前版本（analysis-worker 每轮 pass 重新读，改设置即生效）。
+ */
+async function resolveIssuePromptVersion(): Promise<string | undefined> {
+  try {
+    const settings = await resolveIssueSettings(null, [
+      "issue_prompt_version",
+    ]);
+    const raw = settings.get("issue_prompt_version");
+    return raw && raw.trim().length > 0 ? raw.trim() : undefined;
+  } catch {
+    return undefined;
   }
 }
 

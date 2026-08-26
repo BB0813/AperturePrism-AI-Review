@@ -4,6 +4,9 @@ import {
   buildIssueAnalysisMessages,
   buildIssueAnalysisRepairRequest,
   fenceUntrusted,
+  getIssueSystemPrompt,
+  ISSUE_ANALYSIS_PROMPT_VERSION,
+  ISSUE_PROMPT_VERSIONS,
 } from "./prompt.js";
 
 function context(overrides: Partial<IssueContext> = {}): IssueContext {
@@ -183,5 +186,31 @@ describe("对抗性注入样本", () => {
     // 三处不可信：标题、正文、评论；伪造闭合在评论里被中和。
     expect(content.split("<<<UNTRUSTED_INPUT").length - 1).toBe(3);
     expect(content.split("UNTRUSTED_INPUT>>>").length - 1).toBe(3);
+  });
+});
+
+describe("提示词版本化与回滚", () => {
+  it("版本表包含当前版本且默认取当前版本", () => {
+    expect(ISSUE_PROMPT_VERSIONS).toContain(ISSUE_ANALYSIS_PROMPT_VERSION);
+    expect(getIssueSystemPrompt()).toBe(getIssueSystemPrompt(ISSUE_ANALYSIS_PROMPT_VERSION));
+  });
+
+  it("未知版本回落到当前版本", () => {
+    expect(getIssueSystemPrompt("v999")).toBe(getIssueSystemPrompt());
+  });
+
+  it("v4 是 v5 去掉「低信息量先给方向」那条", () => {
+    const v4 = getIssueSystemPrompt("v4");
+    const v5 = getIssueSystemPrompt("v5");
+    expect(v4).toContain("你是一个严谨的 GitHub Issue 分析器");
+    expect(v5).toContain("低信息量也要先给方向");
+    expect(v4).not.toContain("低信息量也要先给方向");
+  });
+
+  it("指定版本后 system 消息内容随之切换", () => {
+    const systemV4 = buildIssueAnalysisMessages(context(), "v4").find(
+      (m) => m.role === "system",
+    )?.content;
+    expect(systemV4).not.toContain("低信息量也要先给方向");
   });
 });

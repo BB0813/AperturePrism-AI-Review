@@ -59,6 +59,39 @@ describe("evaluateAlerts", () => {
     expect(q?.firstAt).toBe(first.toISOString());
     expect(q?.lastAt).toBe("2026-08-25T01:00:00.000Z");
   });
+
+  it("自定义阈值生效：调高队列阈值后不再触发", () => {
+    const alerts = evaluateAlerts(
+      new Map(),
+      { queueDepth: 25, failed: 0, stale: 0 },
+      new Date("2026-08-25T00:00:00Z"),
+      { queueBacklog: 50, failedTasks: 1, staleTasks: 1 },
+    );
+    expect(alerts).toHaveLength(0);
+  });
+
+  it("自定义阈值生效：调高失败任务阈值后不触发", () => {
+    const alerts = evaluateAlerts(
+      new Map(),
+      { queueDepth: 0, failed: 3, stale: 0 },
+      new Date("2026-08-25T00:00:00Z"),
+      { queueBacklog: 20, failedTasks: 5, staleTasks: 1 },
+    );
+    expect(alerts).toHaveLength(0);
+  });
+
+  it("默认阈值与历史硬编码一致", () => {
+    const alerts = evaluateAlerts(
+      new Map(),
+      { queueDepth: 20, failed: 1, stale: 1 },
+      new Date("2026-08-25T00:00:00Z"),
+    );
+    expect(alerts.filter((a) => a.status === "active").map((a) => a.id).sort()).toEqual([
+      "failed_tasks",
+      "queue_backlog",
+      "stale_tasks",
+    ]);
+  });
 });
 
 describe("diffAlertTransitions", () => {

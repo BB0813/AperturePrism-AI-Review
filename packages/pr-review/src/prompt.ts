@@ -61,9 +61,29 @@ const MODE_INSTRUCTIONS: Record<ReviewMode, string> = {
     "审查模式：深度（大规模/复杂 PR）。重点关注关键路径与跨文件影响，findings 最多 50 条；优先报告严重度高的缺陷，宁可少而准，不要堆砌低价值意见。",
 };
 
-function systemPromptFor(mode: ReviewMode): string {
+/**
+ * 按版本登记的系统提示词。`PR_REVIEW_PROMPT_VERSION` 指向当前版本；新增语义改动时
+ * 升版本并把旧版本快照登记进来，即可在线上切换/回滚（复用 issue-analysis 的模式）。
+ */
+const PR_REVIEW_SYSTEM_PROMPTS: Readonly<Record<string, string>> = {
+  [PR_REVIEW_PROMPT_VERSION]: systemPrompt,
+};
+
+/** 可用的 PR 审查提示词版本。 */
+export const PR_REVIEW_PROMPT_VERSIONS: readonly string[] =
+  Object.keys(PR_REVIEW_SYSTEM_PROMPTS);
+
+/** 取指定版本的系统提示词；未知版本回落到当前版本。 */
+export function getPrReviewSystemPrompt(version?: string): string {
+  if (version && PR_REVIEW_SYSTEM_PROMPTS[version]) {
+    return PR_REVIEW_SYSTEM_PROMPTS[version];
+  }
+  return PR_REVIEW_SYSTEM_PROMPTS[PR_REVIEW_PROMPT_VERSION];
+}
+
+function systemPromptFor(mode: ReviewMode, version?: string): string {
   const extra = MODE_INSTRUCTIONS[mode];
-  return `${systemPrompt}\n\n${extra}`;
+  return `${getPrReviewSystemPrompt(version)}\n\n${extra}`;
 }
 
 export function renderPrContextText(context: RenderedPrContext): string {
@@ -88,9 +108,10 @@ export function renderPrContextText(context: RenderedPrContext): string {
 export function buildPrReviewMessages(
   context: RenderedPrContext,
   mode: ReviewMode = selectReviewMode(context),
+  promptVersion?: string,
 ): readonly ModelMessage[] {
   return [
-    { role: "system", content: systemPromptFor(mode) },
+    { role: "system", content: systemPromptFor(mode, promptVersion) },
     // diff 与仓库记忆都来自外部，必须包进不可信定界块（与 issue-analysis 一致）。
     { role: "user", content: fenceUntrusted(renderPrContextText(context)) },
   ];
@@ -130,9 +151,10 @@ export function injectReviewHistory(
 export function buildPrReviewRequest(
   context: RenderedPrContext,
   mode: ReviewMode = selectReviewMode(context),
+  promptVersion?: string,
 ): ModelInvocationRequest {
   return {
-    messages: buildPrReviewMessages(context, mode),
+    messages: buildPrReviewMessages(context, mode, promptVersion),
     responseFormat: "json",
     maxOutputTokens: 2_400,
     temperature: 0.2,
@@ -144,10 +166,11 @@ export function buildPrReviewRepairRequest(
   invalidText: string,
   issues: readonly string[],
   mode: ReviewMode = selectReviewMode(context),
+  promptVersion?: string,
 ): ModelInvocationRequest {
   return {
     messages: [
-      { role: "system", content: systemPromptFor(mode) },
+      { role: "system", content: systemPromptFor(mode, promptVersion) },
       {
         role: "user",
         content: `${fenceUntrusted(renderPrContextText(context))}
