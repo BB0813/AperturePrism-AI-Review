@@ -1,4 +1,6 @@
+import { useCallback, useEffect, useState } from "react";
 import { BugIcon, InfoIcon } from "../components/icons";
+import { fetchUpdateStatus } from "../lib/api";
 
 // 构建时由 Vite 注入（vite.config.ts define），用于核验前端是否已更新到新版本。
 declare const __APP_VERSION__: string;
@@ -22,6 +24,24 @@ const NOT_IN_SCOPE = [
 ];
 
 export function AboutPage() {
+  // 后端运行版本（/update/status，需登录）。拿不到就显示「未知」——版本核验是辅助，
+  // 不能因为接口失败把整个页面拖垮。
+  const [backendVersion, setBackendVersion] = useState<string | null>(null);
+
+  const loadBackend = useCallback(() => {
+    fetchUpdateStatus()
+      .then((status) => setBackendVersion(status.current.version || "unknown"))
+      .catch(() => setBackendVersion(null));
+  }, []);
+
+  useEffect(() => {
+    loadBackend();
+  }, [loadBackend]);
+
+  const frontendVersion = `v${__APP_VERSION__}`;
+  const versionMismatch =
+    backendVersion !== null && backendVersion !== frontendVersion;
+
   return (
     <div className="stack">
       <div className="page-head">
@@ -65,11 +85,22 @@ export function AboutPage() {
       <section className="panel">
         <div className="panel-title"><h2>版本</h2></div>
         <dl className="kv">
-          <dt>前端构建</dt><dd className="mono">v{__APP_VERSION__}</dd>
+          <dt>前端构建</dt><dd className="mono">{frontendVersion}</dd>
+          <dt>后端运行</dt>
+          <dd className="mono">
+            {backendVersion === null ? "未知" : backendVersion}
+          </dd>
         </dl>
-        <p className="faint" style={{ margin: 0, fontSize: 12 }}>
-          若此处版本落后于最新发布，请强刷页面（Ctrl+F5）以获取最新前端。
-        </p>
+        {versionMismatch ? (
+          <p className="faint" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--warn)" }}>
+            前端（{frontendVersion}）与后端（{backendVersion}）版本不一致：
+            请强刷页面（Ctrl+F5）获取最新前端；若仍不一致，请到「系统配置 → 在线更新」升级后端。
+          </p>
+        ) : (
+          <p className="faint" style={{ margin: 0, fontSize: 12 }}>
+            若此处版本落后于最新发布，请强刷页面（Ctrl+F5）以获取最新前端。
+          </p>
+        )}
       </section>
 
       <section className="panel">

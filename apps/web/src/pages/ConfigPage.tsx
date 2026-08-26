@@ -159,7 +159,16 @@ export function ConfigPage() {
           ) : null}
 
           <SettingsSection
-            keys={["webui_api_token", "log_level", "scan_enabled", "agent_team_enabled", "alert_webhook_url"]}
+            keys={[
+              "webui_api_token",
+              "log_level",
+              "scan_enabled",
+              "agent_team_enabled",
+              "alert_webhook_url",
+              "alert_queue_backlog_threshold",
+              "alert_failed_tasks_threshold",
+              "alert_stale_tasks_threshold",
+            ]}
             title="全局运维"
             desc="访问令牌、日志级别、总开关与告警通知；其余配置请在各自功能页维护"
           />
