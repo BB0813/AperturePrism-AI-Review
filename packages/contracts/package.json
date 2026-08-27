@@ -1,7 +1,7 @@
 {
   "name": "@apertureprism/contracts",
   "private": true,
-  "version": "1.0.70",
+  "version": "1.0.71",
   "type": "module",
   "scripts": {
     "build": "tsc",
