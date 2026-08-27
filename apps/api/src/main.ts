@@ -101,6 +101,7 @@ import {
   type NormalizedGitHubEvent,
   verifyWebhookSignature,
   WebhookSignatureError,
+  UnsupportedGitHubEventError,
 } from "../../../packages/github-adapter/src/index.js";
 import {
   DEFAULT_ISSUE_RESULT_SECTIONS_VALUE,
@@ -883,6 +884,24 @@ async function handleWebhook(
         response,
         400,
         { status: "error", reason: "invalid JSON payload" },
+        requestId,
+      );
+      return;
+    }
+    // 不在处理范围的事件（check_suite / check_run / workflow_run 等，GitHub App
+    // 订阅 check_suite 用于 PR 审查的 check run）必须 2xx 确认收讫，否则 GitHub
+    // 记为投递失败并重试，Webhook 自检的最近投递成功率会常年被这些噪声拉低
+    // （NAS 实测：最近 5 条投递全是 check_suite → 500，误报「签名不一致」）。
+    if (error instanceof UnsupportedGitHubEventError) {
+      metrics.increment("webhook.unsupported_event");
+      json(
+        response,
+        202,
+        {
+          status: "accepted",
+          outcome: "ignored",
+          reason: "unsupported_event",
+        },
         requestId,
       );
       return;
