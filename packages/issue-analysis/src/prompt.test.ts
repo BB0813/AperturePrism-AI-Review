@@ -279,14 +279,14 @@ describe("提示词版本化与回滚", () => {
 
   it("codeAccess=disabled 追加「当前代码访问」段落，缺省 / enabled 不追加", () => {
     const disabled = getIssueSystemPrompt("v9", "adaptive", undefined, "disabled");
-    expect(disabled).toContain("当前代码访问");
+    expect(disabled).toContain("（代码工具不可用）");
     expect(disabled).toContain("path 统一写「（未读取源码，路径待确认）」");
     expect(disabled).toContain("不得编造具体文件路径");
-    // 缺省与 enabled 均不注入该段落。
-    expect(getIssueSystemPrompt("v9")).not.toContain("当前代码访问");
-    expect(getIssueSystemPrompt("v9", "adaptive", undefined, "enabled")).not.toContain(
-      "当前代码访问",
-    );
+    // 缺省与 enabled 均不注入该段落（用仅存在于 disabled 段的特征文本判断）。
+    expect(getIssueSystemPrompt("v9")).not.toContain("（代码工具不可用）");
+    expect(
+      getIssueSystemPrompt("v9", "adaptive", undefined, "enabled"),
+    ).not.toContain("（代码工具不可用）");
   });
 
   it("codeAccess 穿透到 system 消息", () => {
