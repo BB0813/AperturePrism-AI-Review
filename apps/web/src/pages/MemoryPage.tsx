@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   bumpCache,
+  createRepoMemory,
   deleteRepoMemory,
   fetchMe,
   fetchRepoMemory,
@@ -47,6 +48,13 @@ export function MemoryPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  // 新增规则/知识表单（issue #32：手动写入审核规则，bot 分析/审查时参考）。
+  const [draft, setDraft] = useState({
+    kind: "rule" as "rule" | "knowledge",
+    title: "",
+    content: "",
+    repositoryId: "",
+  });
 
   const load = useCallback(() => {
     setLoading(true);
@@ -135,6 +143,33 @@ export function MemoryPage() {
     }
   };
 
+  const create = async () => {
+    const title = draft.title.trim();
+    const content = draft.content.trim();
+    if (!title || !content) {
+      toast.error("请填写标题与内容");
+      return;
+    }
+    setBusy("create");
+    try {
+      await createRepoMemory({
+        kind: draft.kind,
+        title,
+        content,
+        ...(draft.repositoryId ? { repositoryId: draft.repositoryId } : {}),
+      });
+      toast.success(
+        `已写入${draft.kind === "rule" ? "规则" : "知识"}「${title.slice(0, 40)}」，bot 后续分析/审查会参考它。`,
+      );
+      setDraft({ kind: "rule", title: "", content: "", repositoryId: "" });
+      load();
+    } catch (err) {
+      toast.error(`写入失败：${err instanceof Error ? err.message : err}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const repoName = (id: string | null) => {
     if (!id) return "全局";
     const repo = repos.find((r) => r.id === id);
@@ -161,6 +196,65 @@ export function MemoryPage() {
           </button>
         </div>
       </div>
+
+      {isAdmin ? (
+        <section className="panel">
+          <div className="panel-title">
+            <h2><SparkleIcon size={14} /> 新增规则 / 知识</h2>
+            <span className="faint" style={{ fontSize: 12 }}>
+              手动写入审核规则或仓库知识，bot 后续的 Issue 分析 / PR 审查会参考（issue #32）
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <select
+              className="input"
+              style={{ flex: "0 0 110px" }}
+              value={draft.kind}
+              onChange={(event) =>
+                setDraft((prev) => ({ ...prev, kind: event.target.value as "rule" | "knowledge" }))
+              }
+              title="记忆类型"
+            >
+              <option value="rule">规则</option>
+              <option value="knowledge">知识</option>
+            </select>
+            <select
+              className="input"
+              style={{ flex: "0 0 170px" }}
+              value={draft.repositoryId}
+              onChange={(event) =>
+                setDraft((prev) => ({ ...prev, repositoryId: event.target.value }))
+              }
+              title="适用仓库（留空 = 全局）"
+            >
+              <option value="">全局（所有仓库）</option>
+              {repos.map((repo) => (
+                <option key={repo.id} value={repo.id}>{repo.fullName}</option>
+              ))}
+            </select>
+            <input
+              className="input"
+              style={{ flex: "1 1 220px" }}
+              placeholder="标题，如：本项目禁止直接改数据库 schema"
+              value={draft.title}
+              onChange={(event) => setDraft((prev) => ({ ...prev, title: event.target.value }))}
+            />
+          </div>
+          <textarea
+            className="input"
+            rows={3}
+            style={{ width: "100%", marginTop: 8, resize: "vertical" }}
+            placeholder="内容，如：schema 变更必须先生成正式 Drizzle migration，再提交。"
+            value={draft.content}
+            onChange={(event) => setDraft((prev) => ({ ...prev, content: event.target.value }))}
+          />
+          <div style={{ marginTop: 8, display: "flex", justifyContent: "flex-end" }}>
+            <button className="btn btn-primary" onClick={create} disabled={busy === "create"}>
+              {busy === "create" ? "写入中…" : "写入记忆"}
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       {error ? (
         <ErrorPanel error={error} onRetry={load} />
@@ -268,8 +362,8 @@ export function MemoryPage() {
 
             <p className="faint" style={{ marginTop: 12, fontSize: 12 }}>
               {isAdmin
-                ? "反思（reflection）来自每次完成的 Issue 分析 / PR 审查；合并 Agent 定期（每 10 分钟）把未合并反思提炼为规则/知识，并回灌进后续分析上下文。"
-                : "当前账号无管理员权限，只能查看；合并与删除需要管理员。"}
+                ? "反思（reflection）来自每次完成的 Issue 分析 / PR 审查；合并 Agent 定期（每 10 分钟）把未合并反思提炼为规则/知识，并回灌进后续分析上下文。手动写入的规则/知识（consolidated=true）立即生效，无需等待合并。"
+                : "当前账号无管理员权限，只能查看；写入规则/知识、合并与删除需要管理员。"}
             </p>
           </section>
         </div>

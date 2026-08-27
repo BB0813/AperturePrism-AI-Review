@@ -35,6 +35,8 @@ const rowColumns = {
 /**
  * Appends a memory row. `repositoryId` is optional so system-wide knowledge
  * can live without a repo; reflections carry it whenever the repo is known.
+ * `consolidated` defaults to false（自动沉淀的反思）；手动创建的规则/知识应传
+ * true，使其立即进入 getRepoMemorySummary 的分析上下文（issue #32）。
  */
 export async function writeRepoMemory(
   db: Database,
@@ -45,6 +47,7 @@ export async function writeRepoMemory(
     content: string;
     sourceType?: string | undefined;
     sourceRef?: string | undefined;
+    consolidated?: boolean;
   },
 ): Promise<void> {
   await db.insert(schema.repoMemory).values({
@@ -54,6 +57,7 @@ export async function writeRepoMemory(
     content: input.content,
     sourceType: input.sourceType ?? null,
     sourceRef: input.sourceRef ?? null,
+    consolidated: input.consolidated ?? false,
   });
 }
 

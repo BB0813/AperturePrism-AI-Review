@@ -61,6 +61,7 @@ import {
   resolveGithubAppCredentials,
   seedDefaultLabelRules,
   listRepoMemory,
+  writeRepoMemory,
   listUsers,
   modelRolePolicies,
   providerAccounts,
@@ -4646,6 +4647,8 @@ async function handleResultsDelete(
  * Repository memory management:
  *  - GET /memory: list (any authenticated user), filterable by repositoryId /
  *    kind, offset-paginated; always returns per-kind counts for the UI cards.
+ *  - POST /memory: admin, create a manual rule/knowledge entry (issue #32);
+ *    consolidated=true so it is immediately part of the analysis context.
  *  - POST /memory/consolidate: admin, runs one memory-consolidation sweep.
  *  - DELETE /memory/:id: admin, removes a single memory row.
  */
@@ -4704,6 +4707,88 @@ async function handleMemory(
       );
     } catch (error) {
       logger.warn({ err: error }, "memory list failed");
+      json(response, 500, { status: "error", reason: "memory_failed" }, requestId);
+    }
+    return;
+  }
+
+  if (path === "/memory" && request.method === "POST") {
+    if (!(await isAdminRequest(request))) {
+      json(
+        response,
+        403,
+        { status: "error", reason: "admin required" },
+        requestId,
+      );
+      return;
+    }
+    const body = await readBody(request);
+    let parsed: {
+      kind?: unknown;
+      title?: unknown;
+      content?: unknown;
+      repositoryId?: unknown;
+    };
+    try {
+      parsed = JSON.parse(body.toString("utf8"));
+    } catch {
+      json(response, 400, { status: "error", reason: "invalid JSON" }, requestId);
+      return;
+    }
+    const kind = parsed.kind;
+    const title = typeof parsed.title === "string" ? parsed.title.trim() : "";
+    const content =
+      typeof parsed.content === "string" ? parsed.content.trim() : "";
+    const repositoryId =
+      typeof parsed.repositoryId === "string" && parsed.repositoryId.trim().length > 0
+        ? parsed.repositoryId.trim()
+        : undefined;
+    // 手动写入只允许 rule / knowledge：reflection 是自动沉淀的，不允许人工伪装。
+    if (kind !== "rule" && kind !== "knowledge") {
+      json(
+        response,
+        400,
+        { status: "error", reason: "kind must be rule or knowledge" },
+        requestId,
+      );
+      return;
+    }
+    if (!title || !content) {
+      json(
+        response,
+        400,
+        { status: "error", reason: "title and content required" },
+        requestId,
+      );
+      return;
+    }
+    if (repositoryId && !UUID_PATTERN.test(repositoryId)) {
+      json(
+        response,
+        400,
+        { status: "error", reason: "invalid repositoryId" },
+        requestId,
+      );
+      return;
+    }
+    try {
+      // consolidated=true：手动规则/知识立即进入分析上下文（issue #32）。
+      await writeRepoMemory(database.db, {
+        repositoryId,
+        kind,
+        title,
+        content,
+        sourceType: "manual",
+        consolidated: true,
+      });
+      audit(request, "memory.create", undefined, {
+        kind,
+        title,
+        repositoryId: repositoryId ?? null,
+      });
+      json(response, 200, { status: "ok" }, requestId);
+    } catch (error) {
+      logger.warn({ err: error }, "memory create failed");
       json(response, 500, { status: "error", reason: "memory_failed" }, requestId);
     }
     return;

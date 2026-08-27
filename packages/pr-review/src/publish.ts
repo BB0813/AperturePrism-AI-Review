@@ -63,7 +63,7 @@ export function reviewEventTone(
 export function renderReviewBody(review: PrReviewContract): string {
   const lines: string[] = [`## 审查总结`, review.summary, ""];
   if (review.findings.length > 0) {
-    lines.push(`### Findings (${review.findings.length})`);
+    lines.push(`### 发现的问题 (${review.findings.length})`);
     for (const finding of review.findings) {
       lines.push(
         `- **${finding.severity.toUpperCase()}** \`${finding.rule}\` ${finding.file}${finding.afterLine > 0 ? `:${finding.afterLine}` : ""}`,

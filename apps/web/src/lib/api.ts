@@ -745,6 +745,31 @@ export type MemoryConsolidationResult = {
   rules: number;
 };
 
+/** 手动创建仓库记忆条目（规则/知识，管理员）；kind 限 rule | knowledge。 */
+export async function createRepoMemory(input: {
+  kind: "rule" | "knowledge";
+  title: string;
+  content: string;
+  repositoryId?: string;
+}): Promise<void> {
+  const response = await fetch("/memory", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...authHeaders() },
+    body: JSON.stringify(input),
+  });
+  if (response.status === 401) {
+    notifyUnauthorized();
+    throw new Error("unauthorized");
+  }
+  if (!response.ok) {
+    const reason =
+      response.status === 403
+        ? "需要管理员权限（403）"
+        : `memory create ${response.status}`;
+    throw new Error(reason);
+  }
+}
+
 /** Runs one memory-consolidation sweep (admin only). */
 export async function triggerMemoryConsolidation(): Promise<MemoryConsolidationResult> {
   const response = await fetch("/memory/consolidate", {
