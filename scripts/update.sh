@@ -41,7 +41,10 @@ log info "update target=$TARGET current=$OLD_TAG project=$PROJECT"
 # (and any nested `env_file:` in compose) has every production variable.
 # 注意：前缀类变量（POSTGRES_/GITHUB_/EMBEDDING_/QQ_）不能带尾随 `=`，
 # 否则 `GITHUB_APP_ID=` 这类变量永远匹配不上，重建出的容器会丢失凭据。
-env | grep -E '^(DATABASE_URL|REDIS_URL|WEBUI_API_TOKEN|MODEL_PROVIDER_BASE_URLS|DEFAULT_LLM_MODEL|CREDENTIAL_MASTER_KEY|INDEX_INTERVAL_MS|API_PORT|WEB_PORT|HOST|PORT|LOG_LEVEL|NODE_ENV)=|^(POSTGRES_|GITHUB_|EMBEDDING_|QQ_)' > "$ENV_FILE" || true
+# AP_VERIFY 必须保留：丢了它，下次在线更新就不叠加 compose.verify.yml，
+# 服务会建到默认网络，web 解析不到 api 导致 502（NAS 实测网络分裂事故）。
+# OAUTH_REDIRECT_URI 同样必须保留，否则 OAuth 登录回调会失效。
+env | grep -E '^(DATABASE_URL|REDIS_URL|WEBUI_API_TOKEN|MODEL_PROVIDER_BASE_URLS|DEFAULT_LLM_MODEL|CREDENTIAL_MASTER_KEY|INDEX_INTERVAL_MS|API_PORT|WEB_PORT|HOST|PORT|LOG_LEVEL|NODE_ENV|AP_VERIFY|OAUTH_REDIRECT_URI)=|^(POSTGRES_|GITHUB_|EMBEDDING_|QQ_)' > "$ENV_FILE" || true
 echo "IMAGE_TAG=$TARGET" >> "$ENV_FILE"
 
 # Compose runs from the api container's cwd (/app), so reference the compose
