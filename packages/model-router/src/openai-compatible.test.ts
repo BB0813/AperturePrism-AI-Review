@@ -312,6 +312,10 @@ describe("OpenAI-compatible adapter tool calling", () => {
       messages: Record<string, unknown>[];
     };
     const assistant = body.messages[1];
+    expect(assistant).toBeDefined();
+    const tool = body.messages[2];
+    expect(tool).toBeDefined();
+    if (!assistant || !tool) return;
     expect(assistant.tool_calls).toEqual([
       {
         id: "call_1",
@@ -321,7 +325,6 @@ describe("OpenAI-compatible adapter tool calling", () => {
     ]);
     // 内部驼峰字段绝不能再出现在请求体里。
     expect(assistant).not.toHaveProperty("toolCalls");
-    const tool = body.messages[2];
     expect(tool.tool_call_id).toBe("call_1");
     expect(tool).not.toHaveProperty("toolCallId");
   });
