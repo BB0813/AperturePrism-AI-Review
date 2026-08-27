@@ -3074,7 +3074,7 @@ function settingDefaultValue(key: string): string {
   if (key === "log_level") return config.logLevel;
   if (key === "issue_reanalyze_min_change")
     return String(DEFAULT_MIN_CHANGE_RATIO);
-  if (key === "issue_prompt_version") return "v8";
+  if (key === "issue_prompt_version") return "v9";
   if (key === "issue_prompt_mode") return "adaptive";
   if (key === "issue_result_sections") return DEFAULT_ISSUE_RESULT_SECTIONS_VALUE;
   if (key === "embedding_model") return config.embedding.model;

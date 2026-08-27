@@ -120,6 +120,21 @@ describe("issue comment templates", () => {
     expect(comment).not.toContain("可以先试试");
   });
 
+  it("未读取源码的占位路径不包代码框（避免被当成真实文件路径）", () => {
+    const graded = applyGradingRules({
+      ...result,
+      proposedChanges: [
+        {
+          path: "（未读取源码，路径待确认）",
+          change: "在合并转发渲染处移除子消息时间字段",
+        },
+      ],
+    });
+    const comment = buildIssueAnalysisComment(graded);
+    expect(comment).toContain("（未读取源码，路径待确认）：在合并转发渲染处移除子消息时间字段");
+    expect(comment).not.toContain("`（未读取源码，路径待确认）`");
+  });
+
   it("建议标签逐个包行内代码（灰框），不平铺（issue #23）", () => {
     const graded = applyGradingRules({
       ...result,

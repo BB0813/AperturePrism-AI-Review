@@ -169,12 +169,19 @@ export async function analyzeIssue(
   // 仍保留 main 这次路由调用：candidate 供修复阶段 sticky，attempts/usage
   // 供 attempt 记账，两者都无法从循环内部获得。代价是开启探索时多一次调用，
   // 这也是该能力默认关闭的原因之一。
+  //
+  // codeAccess 随 tools 同步注入提示词：有工具 → 模型可读源码，路径可精确；
+  // 无工具 → 系统消息末尾追加「当前代码访问」段落，明令禁止编造文件路径。
+  const codeAccess: "enabled" | "disabled" = options.tools
+    ? "enabled"
+    : "disabled";
   const main = await invokeOnce(
     buildIssueAnalysisRequest(
       context,
       options.promptVersion,
       options.promptMode,
       options.sections,
+      codeAccess,
     ),
   );
   let mainContent = main.response.content;
@@ -186,6 +193,7 @@ export async function analyzeIssue(
         options.promptVersion,
         options.promptMode,
         options.sections,
+        codeAccess,
       ),
       options.tools.context,
       {
@@ -229,6 +237,7 @@ export async function analyzeIssue(
       options.promptVersion,
       options.promptMode,
       options.sections,
+      codeAccess,
     ),
     deadlineMs: remainingMs,
     retryPolicy: options.retryPolicy,

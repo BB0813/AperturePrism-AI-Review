@@ -266,6 +266,40 @@ describe("提示词版本化与回滚", () => {
     expect(v8).toContain("仍会被服务端降级");
     expect(v7).not.toContain("优先级评级校准");
   });
+
+  it("v9 追加代码定位诚实性：路径须可核实、证据不充数（#25）", () => {
+    const v9 = getIssueSystemPrompt("v9");
+    const v8 = getIssueSystemPrompt("v8");
+    expect(v9).toContain("优先级评级校准"); // 继承 v8
+    expect(v9).toContain("代码定位诚实性");
+    expect(v9).toContain("未经核实的具体路径都属于编造");
+    expect(v9).toContain("evidence 输出空数组");
+    expect(v8).not.toContain("代码定位诚实性");
+  });
+
+  it("codeAccess=disabled 追加「当前代码访问」段落，缺省 / enabled 不追加", () => {
+    const disabled = getIssueSystemPrompt("v9", "adaptive", undefined, "disabled");
+    expect(disabled).toContain("当前代码访问");
+    expect(disabled).toContain("path 统一写「（未读取源码，路径待确认）」");
+    expect(disabled).toContain("禁止编造具体文件路径");
+    // 缺省与 enabled 均不注入该段落。
+    expect(getIssueSystemPrompt("v9")).not.toContain("当前代码访问");
+    expect(getIssueSystemPrompt("v9", "adaptive", undefined, "enabled")).not.toContain(
+      "当前代码访问",
+    );
+  });
+
+  it("codeAccess 穿透到 system 消息", () => {
+    const system = buildIssueAnalysisMessages(
+      context(),
+      "v9",
+      "adaptive",
+      undefined,
+      "disabled",
+    ).find((m) => m.role === "system")?.content;
+    expect(system).toContain("当前代码访问");
+    expect(system).toContain("未读取源码，路径待确认");
+  });
 });
 
 describe("Issue 结果区块开关", () => {

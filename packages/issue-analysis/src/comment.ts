@@ -3,6 +3,7 @@ import {
   type GradedIssueAnalysis,
 } from "../../../packages/contracts/src/index.js";
 import type { RelatedIssueRow } from "../../../packages/duplicate-detection/src/index.js";
+import { CODE_ACCESS_UNKNOWN_PATH } from "./prompt.js";
 
 const severityLabels: Readonly<Record<string, string>> = {
   S0: "S0（灾难性）",
@@ -99,7 +100,12 @@ export function buildIssueAnalysisComment(
     lines.push("", "### 建议修改", "");
     for (const item of result.proposedChanges ?? []) {
       const where = item.locator ? ` \`${item.locator}\`` : "";
-      lines.push(`- \`${item.path}\`${where}：${item.change}`);
+      // 未读取源码时的占位路径不算真实代码位置，不包代码框（避免被误认为真实文件）。
+      const path =
+        item.path === CODE_ACCESS_UNKNOWN_PATH
+          ? item.path
+          : `\`${item.path}\``;
+      lines.push(`- ${path}${where}：${item.change}`);
     }
   }
 

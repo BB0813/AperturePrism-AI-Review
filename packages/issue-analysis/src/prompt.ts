@@ -12,7 +12,7 @@ import type { IssueContext } from "./context.js";
 export { fenceUntrusted, UNTRUSTED_CLOSE, UNTRUSTED_OPEN };
 
 /** Bump when the prompt semantics change so the idempotency key changes too. */
-export const ISSUE_ANALYSIS_PROMPT_VERSION = "v8" as const;
+export const ISSUE_ANALYSIS_PROMPT_VERSION = "v9" as const;
 /** Policy version embedded in task dedupe keys; must include the prompt version. */
 export const ISSUE_ANALYSIS_POLICY_VERSION =
   `issue-analysis-${ISSUE_ANALYSIS_PROMPT_VERSION}` as const;
@@ -95,7 +95,7 @@ const SYSTEM_PROMPT_V7 = `${SYSTEM_PROMPT_V6}
 - 这一条优先于上方所有「先给方向」的规则：重复建议已执行操作比信息不足更伤害信任。`;
 
 /**
- * v8（当前）：优先级评级校准（#24）——修正此前评级系统性偏低的问题：
+ * v8：优先级评级校准（#24）——修正此前评级系统性偏低的问题：
  * 缺陷类基线 P2、功能请求基线 P2，不再动辄 P3/needs_triage；已修复/已存在/
  * 宣传类才降 P3。服务端的证据降级护栏保持不变。
  */
@@ -112,6 +112,33 @@ const SYSTEM_PROMPT_V8 = `${SYSTEM_PROMPT_V7}
 - 本条校准不改变服务端护栏：没有实质证据时，模型给出的 P0/P1 仍会被服务端降级——所以缺证据的缺陷请直接标 P2 而不是去猜高优先级。`;
 
 /**
+ * v9（当前）：代码定位诚实性（#25）—— 无源码上下文时禁止编造文件路径。
+ * 在 v8 基础上新增：
+ * - proposedChanges 的 path 只能来自实际读取或可核实的仓库记忆；未经确认的一律不写具体路径。
+ * - evidence 只放 Issue 中实际出现的实质原文，没有就输出空数组，不用「影响范围」充数。
+ */
+const SYSTEM_PROMPT_V9 = `${SYSTEM_PROMPT_V8}
+
+代码定位诚实性（补充规则，必须遵守；与上方规则冲突时以此为准）：
+- proposedChanges 的 path 只能是你**实际读取过**的源码文件，或能依据仓库记忆**明确确认存在**的文件；任何未经核实的具体路径都属于编造，禁止输出。
+- evidence 只能引用 Issue 正文 / 评论中**实际出现**的原文摘录（复现步骤、日志、堆栈、报错原文等实质证据）；Issue 里没有这类实质证据时，evidence 输出空数组 —— 不要用「影响范围」等泛化描述凑数。
+- 是否具备代码访问能力以系统消息末尾的「当前代码访问」段落为准；标注无能力时按该段规则执行。`;
+
+/** 无代码访问时 proposedChanges.path 的统一占位值；comment.ts 渲染时不再包代码框。 */
+export const CODE_ACCESS_UNKNOWN_PATH = "（未读取源码，路径待确认）";
+
+/**
+ * 无代码访问能力时的追加指令（codeAccess = "disabled"）。与上方案例一致追加在
+ * 系统消息末尾，作为最高优先级约束。deep 分析（读源码）关闭时由 analyze.ts 注入。
+ */
+const CODE_ACCESS_DISABLED_INSTRUCTION = `
+
+当前代码访问（由系统注入，必须遵守）：
+- 你**没有**读取该仓库源码的能力（代码工具不可用），无法确认任何文件是否真实存在。
+- proposedChanges 不得编造具体文件路径、文件名或行号；只能给出功能 / 模块层面的修改方向。path 统一写「${CODE_ACCESS_UNKNOWN_PATH}」，并在 change 中说明改动意图与涉及的功能模块；不要写出看似具体、实则未经核实的路径。
+- evidence 只能引用 Issue 正文 / 评论中实际出现的原文；Issue 里没有日志、堆栈、复现步骤等实质证据时，evidence 输出空数组，不要用「影响范围」这类泛化描述填充。`;
+
+/**
  * 按版本登记的系统提示词。`ISSUE_ANALYSIS_PROMPT_VERSION` 指向当前版本；历史版本
  * 保留在此以便线上回滚（改「分析设置 → Issue 提示词版本」即可切回，无需重新部署）。
  *
@@ -119,8 +146,10 @@ const SYSTEM_PROMPT_V8 = `${SYSTEM_PROMPT_V7}
  * 快照登记进本表，再写新版本正文 —— 这样新版本翻车时可一键回退。
  */
 const ISSUE_SYSTEM_PROMPTS: Readonly<Record<string, string>> = {
-  // v8（当前）：优先级评级校准 —— bug/feature 基线 P2，不再动辄 low（#24）。
-  [ISSUE_ANALYSIS_PROMPT_VERSION]: SYSTEM_PROMPT_V8,
+  // v9（当前）：代码定位诚实性 —— 无源码上下文禁止编造路径、证据不充数（#25）。
+  [ISSUE_ANALYSIS_PROMPT_VERSION]: SYSTEM_PROMPT_V9,
+  // v8：优先级评级校准 —— bug/feature 基线 P2，不再动辄 low（#24）。
+  v8: SYSTEM_PROMPT_V8,
   // v7：增强「已执行操作」约束（#19）。
   v7: SYSTEM_PROMPT_V7,
   // v6：分类差异化 —— 功能请求轻量直达实现，缺陷类保持信息量。
@@ -241,6 +270,7 @@ export function getIssueSystemPrompt(
   version?: string,
   mode: PromptMode = "adaptive",
   sections?: ReadonlySet<IssueResultSection>,
+  codeAccess?: "enabled" | "disabled",
 ): string {
   const base =
     (version && ISSUE_SYSTEM_PROMPTS[version]) ||
@@ -248,7 +278,10 @@ export function getIssueSystemPrompt(
     SYSTEM_PROMPT_V6;
   const extra = MODE_INSTRUCTIONS[mode];
   const withMode = extra ? `${base}\n\n${extra}` : base;
-  return withMode + sectionControlInstruction(sections);
+  const withSections = withMode + sectionControlInstruction(sections);
+  if (codeAccess === "disabled")
+    return withSections + CODE_ACCESS_DISABLED_INSTRUCTION;
+  return withSections;
 }
 
 export function buildIssueAnalysisMessages(
@@ -256,11 +289,12 @@ export function buildIssueAnalysisMessages(
   promptVersion?: string,
   mode: PromptMode = "adaptive",
   sections?: ReadonlySet<IssueResultSection>,
+  codeAccess?: "enabled" | "disabled",
 ): readonly ModelMessage[] {
   return [
     {
       role: "system",
-      content: getIssueSystemPrompt(promptVersion, mode, sections),
+      content: getIssueSystemPrompt(promptVersion, mode, sections, codeAccess),
     },
     { role: "user", content: renderIssueContext(context) },
   ];
@@ -273,12 +307,13 @@ export function buildIssueAnalysisRepairRequest(
   promptVersion?: string,
   mode: PromptMode = "adaptive",
   sections?: ReadonlySet<IssueResultSection>,
+  codeAccess?: "enabled" | "disabled",
 ): ModelInvocationRequest {
   return {
     messages: [
       {
         role: "system",
-        content: getIssueSystemPrompt(promptVersion, mode, sections),
+        content: getIssueSystemPrompt(promptVersion, mode, sections, codeAccess),
       },
       {
         role: "user",
@@ -304,9 +339,16 @@ export function buildIssueAnalysisRequest(
   promptVersion?: string,
   mode: PromptMode = "adaptive",
   sections?: ReadonlySet<IssueResultSection>,
+  codeAccess?: "enabled" | "disabled",
 ): ModelInvocationRequest {
   return {
-    messages: buildIssueAnalysisMessages(context, promptVersion, mode, sections),
+    messages: buildIssueAnalysisMessages(
+      context,
+      promptVersion,
+      mode,
+      sections,
+      codeAccess,
+    ),
     responseFormat: "json",
     maxOutputTokens: 2_500,
     temperature: 0.2,
