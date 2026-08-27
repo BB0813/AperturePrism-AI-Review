@@ -281,7 +281,7 @@ describe("提示词版本化与回滚", () => {
     const disabled = getIssueSystemPrompt("v9", "adaptive", undefined, "disabled");
     expect(disabled).toContain("当前代码访问");
     expect(disabled).toContain("path 统一写「（未读取源码，路径待确认）」");
-    expect(disabled).toContain("禁止编造具体文件路径");
+    expect(disabled).toContain("不得编造具体文件路径");
     // 缺省与 enabled 均不注入该段落。
     expect(getIssueSystemPrompt("v9")).not.toContain("当前代码访问");
     expect(getIssueSystemPrompt("v9", "adaptive", undefined, "enabled")).not.toContain(
