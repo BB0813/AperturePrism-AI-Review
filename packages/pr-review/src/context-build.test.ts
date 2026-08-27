@@ -27,7 +27,6 @@ function makeGithub(): GitHubClient {
     getAppMetadata: async () => ({ id: 1, slug: "app", name: "App" }),
     getWebhookConfig: async () => ({
       url: "",
-      active: false,
       contentType: "json",
     }),
     pingAppWebhook: async () => undefined,

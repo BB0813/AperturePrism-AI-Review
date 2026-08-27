@@ -205,9 +205,9 @@ export function GitHubAccessPage() {
                   className="btn"
                   onClick={() => void runSelfTest()}
                   disabled={selfTesting || !cfg?.githubAppConfigured}
-                  title={!cfg?.githubAppConfigured ? "先配置 GitHub App 才能自检" : "向 GitHub 发送测试投递并回查结果"}
+                  title={!cfg?.githubAppConfigured ? "先配置 GitHub App 才能自检" : "读取 GitHub 侧配置并回查最近投递成功率"}
                 >
-                  {selfTesting ? "自检中（约 10 秒）…" : "发送测试投递"}
+                  {selfTesting ? "自检中…" : "Webhook 自检"}
                 </button>
               </StatusItem>
             </div>
@@ -221,7 +221,6 @@ export function GitHubAccessPage() {
               (() => {
                 const healthy =
                   selfTestResult.urlLooksRight &&
-                  selfTestResult.active &&
                   selfTestResult.recentDeliveries.length > 0 &&
                   selfTestResult.recentDeliveries.every(
                     (d) => d.statusCode !== null && d.statusCode < 400,

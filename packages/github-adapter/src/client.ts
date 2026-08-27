@@ -115,7 +115,6 @@ export type GitHubClient = {
    */
   getWebhookConfig: (signal?: AbortSignal) => Promise<{
     url: string;
-    active: boolean;
     contentType: string;
   }>;
   /**
@@ -675,22 +674,21 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
     },
 
     getWebhookConfig: async (signal) => {
+      // /app/hook/config 返回的是扁平配置对象：{url, content_type, secret, ...}，
+      // 没有 config 包裹，也没有 active 字段（active 在 /app/hook 里，但该端点对
+      // App JWT 实测返回 401——scope 限制）。因此这里只读 url 与 content_type。
       const hook = await request<{
-        active?: unknown;
-        config?: { url?: unknown; content_type?: unknown };
+        url?: unknown;
+        content_type?: unknown;
       }>("/app/hook/config", {
         method: "GET",
         token: signAppJwt(options.appId, options.privateKeyPem, now()),
         ...(signal ? { signal } : {}),
       });
       return {
-        url:
-          typeof hook.config?.url === "string" ? hook.config.url : "",
-        active: hook.active === true,
+        url: typeof hook.url === "string" ? hook.url : "",
         contentType:
-          typeof hook.config?.content_type === "string"
-            ? hook.config.content_type
-            : "",
+          typeof hook.content_type === "string" ? hook.content_type : "",
       };
     },
 

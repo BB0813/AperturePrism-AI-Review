@@ -729,9 +729,7 @@ async function handleWebhookSelfTest(
 
     const urlLooksRight = hookConfig.url.endsWith("/github/webhook");
     let diagnosis: string;
-    if (!hookConfig.active) {
-      diagnosis = "webhook 在 GitHub 侧处于停用状态，请到 GitHub App 设置页启用";
-    } else if (!urlLooksRight) {
+    if (!urlLooksRight) {
       diagnosis = `webhook URL 应以 /github/webhook 结尾，当前为「${hookConfig.url || "（空）"}」——这是投递失败最常见的原因，请在 GitHub App 设置页修正`;
     } else if (recent.length === 0) {
       diagnosis =
@@ -755,7 +753,6 @@ async function handleWebhookSelfTest(
         status: "ok",
         webhookUrl: hookConfig.url,
         urlLooksRight,
-        active: hookConfig.active,
         contentType: hookConfig.contentType,
         recentDeliveries: recent.map((entry) => ({
           event: entry.event,

@@ -1487,7 +1487,6 @@ export type WebhookSelfTestResult = {
   status: string;
   webhookUrl: string;
   urlLooksRight: boolean;
-  active: boolean;
   contentType: string;
   recentDeliveries: {
     event: string;
