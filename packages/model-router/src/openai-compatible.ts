@@ -4,6 +4,7 @@ import {
   type ModelErrorCategory,
   type ModelInvocationRequest,
   type ModelInvocationResponse,
+  type ModelMessage,
   type ModelProviderAdapter,
 } from "../../../packages/domain/src/index.js";
 
@@ -14,6 +15,30 @@ export type OpenAICompatibleOptions = {
   resolveApiKey: (accountName: string) => Promise<string>;
   fetchImpl?: typeof fetch;
 };
+
+/**
+ * 把内部 Message（驼峰 toolCalls/toolCallId）转换成 OpenAI 协议字段
+ * （蛇形 tool_calls / tool_call_id）。此前直接透传，导致工具循环的第二轮起
+ * （assistant 携带 tool_calls、tool 消息携带 tool_call_id）字段名不被网关识别，
+ * 网关返回 5xx → deep 分析（读源码）恒失败（issue #30 的拦路石）。
+ */
+function toWireMessage(message: ModelMessage): Record<string, unknown> {
+  const base: Record<string, unknown> = {
+    role: message.role,
+    content: message.content,
+  };
+  if (message.role === "assistant" && message.toolCalls && message.toolCalls.length > 0) {
+    base.tool_calls = message.toolCalls.map((call) => ({
+      id: call.id,
+      type: "function",
+      function: { name: call.name, arguments: call.arguments },
+    }));
+  }
+  if (message.role === "tool" && message.toolCallId) {
+    base.tool_call_id = message.toolCallId;
+  }
+  return base;
+}
 
 type ChatCompletionResponse = {
   choices?: {
@@ -104,7 +129,7 @@ export function createOpenAICompatibleAdapter(
           },
           body: JSON.stringify({
             model: candidate.model,
-            messages: request.messages,
+            messages: request.messages.map(toWireMessage),
             ...(request.tools === undefined || request.tools.length === 0
               ? {}
               : { tools: request.tools }),

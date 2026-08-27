@@ -269,6 +269,63 @@ describe("OpenAI-compatible adapter tool calling", () => {
     expect(body).not.toHaveProperty("tools");
   });
 
+  it("serializes toolCalls/toolCallId into the OpenAI snake_case wire format", async () => {
+    // 回归（#30）：此前直接透传驼峰字段（toolCalls / toolCallId），工具循环的
+    // 第二轮起网关不识别这些字段名返回 5xx，deep 分析（读源码）恒失败。
+    const { adapter, calls } = adapterWith(() =>
+      jsonResponse(completion("final")),
+    );
+    const toolLoopRequest: ModelInvocationRequest = {
+      messages: [
+        { role: "user", content: "look" },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            { id: "call_1", name: "read_file", arguments: '{"path":"a.ts"}' },
+          ],
+        },
+        {
+          role: "tool",
+          content: "file contents",
+          toolCallId: "call_1",
+        },
+      ],
+      tools: [
+        {
+          name: "read_file",
+          description: "read a file",
+          parameters: {
+            type: "object",
+            properties: { path: { type: "string" } },
+            required: ["path"],
+          },
+        },
+      ],
+    };
+    await adapter.invoke(
+      candidate,
+      toolLoopRequest,
+      new AbortController().signal,
+    );
+    const body = JSON.parse(String(calls[0]?.init.body)) as {
+      messages: Record<string, unknown>[];
+    };
+    const assistant = body.messages[1];
+    expect(assistant.tool_calls).toEqual([
+      {
+        id: "call_1",
+        type: "function",
+        function: { name: "read_file", arguments: '{"path":"a.ts"}' },
+      },
+    ]);
+    // 内部驼峰字段绝不能再出现在请求体里。
+    expect(assistant).not.toHaveProperty("toolCalls");
+    const tool = body.messages[2];
+    expect(tool.tool_call_id).toBe("call_1");
+    expect(tool).not.toHaveProperty("toolCallId");
+  });
+
   it("parses tool_calls when content is null", async () => {
     const { adapter } = adapterWith(() =>
       jsonResponse({
