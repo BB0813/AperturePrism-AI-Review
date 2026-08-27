@@ -125,3 +125,34 @@ export function labelsForAnalysis(
   }
   return result;
 }
+
+/**
+ * 把 worker 实际打到 GitHub Issue 的标签同步进本地标签配置（issue #31）。
+ * 只补录「本地还没有对应标签」的模型建议标签，避免与既有规则重复；key 统一用
+ * `label:<name>`，该前缀不参与 rules 匹配（labelsForAnalysis 只认
+ * category/severity/priority/quality），仅让 WebUI「标签配置」页能看到 bot 打过的标签。
+ * 幂等；读取失败时静默跳过，不影响打标主流程。
+ */
+export async function syncAppliedLabels(
+  db: Database,
+  labels: readonly string[],
+): Promise<void> {
+  if (labels.length === 0) return;
+  let existingLabels: Set<string>;
+  try {
+    const rules = await listLabelRules(db);
+    existingLabels = new Set(rules.map((rule) => rule.label.trim().toLowerCase()));
+  } catch {
+    return;
+  }
+  for (const raw of labels) {
+    const name = raw.trim();
+    if (!name || existingLabels.has(name.toLowerCase())) continue;
+    existingLabels.add(name.toLowerCase());
+    await upsertLabelRule(db, {
+      key: `label:${name}`,
+      label: name,
+      enabled: true,
+    });
+  }
+}

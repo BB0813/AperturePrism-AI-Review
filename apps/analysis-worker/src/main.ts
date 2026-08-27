@@ -17,6 +17,7 @@ import {
   loadSettings,
   labelsForAnalysis,
   listLabelRules,
+  syncAppliedLabels,
   modelRolePolicies,
   providerAccounts,
   repositories,
@@ -1194,6 +1195,11 @@ async function applyConfiguredLabels(input: {
     number: input.issueNumber,
     labels: capped,
   });
+  // issue #31：把实际打上的标签同步进本地标签配置，WebUI「标签配置」页可见。
+  // best-effort：失败只告警，不影响打标与分析任务。
+  await syncAppliedLabels(database.db, capped).catch((error: unknown) =>
+    logger.warn({ err: error }, "applied label sync failed"),
+  );
 }
 
 /**
