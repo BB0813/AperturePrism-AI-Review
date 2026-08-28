@@ -351,4 +351,42 @@ describe("GitHub API client", () => {
       "https://api.github.test/repos/o/r/collaborators?per_page=100",
     );
   });
+
+  it("writeFileContents PUTs a new file with base64 content and returns true", async () => {
+    const { client, calls } = clientWith(
+      withToken(() => jsonResponse({ content: { name: "README.md" } })),
+    );
+    const ok = await client.writeFileContents({
+      installationId: "42",
+      owner: "o",
+      name: "r",
+      path: ".apertureprism/rules/README.md",
+      ref: "main",
+      content: "# rules",
+    });
+    expect(ok).toBe(true);
+    const last = calls.at(-1)!;
+    expect(last.url).toBe(
+      "https://api.github.test/repos/o/r/contents/.apertureprism/rules/README.md",
+    );
+    expect(last.init.method).toBe("PUT");
+    const body = JSON.parse(String(last.init.body));
+    expect(body.branch).toBe("main");
+    expect(Buffer.from(body.content, "base64").toString("utf8")).toBe("# rules");
+  });
+
+  it("writeFileContents reports false when the file already exists", async () => {
+    const { client } = clientWith(
+      withToken(() => jsonResponse({ message: "already exists" }, { status: 422 })),
+    );
+    const ok = await client.writeFileContents({
+      installationId: "42",
+      owner: "o",
+      name: "r",
+      path: ".apertureprism/rules/README.md",
+      ref: "main",
+      content: "# rules",
+    });
+    expect(ok).toBe(false);
+  });
 });

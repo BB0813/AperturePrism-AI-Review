@@ -35,7 +35,7 @@ import {
   type ModelProviderAdapter,
   type ModelRole,
 } from "../../../packages/domain/src/index.js";
-import { createGitHubClient, fetchRepoRules, GitHubApiError } from "../../../packages/github-adapter/src/index.js";
+import { createGitHubClient, ensureRepoRulesDir, EXAMPLE_RULES_FILE, fetchRepoRules, GitHubApiError } from "../../../packages/github-adapter/src/index.js";
 import {
   formatSuggestedTitle,
   type IssueAnalysisResult,
@@ -259,6 +259,69 @@ async function repoMemoryText(fullName: string): Promise<string | undefined> {
   }
 }
 
+/**
+ * 仓库审核规则是否启用（`repo_rules_enabled`）。仓库级覆盖优先，其次全局，
+ * 缺省开启（遵循 BOOLEAN_DEFAULTS.repo_rules_enabled）。读取失败按开启处理。
+ */
+async function repoRulesEnabled(repositoryFullName: string | null): Promise<boolean> {
+  try {
+    const settings = await resolveIssueSettings(repositoryFullName, [
+      "repo_rules_enabled",
+    ]);
+    return parseBool(
+      settings.get("repo_rules_enabled"),
+      BOOLEAN_DEFAULTS.repo_rules_enabled ?? true,
+    );
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * 读取仓库审核规则文本：开关关闭时返回 undefined；开启时先读 `.apertureprism/rules/`
+ * 目录，目录不存在则自动创建示例规则文件（best-effort，创建失败不阻断分析）。
+ * 目录已有时直接读取真实规则并返回合并文本。
+ */
+async function loadRepoRules(
+  repoFullName: string,
+  input: {
+    installationId: string;
+    owner: string;
+    name: string;
+  },
+  signal?: AbortSignal,
+): Promise<string | undefined> {
+  if (github === undefined) return undefined;
+  const enabled = await repoRulesEnabled(repoFullName).catch(() => true);
+  if (!enabled) return undefined;
+  const rules = await fetchRepoRules(
+    github,
+    {
+      installationId: input.installationId,
+      owner: input.owner,
+      name: input.name,
+    },
+    signal,
+  );
+  if (rules !== undefined) return rules;
+  // 首次分析：目录不存在 → 自动创建示例规则文件，供维护者参考。
+  try {
+    const seeded = await ensureRepoRulesDir(github, {
+      installationId: input.installationId,
+      owner: input.owner,
+      name: input.name,
+    }, signal);
+    if (seeded)
+      logger.warn(
+        { repo: repoFullName, file: EXAMPLE_RULES_FILE },
+        "seeded example review rules on first analysis",
+      );
+  } catch (error) {
+    logger.warn({ err: error, repo: repoFullName }, "seed rules directory skipped");
+  }
+  return undefined;
+}
+
 const publicationStore: PublicationStore = {
   findExternalObjectId: async (idempotencyKey) => {
     const rows = await database.db
@@ -400,11 +463,15 @@ async function main(): Promise<void> {
           signal,
         ),
         repoMemoryText(payload.repositoryFullName),
-        fetchRepoRules(github, {
-          installationId: payload.installationId,
-          owner: identity.owner,
-          name: identity.name,
-        }, signal),
+        loadRepoRules(
+          payload.repositoryFullName,
+          {
+            installationId: payload.installationId,
+            owner: identity.owner,
+            name: identity.name,
+          },
+          signal,
+        ),
       ]);
       return {
         ...context,
@@ -847,11 +914,15 @@ async function main(): Promise<void> {
           signal,
         ),
         repoMemoryText(payload.repositoryFullName),
-        fetchRepoRules(github, {
-          installationId: payload.installationId,
-          owner: identity.owner,
-          name: identity.name,
-        }, signal),
+        loadRepoRules(
+          payload.repositoryFullName,
+          {
+            installationId: payload.installationId,
+            owner: identity.owner,
+            name: identity.name,
+          },
+          signal,
+        ),
       ]);
       const history = await loadReviewHistory(
         payload.repositoryFullName,

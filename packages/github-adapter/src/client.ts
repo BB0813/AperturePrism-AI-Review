@@ -262,6 +262,19 @@ export type GitHubClient = {
     },
     signal?: AbortSignal,
   ) => Promise<{ name: string; path: string; type: string }[]>;
+  /**
+   * Creates a new file via the contents API (PUT /repos/{owner}/{name}/contents/{path}).
+   * Fails when the file already exists. Used to seed an example rules file on a repo's
+   * first analysis. Returns false if the file already exists; true on create.
+   */
+  writeFileContents: (input: {
+    installationId: string;
+    owner: string;
+    name: string;
+    path: string;
+    ref: string;
+    content: string;
+  }, signal?: AbortSignal) => Promise<boolean>;
   listIssueComments: (
     input: {
       installationId: string;
@@ -910,6 +923,37 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
         path: typeof entry.path === "string" ? entry.path : "",
         type: typeof entry.type === "string" ? entry.type : "file",
       }));
+    },
+
+    writeFileContents: async (
+      { installationId, owner, name, path, ref, content },
+      signal,
+    ) => {
+      const safePath = String(path || "").replace(/^\/+/, "");
+      if (!safePath) return false;
+      const encoded = safePath.split("/").map(encodeURIComponent).join("/");
+      // GitHub contents API 只写文件，目录随文件的中间路径隐式创建（只支持单层：
+      // 中间目录已存在才能创建更深文件，重复创建目录由先创建的规则文件保证）。
+      try {
+        await authorized<Record<string, unknown>>(
+          installationId,
+          {
+            method: "PUT",
+            path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents/${encoded}`,
+            body: JSON.stringify({
+              message: "chore: seed AperturePrism example review rules",
+              content: Buffer.from(content, "utf8").toString("base64"),
+              branch: ref,
+            }),
+          },
+          signal,
+        );
+        return true;
+      } catch (error) {
+        // 文件已存在（422 或 conflict）视为「已创建过」，不是错误。
+        if (error instanceof GitHubApiError) return false;
+        throw error;
+      }
     },
 
     listIssueComments: async (

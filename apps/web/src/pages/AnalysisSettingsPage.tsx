@@ -15,6 +15,7 @@ export function AnalysisSettingsPage() {
       <SettingsSection
         keys={[
           "spam_handling",
+          "repo_rules_enabled",
           "issue_auto_assign",
           "issue_assignee",
           "issue_rewrite_title",
