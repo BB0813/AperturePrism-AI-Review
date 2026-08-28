@@ -2,7 +2,10 @@ import { eq, inArray, isNotNull } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { NormalizedGitHubEvent } from "../../../packages/github-adapter/src/index.js";
 import { mapGitHubEventToTask } from "../../../packages/github-adapter/src/index.js";
-import { createAnalysisTaskInTransaction } from "../../../packages/task-engine/src/index.js";
+import {
+  cancelSubjectTasks,
+  createAnalysisTaskInTransaction,
+} from "../../../packages/task-engine/src/index.js";
 import * as schema from "./schema.js";
 
 export type WebhookDelivery = {
@@ -15,7 +18,11 @@ export type WebhookIngestionResult =
   | { outcome: "delivery_duplicate" }
   | { outcome: "ignored"; reason: string }
   | { outcome: "invalid"; reason: string }
-  | { outcome: "task_created" | "task_duplicate"; taskId: string };
+  | { outcome: "task_created" | "task_duplicate"; taskId: string }
+  | { outcome: "task_canceled"; canceledCount: number };
+
+/** Issue 生命周期事件：关闭 / 删除时取消该 issue 的活跃分析任务（借鉴 PR#540）。 */
+const issueCancelActions = new Set(["closed", "deleted"]);
 
 export async function recordWebhookDelivery(
   db: PostgresJsDatabase<typeof schema>,
@@ -200,6 +207,58 @@ export async function ingestGitHubWebhook(
       .returning({ id: schema.webhookDeliveries.id });
     const delivery = inserted[0];
     if (!delivery) return { outcome: "delivery_duplicate" };
+
+    // Issue 关闭 / 删除：取消该 issue 的活跃分析任务，不再让 worker 继续跑或补发评论。
+    // 需要在 mapGitHubEventToTask 之前拦截（后者会把 closed/deleted 判为 unsupported_action）。
+    if (
+      event.eventName === "issues" &&
+      event.action &&
+      issueCancelActions.has(event.action) &&
+      event.repositoryId &&
+      event.subjectNumber !== null &&
+      event.repositoryFullName
+    ) {
+      const identity = repositoryName(event.repositoryFullName);
+      if (identity) {
+        const repositories = await tx
+          .insert(schema.repositories)
+          .values({
+            githubId: event.repositoryId,
+            owner: identity.owner,
+            name: identity.name,
+            installationId: event.installationId ?? undefined,
+          })
+          .onConflictDoUpdate({
+            target: schema.repositories.githubId,
+            set: {
+              owner: identity.owner,
+              name: identity.name,
+              installationId: event.installationId ?? undefined,
+              updatedAt: new Date(),
+            },
+          })
+          .returning({ id: schema.repositories.id });
+        const repository = repositories[0];
+        if (repository) {
+          const canceledCount = await cancelSubjectTasks(tx, {
+            taskType: "issue_analysis",
+            repositoryId: repository.id,
+            subjectNumber: event.subjectNumber,
+            reason: `issue_${event.action}`,
+          });
+          const now = new Date();
+          await tx
+            .update(schema.webhookDeliveries)
+            .set({
+              processingStatus: "processed",
+              outcomeReason: `task_canceled:${canceledCount}`,
+              processedAt: now,
+            })
+            .where(eq(schema.webhookDeliveries.id, delivery.id));
+          return { outcome: "task_canceled", canceledCount };
+        }
+      }
+    }
 
     const ignoredMapping = mapGitHubEventToTask(
       event,

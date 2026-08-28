@@ -544,6 +544,71 @@ export async function cancelTask(
 }
 
 /**
+ * 取消某个仓库下指定 subject（issue/PR）的所有活跃分析任务（#540 借鉴）。
+ *
+ * 语义与 cancelTask 一致，只是按「taskType + repositoryId + subjectNumber」批量
+ * 匹配，而不是单个 taskId。GitHub 侧收到 issue 的 `closed`/`deleted` 事件时调用：
+ * 关闭/删除的 issue 不再需要继续分析，排队与运行中的任务都应取消，避免过期
+ * worker 在清理后把已关闭记录的评论补发出去（竞态保护）。
+ *
+ * 只取消非终态任务（queued/leased/running/publishing/retry_wait）；运行中的任务
+ * 由 worker 心跳在下一次检测到 lease 被清空而中断（见 runOnce 的 lease_lost 路径）。
+ */
+export async function cancelSubjectTasks(
+  db: Database,
+  input: {
+    taskType: string;
+    repositoryId: string;
+    subjectNumber: number;
+    reason?: string;
+    now?: Date;
+  },
+): Promise<number> {
+  const now = input.now ?? new Date();
+  const reason = input.reason ?? "subject_closed_or_deleted";
+  return db.transaction(async (tx) => {
+    const canceled = await tx
+      .update(analysisTasks)
+      .set({
+        status: "canceled",
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        heartbeatAt: null,
+        lastErrorCategory: "canceled",
+        updatedAt: now,
+      })
+      .where(
+        sql`${analysisTasks.taskType} = ${input.taskType}
+          and ${analysisTasks.repositoryId} = ${input.repositoryId}
+          and ${analysisTasks.subjectNumber} = ${input.subjectNumber}
+          and ${analysisTasks.status} in ('queued', 'leased', 'running', 'publishing', 'retry_wait')`,
+      )
+      .returning({ id: analysisTasks.id });
+    if (canceled.length === 0) return 0;
+
+    for (const task of canceled) {
+      await tx
+        .update(taskAttempts)
+        .set({ finishedAt: now, errorCategory: "canceled" })
+        .where(
+          sql`${taskAttempts.taskId} = ${task.id}
+            and ${taskAttempts.finishedAt} is null`,
+        );
+      await tx.insert(taskEvents).values({
+        taskId: task.id,
+        eventType: taskCanceledEventType,
+        data: {
+          taskId: task.id,
+          reason,
+          canceledAt: now.toISOString(),
+        },
+      });
+    }
+    return canceled.length;
+  });
+}
+
+/**
  * Resets a finished task (failed / canceled) back to `queued` so a worker can
  * pick it up again. Used by the "re-run" action in the WebUI. Attempts are
  * zeroed so the re-run gets a fresh budget; a `task.retry_ready` event records
