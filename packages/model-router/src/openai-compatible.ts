@@ -164,9 +164,15 @@ export function createOpenAICompatibleAdapter(
             ? categorizeBadRequest(body)
             : categorizeStatus(response.status);
         const delay = retryAfterMs(response.headers);
+        // 把网关真实返回（截断、压缩空白）带进错误消息，便于排查 5xx 是网关侧
+        // 还是模型侧问题（deep 分析工具循环曾因字段名错误被网关 5xx 拒收）。
+        const detail =
+          body.trim().length > 0
+            ? ` — ${body.slice(0, 220).replace(/\s+/g, " ").trim()}`
+            : "";
         throw new ModelInvocationError(
           category,
-          `provider responded with ${response.status}`,
+          `provider responded with ${response.status}${detail}`,
           ...(delay === undefined ? [] : [delay]),
         );
       }
