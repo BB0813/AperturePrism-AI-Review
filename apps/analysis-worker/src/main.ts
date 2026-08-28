@@ -283,6 +283,7 @@ async function repoRulesEnabled(repositoryFullName: string | null): Promise<bool
  * 目录已有时直接读取真实规则并返回合并文本。
  */
 async function loadRepoRules(
+  github: ReturnType<typeof createGitHubClient>,
   repoFullName: string,
   input: {
     installationId: string;
@@ -464,6 +465,7 @@ async function main(): Promise<void> {
         ),
         repoMemoryText(payload.repositoryFullName),
         loadRepoRules(
+          github,
           payload.repositoryFullName,
           {
             installationId: payload.installationId,
@@ -915,6 +917,7 @@ async function main(): Promise<void> {
         ),
         repoMemoryText(payload.repositoryFullName),
         loadRepoRules(
+          github,
           payload.repositoryFullName,
           {
             installationId: payload.installationId,
