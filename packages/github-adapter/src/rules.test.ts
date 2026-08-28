@@ -53,7 +53,10 @@ describe("fetchRepoRules", () => {
         if (call.url.endsWith("/repos/o/r")) {
           return jsonResponse({ default_branch: "main" });
         }
-        if (call.url.includes(`/contents/${REPO_RULES_DIR}`)) {
+        // 目录与文件读取都会请求 /contents/<path>?ref=...；必须区分两种：
+        // 目录 URL 的 path 恰等于 REPO_RULES_DIR，而文件 URL 的 path 更长。
+        const contentPath = call.url.match(/contents\/([^?]+)/)?.[1] ?? "";
+        if (decodeURIComponent(contentPath) === REPO_RULES_DIR) {
           return jsonResponse([
             { name: "hard-rules.md", path: `${REPO_RULES_DIR}/hard-rules.md`, type: "file" },
             { name: "b.md", path: `${REPO_RULES_DIR}/b.md`, type: "file" },
@@ -61,8 +64,7 @@ describe("fetchRepoRules", () => {
             { name: "sub", path: `${REPO_RULES_DIR}/sub`, type: "dir" },
           ]);
         }
-        const path = call.url.match(/contents\/([^?]+)/)?.[1] ?? "";
-        const name = decodeURIComponent(path.split("/").pop() ?? "");
+        const name = decodeURIComponent(contentPath.split("/").pop() ?? "");
         if (name === "b.md")
           return jsonResponse({ content: Buffer.from("规则 B").toString("base64"), encoding: "base64" });
         return jsonResponse({ content: Buffer.from("规则 A").toString("base64"), encoding: "base64" });
@@ -101,7 +103,9 @@ describe("fetchRepoRules", () => {
       withToken((call) => {
         if (call.url.endsWith("/repos/o/r"))
           return jsonResponse({ default_branch: "develop" });
-        if (call.url.includes(`/contents/${REPO_RULES_DIR}`)) {
+        // 目录 URL 的 path 恰等于 REPO_RULES_DIR，文件 URL 的 path 更长。
+        const contentPath = call.url.match(/contents\/([^?]+)/)?.[1] ?? "";
+        if (decodeURIComponent(contentPath) === REPO_RULES_DIR) {
           return jsonResponse([
             { name: "a.md", path: `${REPO_RULES_DIR}/a.md`, type: "file" },
           ]);

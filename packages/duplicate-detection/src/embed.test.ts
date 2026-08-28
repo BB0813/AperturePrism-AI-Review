@@ -43,7 +43,7 @@ describe("embedTexts", () => {
       model: string;
       input: string[];
     };
-    expect(parsed.model).toBe("nvidia/nv-embed-v1");
+    expect(parsed.model).toBe("nvidia/nemotron-3-embed-1b");
     expect(parsed.input).toEqual(["a", "b"]);
     expect(result.vectors).toHaveLength(2);
     expect(result.vectors[0]).toHaveLength(EMBEDDING_DIMENSION);
