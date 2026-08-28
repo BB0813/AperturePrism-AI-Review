@@ -42,15 +42,23 @@ export type RouteModelInput = {
 export class ModelRoutingFailedError extends Error {
   readonly attempts: readonly ModelAttemptOutcome[];
   readonly lastCategory: ModelErrorCategory;
+  /** 最后一次失败的底层错误消息（可能含网关响应体，便于排查 5xx 根因）。 */
+  readonly lastMessage: string | undefined;
 
   constructor(
     lastCategory: ModelErrorCategory,
     attempts: readonly ModelAttemptOutcome[],
+    lastMessage?: string,
   ) {
-    super(`model routing exhausted all candidates: ${lastCategory}`);
+    super(
+      `model routing exhausted all candidates: ${lastCategory}${
+        lastMessage ? ` — ${lastMessage}` : ""
+      }`,
+    );
     this.name = "ModelRoutingFailedError";
     this.attempts = attempts;
     this.lastCategory = lastCategory;
+    this.lastMessage = lastMessage;
   }
 }
 
@@ -125,10 +133,11 @@ export async function routeModelInvocation(
 
   const remaining = () => deadlineAt - now();
   let lastCategory: ModelErrorCategory = "unknown";
+  let lastMessage: string | undefined;
 
   try {
     if (input.signal?.aborted)
-      throw new ModelRoutingFailedError("canceled", attempts);
+      throw new ModelRoutingFailedError("canceled", attempts, lastMessage);
 
     for (const candidate of orderCandidates(
       input.candidates,
@@ -154,7 +163,7 @@ export async function routeModelInvocation(
       ) {
         if (remaining() <= 0) {
           lastCategory = "timeout";
-          throw new ModelRoutingFailedError(lastCategory, attempts);
+          throw new ModelRoutingFailedError(lastCategory, attempts, lastMessage);
         }
 
         const startedAt = new Date(now());
@@ -177,6 +186,7 @@ export async function routeModelInvocation(
         } catch (error) {
           const modelError = toModelError(error);
           lastCategory = modelError.category;
+          lastMessage = modelError.message;
           attempts.push({
             candidate,
             startedAt,
@@ -186,7 +196,7 @@ export async function routeModelInvocation(
           });
 
           if (modelError.category === "canceled")
-            throw new ModelRoutingFailedError("canceled", attempts);
+            throw new ModelRoutingFailedError("canceled", attempts, lastMessage);
           // Genuine credential problems are non-retryable, but a flaky gateway
           // that intermittently 401s can be opted into bounded retries.
           const authenticationRetryable =
@@ -206,14 +216,18 @@ export async function routeModelInvocation(
           );
           if (remaining() - delay <= 0) {
             lastCategory = "timeout";
-            throw new ModelRoutingFailedError(lastCategory, attempts);
+            throw new ModelRoutingFailedError(
+              lastCategory,
+              attempts,
+              lastMessage,
+            );
           }
           await sleep(delay, controller.signal);
         }
       }
     }
 
-    throw new ModelRoutingFailedError(lastCategory, attempts);
+    throw new ModelRoutingFailedError(lastCategory, attempts, lastMessage);
   } finally {
     input.signal?.removeEventListener("abort", abortOuter);
   }
