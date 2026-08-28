@@ -940,11 +940,12 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
           {
             method: "PUT",
             path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents/${encoded}`,
-            body: JSON.stringify({
+            // authorized -> request 会再做 JSON.stringify，这里传对象即可。
+            body: {
               message: "chore: seed AperturePrism example review rules",
               content: Buffer.from(content, "utf8").toString("base64"),
               branch: ref,
-            }),
+            },
           },
           signal,
         );

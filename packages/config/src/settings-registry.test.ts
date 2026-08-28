@@ -61,14 +61,15 @@ describe("registry integrity", () => {
     }
   });
 
-  it("exposes exactly the five per-repository keys", () => {
-    // 与 v1.0.30 落地的仓库级白名单必须一致，否则仓库覆盖会静默失效。
+  it("exposes exactly the per-repository keys", () => {
+    // 与仓库级白名单一致，否则仓库覆盖会静默失效。
     expect([...REPO_SCOPED_SETTING_KEYS].sort()).toEqual([
       "issue_assignee",
       "issue_auto_assign",
       "issue_deep_analysis",
       "issue_reanalyze_min_change",
       "issue_rewrite_title",
+      "repo_rules_enabled",
     ]);
   });
 
