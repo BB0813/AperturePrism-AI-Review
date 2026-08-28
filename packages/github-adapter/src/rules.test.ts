@@ -1,7 +1,7 @@
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createGitHubClient } from "./client.js";
-import { fetchRepoRules, REPO_RULES_DIR } from "./rules.js";
+import { ensureRepoRulesDir, fetchRepoRules, REPO_RULES_DIR } from "./rules.js";
 
 const { privateKey } = generateKeyPairSync("rsa", {
   modulusLength: 2048,
