@@ -1,7 +1,7 @@
 {
   "name": "@apertureprism/database",
   "private": true,
-  "version": "1.0.78",
+  "version": "1.0.79",
   "type": "module",
   "scripts": {
     "build": "tsc",
