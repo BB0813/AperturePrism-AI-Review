@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   bumpCache,
+  cancelTasks,
   fetchTasks,
   rerunTasks,
   type TaskList,
@@ -15,6 +16,8 @@ import { useToast } from "../components/Toast";
 
 const TYPE_FILTERS = ["all", "issue_analysis", "pr_review", "repository_index"] as const;
 const STATUS_FILTERS = ["all", "queued", "running", "publishing", "completed", "failed", "retry_wait", "canceled"] as const;
+/** 非终态任务：可手动取消（与后端 cancelTask 的活跃状态集合一致，含 leased）。 */
+export const CANCELABLE_STATUS = new Set(["queued", "leased", "running", "publishing", "retry_wait"]);
 export type SortKey = "subjectNumber" | "status" | "attempt" | "updatedAt" | "policy";
 
 /** 任务表格列（列自定义用；key 持久化到 localStorage）。 */
@@ -86,6 +89,7 @@ export function TasksPage() {
   });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [rerunning, setRerunning] = useState(false);
+  const [canceling, setCanceling] = useState<Set<string>>(new Set());
   const [hiddenColumns, setHiddenColumns] = useState<Set<TaskColumnKey>>(loadHiddenColumns);
   const [columnsOpen, setColumnsOpen] = useState(false);
   const toast = useToast();
@@ -164,8 +168,22 @@ export function TasksPage() {
     [items],
   );
 
+  const cancelable = useMemo(
+    () => new Set(items.filter((t) => CANCELABLE_STATUS.has(t.status)).map((t) => t.id)),
+    [items],
+  );
+
+  const selectedRerunnable = useMemo(
+    () => new Set([...selected].filter((id) => rerunnable.has(id))),
+    [selected, rerunnable],
+  );
+  const selectedCancelable = useMemo(
+    () => new Set([...selected].filter((id) => cancelable.has(id))),
+    [selected, cancelable],
+  );
+
   const toggleSelected = (id: string) => {
-    if (!rerunnable.has(id)) return;
+    if (!rerunnable.has(id) && !cancelable.has(id)) return;
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -174,12 +192,13 @@ export function TasksPage() {
     });
   };
 
-  const toggleAllRerunnable = () => {
-    if (rerunnable.size === 0) return;
+  const toggleAllActionable = () => {
+    const actionable = new Set([...rerunnable, ...cancelable]);
+    if (actionable.size === 0) return;
     setSelected((prev) => {
       const next = new Set(prev);
-      const allSelected = [...rerunnable].every((id) => next.has(id));
-      for (const id of rerunnable) {
+      const allSelected = [...actionable].every((id) => next.has(id));
+      for (const id of actionable) {
         if (allSelected) next.delete(id);
         else next.add(id);
       }
@@ -190,7 +209,7 @@ export function TasksPage() {
   const clearSelected = () => setSelected(new Set());
 
   const doRerun = async () => {
-    const ids = [...selected];
+    const ids = [...selectedRerunnable];
     if (ids.length === 0) return;
     if (!window.confirm(`确定要重新执行选中的 ${ids.length} 个任务吗？失败/已取消任务将回到队列重新运行。`)) return;
     setRerunning(true);
@@ -206,6 +225,25 @@ export function TasksPage() {
       toast.error(`重跑失败：${err instanceof Error ? err.message : err}`);
     } finally {
       setRerunning(false);
+    }
+  };
+
+  const doCancel = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    if (!window.confirm(`确定要取消选中的 ${ids.length} 个任务吗？运行中的任务将被中断，排队/等待重试的任务将移出队列。`)) return;
+    setCanceling(new Set(ids));
+    try {
+      const result = await cancelTasks(ids);
+      toast.success(
+        `已取消 ${result.canceled} 个任务${result.skipped > 0 ? `，跳过 ${result.skipped} 个（非活跃状态）` : ""}`,
+      );
+      setSelected(new Set());
+      bumpCache();
+      refresh();
+    } catch (err) {
+      toast.error(`取消失败：${explainUnknown(err)}`);
+    } finally {
+      setCanceling(new Set());
     }
   };
 
@@ -305,22 +343,33 @@ export function TasksPage() {
           </div>
         </div>
 
-        {rerunnable.size > 0 ? (
+        {rerunnable.size > 0 || cancelable.size > 0 ? (
           <div className="filters" style={{ marginBottom: 14, gap: 10 }}>
             <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
               <input
                 type="checkbox"
-                checked={[...rerunnable].every((id) => selected.has(id)) && selected.size > 0}
-                onChange={toggleAllRerunnable}
+                checked={[...rerunnable, ...cancelable].every((id) => selected.has(id)) && selected.size > 0}
+                onChange={toggleAllActionable}
               />
-              全选失败/取消（{rerunnable.size}）
+              全选可操作（{rerunnable.size + cancelable.size}）
             </label>
             {selected.size > 0 ? (
               <>
-                <button className="btn btn-primary" onClick={() => void doRerun()} disabled={rerunning}>
-                  {rerunning ? "重跑中…" : `重新执行（${selected.size}）`}
-                </button>
-                <button className="btn" onClick={clearSelected} disabled={rerunning}>
+                {selectedRerunnable.size > 0 ? (
+                  <button className="btn btn-primary" onClick={() => void doRerun()} disabled={rerunning || canceling.size > 0}>
+                    {rerunning ? "重跑中…" : `重新执行（${selectedRerunnable.size}）`}
+                  </button>
+                ) : null}
+                {selectedCancelable.size > 0 ? (
+                  <button
+                    className="btn btn-danger"
+                    onClick={() => void doCancel([...selectedCancelable])}
+                    disabled={canceling.size > 0 || rerunning}
+                  >
+                    {canceling.size > 0 ? "取消中…" : `取消（${selectedCancelable.size}）`}
+                  </button>
+                ) : null}
+                <button className="btn" onClick={clearSelected} disabled={rerunning || canceling.size > 0}>
                   取消选择
                 </button>
               </>
@@ -366,8 +415,11 @@ export function TasksPage() {
                     key={task.id}
                     task={task}
                     rerunnable={rerunnable.has(task.id)}
+                    cancelable={cancelable.has(task.id)}
+                    canceling={canceling.has(task.id)}
                     selected={selected.has(task.id)}
                     onToggle={() => toggleSelected(task.id)}
+                    onCancel={() => void doCancel([task.id])}
                     hiddenColumns={hiddenColumns}
                   />
                 ))}
@@ -389,14 +441,20 @@ export function TasksPage() {
 function TaskRow({
   task,
   rerunnable,
+  cancelable,
+  canceling,
   selected,
   onToggle,
+  onCancel,
   hiddenColumns,
 }: {
   task: TaskSummary;
   rerunnable: boolean;
+  cancelable: boolean;
+  canceling: boolean;
   selected: boolean;
   onToggle: () => void;
+  onCancel: () => void;
   hiddenColumns: Set<TaskColumnKey>;
 }) {
   return (
@@ -405,10 +463,16 @@ function TaskRow({
         <input
           type="checkbox"
           checked={selected}
-          disabled={!rerunnable}
+          disabled={!rerunnable && !cancelable}
           onChange={onToggle}
-          aria-label={`选择任务 ${task.id.slice(0, 8)} 重新执行`}
-          title={rerunnable ? "选择以重新执行" : "仅失败/已取消任务可重新执行"}
+          aria-label={`选择任务 ${task.id.slice(0, 8)}`}
+          title={
+            rerunnable
+              ? "选择以重新执行"
+              : cancelable
+                ? "选择以取消"
+                : "仅失败/取消任务可重新执行，运行中/排队任务可取消"
+          }
         />
       </td>
       {!hiddenColumns.has("type") ? <td><TypeChip type={task.taskType} /></td> : null}
@@ -424,7 +488,22 @@ function TaskRow({
         <td>{task.lastErrorCategory ? <span className="pill pill-err">{task.lastErrorCategory}</span> : <span className="faint">—</span>}</td>
       ) : null}
       {!hiddenColumns.has("updatedAt") ? <td className="muted">{timeAgo(task.updatedAt)}</td> : null}
-      <td style={{ textAlign: "right" }}><ChevronRightIcon size={15} /></td>
+      <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+        {cancelable ? (
+          <button
+            className="btn btn-danger"
+            style={{ marginRight: 8 }}
+            disabled={canceling}
+            onClick={(e) => {
+              e.stopPropagation();
+              onCancel();
+            }}
+          >
+            {canceling ? "取消中…" : "取消"}
+          </button>
+        ) : null}
+        <ChevronRightIcon size={15} />
+      </td>
     </tr>
   );
 }

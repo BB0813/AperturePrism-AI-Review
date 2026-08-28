@@ -1361,6 +1361,45 @@ export async function rerunTasks(taskIds: string[]): Promise<RerunResult> {
   };
 }
 
+export type CancelResult = {
+  status: string;
+  canceled: number;
+  skipped: number;
+};
+
+export async function cancelTasks(taskIds: string[]): Promise<CancelResult> {
+  const response = await fetch("/tasks/cancel", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ taskIds }),
+  });
+  const text = await response.text();
+  let parsed: {
+    status?: string;
+    reason?: string;
+    canceled?: number;
+    skipped?: number;
+  } = {};
+  try {
+    parsed = text ? JSON.parse(text) : {};
+  } catch {
+    // keep default
+  }
+  if (response.status === 401) {
+    notifyUnauthorized();
+    throw new Error("unauthorized");
+  }
+  if (response.status === 403) throw new Error("需要管理员权限（403）");
+  if (!response.ok) {
+    throw new Error(parsed.reason ?? `cancel tasks ${response.status}`);
+  }
+  return {
+    status: parsed.status ?? "ok",
+    canceled: parsed.canceled ?? 0,
+    skipped: parsed.skipped ?? 0,
+  };
+}
+
 export type ManualTriggerInput = {
   type: "issue" | "pr";
   repositoryFullName: string;

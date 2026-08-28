@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactElement } from "react";
 import {
+  cancelTasks,
   fetchTaskCheckRun,
   fetchTaskDetail,
   rerunTasks,
@@ -7,6 +8,7 @@ import {
   type TaskDetail,
 } from "../lib/api";
 import { navigate } from "../hooks/useHash";
+import { CANCELABLE_STATUS } from "./TasksPage";
 import {
   AlertIcon,
   CheckCircleIcon,
@@ -45,6 +47,7 @@ export function TaskDetailPage({ id }: { id: string }) {
   const [checkRun, setCheckRun] = useState<CheckRunStatus | null>(null);
   const [checkRunDegraded, setCheckRunDegraded] = useState(false);
   const [rerunning, setRerunning] = useState(false);
+  const [canceling, setCanceling] = useState(false);
   const toast = useToast();
 
   /** 失败/已取消任务重新入队。 */
@@ -62,6 +65,25 @@ export function TaskDetailPage({ id }: { id: string }) {
       toast.error(`重新入队失败：${err instanceof Error ? err.message : err}`);
     } finally {
       setRerunning(false);
+    }
+  };
+
+  /** 手动取消运行中/排队/重试等待的任务。 */
+  const cancel = async () => {
+    if (!window.confirm("确定要取消该任务吗？运行中的任务将被中断，排队/等待重试的任务将移出队列。")) return;
+    setCanceling(true);
+    try {
+      const result = await cancelTasks([id]);
+      toast.success(
+        result.skipped > 0
+          ? `已取消 ${result.canceled} 个，跳过非活跃 ${result.skipped} 个`
+          : "已取消任务",
+      );
+      await load();
+    } catch (err) {
+      toast.error(`取消失败：${err instanceof Error ? err.message : err}`);
+    } finally {
+      setCanceling(false);
     }
   };
 
@@ -153,11 +175,18 @@ export function TaskDetailPage({ id }: { id: string }) {
         <span className="muted">{timeAgo(detail.updatedAt)}</span>
       </div>
 
-      {detail.status === "failed" || detail.status === "canceled" ? (
+      {detail.status === "failed" || detail.status === "canceled" || CANCELABLE_STATUS.has(detail.status) ? (
         <div className="actions" style={{ marginTop: 10 }}>
-          <button className="btn btn-primary" onClick={rerun} disabled={rerunning}>
-            {rerunning ? "入队中…" : "重新入队"}
-          </button>
+          {detail.status === "failed" || detail.status === "canceled" ? (
+            <button className="btn btn-primary" onClick={rerun} disabled={rerunning || canceling}>
+              {rerunning ? "入队中…" : "重新入队"}
+            </button>
+          ) : null}
+          {CANCELABLE_STATUS.has(detail.status) ? (
+            <button className="btn btn-danger" onClick={cancel} disabled={canceling || rerunning}>
+              {canceling ? "取消中…" : "取消任务"}
+            </button>
+          ) : null}
         </div>
       ) : null}
 

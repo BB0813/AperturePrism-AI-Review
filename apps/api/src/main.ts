@@ -120,6 +120,7 @@ import {
   SSE_HEADERS,
 } from "../../../packages/event-stream/src/index.js";
 import {
+  cancelTask,
   createAnalysisTask,
   resetTaskToQueued,
 } from "../../../packages/task-engine/src/index.js";
@@ -1456,6 +1457,64 @@ async function handleTaskRerun(
   }
   audit(request, "task.rerun", undefined, { taskIds: ids.length, rerun, skipped });
   json(response, 200, { status: "ok", rerun, skipped }, requestId);
+}
+
+/**
+ * POST /tasks/cancel — manually cancel running tasks from the WebUI.
+ *
+ * Mirrors handleTaskRerun: admin-only, batch by taskIds, reports how many were
+ * actually canceled vs skipped. A task is only canceled when it is in a
+ * non-terminal state (queued/leased/running/publishing/retry_wait); tasks
+ * already completed/failed/canceled are skipped. Running workers notice the
+ * cleared lease on their next heartbeat and stop (see runOnce lease_lost path).
+ */
+async function handleTaskCancel(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  if (!(await isAdminRequest(request))) {
+    json(
+      response,
+      403,
+      { status: "error", reason: "admin required" },
+      requestId,
+    );
+    return;
+  }
+  const body = await readBody(request);
+  let parsed: { taskIds?: unknown };
+  try {
+    parsed = JSON.parse(body.toString("utf8"));
+  } catch {
+    json(response, 400, { status: "error", reason: "invalid JSON" }, requestId);
+    return;
+  }
+  const ids = Array.isArray(parsed.taskIds)
+    ? parsed.taskIds.filter((v): v is string => typeof v === "string" && v.length > 0)
+    : [];
+  if (ids.length === 0) {
+    json(
+      response,
+      400,
+      { status: "error", reason: "taskIds must be a non-empty array" },
+      requestId,
+    );
+    return;
+  }
+  let canceled = 0;
+  let skipped = 0;
+  for (const taskId of ids) {
+    const ok = await cancelTask(database.db, { taskId, reason: "manual_cancel" });
+    if (ok) canceled += 1;
+    else skipped += 1;
+  }
+  audit(request, "task.cancel", undefined, {
+    taskIds: ids.length,
+    canceled,
+    skipped,
+  });
+  json(response, 200, { status: "ok", canceled, skipped }, requestId);
 }
 
 /**
@@ -5688,6 +5747,20 @@ async function handleRequest(
       return;
     }
     await handleTaskRerun(request, response, requestId);
+    return;
+  }
+
+  if (path === "/tasks/cancel") {
+    if (request.method !== "POST") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    await handleTaskCancel(request, response, requestId);
     return;
   }
 
