@@ -100,7 +100,7 @@ AperturePrism 把「AI 代码审查」做成了一条可落地的产品链路，
 ```
 
 - **多模型路由**：`MODEL_PROVIDER_BASE_URLS` 配置 OpenAI 兼容 Provider；模型密钥 AES-GCM 加密存 `provider_accounts`，Worker 用 `CREDENTIAL_MASTER_KEY` 解密。模型角色策略存 `model_role_policies`（issue_analysis / pr_review / duplicate_judgment / memory_consolidation / expert_review）。
-- **Embedding 独立**：`EMBEDDING_BASE_URL / EMBEDDING_API_KEY / EMBEDDING_MODEL`（默认 `nvidia/nv-embed-v1`，4096 维）。
+- **Embedding 独立**：`EMBEDDING_BASE_URL / EMBEDDING_API_KEY / EMBEDDING_MODEL`（默认 `nvidia/nemotron-3-embed-1b`，2048 维）。
 
 ## 文档索引
 
@@ -246,7 +246,7 @@ docker compose -f docker/docker-compose.prod.yml --env-file .env.production up -
 | `MODEL_PROVIDER_BASE_URLS` | Provider → OpenAI 兼容 baseUrl 的 JSON 映射 |
 | `CREDENTIAL_MASTER_KEY` | AES-GCM 主密钥：解密 provider 密钥 / 记忆与专家团队模型调用 |
 | `DEFAULT_LLM_MODEL` | 安装向导预填的默认审查/分析模型名（默认 `gpt-4o-mini`，按你的网关实际可用模型修改） |
-| `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY` / `EMBEDDING_MODEL` | 与 review 模型独立配置（默认 `nvidia/nv-embed-v1`，4096 维） |
+| `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY` / `EMBEDDING_MODEL` | 与 review 模型独立配置（默认 `nvidia/nemotron-3-embed-1b`，2048 维） |
 | `QQ_BOT_PROTOCOLS` | NTQQ 网关 JSON（onebot11 / satori / milky） |
 | `QQ_OFFICIAL_APP_ID` / `QQ_OFFICIAL_APP_SECRET` / `QQ_OFFICIAL_GATEWAY_URL` / `QQ_OFFICIAL_INTENTS` | 官方开放平台 api-v2 |
 | `INDEX_INTERVAL_MS` | 索引 Worker 轮询间隔（默认 600000） |

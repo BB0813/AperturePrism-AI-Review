@@ -217,7 +217,7 @@ describe("结果区块后置过滤", () => {
 
   it("关闭的区块在校验后被强制清空，其余区块保留", async () => {
     const { adapter } = scriptedAdapter("provider-a", [richIssueJson]);
-    // 模拟默认设置：关闭 missing_information 与 suggested_actions。
+    // 模拟默认设置：关闭 missing_information、suggested_actions 与 suggested_assignee。
     const sections = new Set<IssueResultSection>([
       "summary",
       "suggested_title",
@@ -235,6 +235,7 @@ describe("结果区块后置过滤", () => {
     if (outcome.outcome !== "valid") return;
     expect(outcome.analysis.result.missingInformation).toEqual([]);
     expect(outcome.analysis.result.suggestedActions).toEqual([]);
+    expect(outcome.analysis.result.suggestedAssignee).toBeUndefined();
     // 保留的区块不受影响。
     expect(outcome.analysis.result.probableCause).toBe("missing config");
     expect(outcome.analysis.result.proposedChanges).toEqual([
@@ -263,5 +264,149 @@ describe("结果区块后置过滤", () => {
     if (outcome.outcome !== "valid") return;
     expect(outcome.analysis.result.suggestedTitle).toBeUndefined();
     expect(outcome.analysis.result.probableCause).toBeUndefined();
+  });
+
+  it("开启 suggested_assignee 时保留值，关闭时强制移除字段", async () => {
+    const richWithAssignee = JSON.stringify({
+      contractVersion: "issue-analysis/v1",
+      category: "bug",
+      summary: "crash",
+      severity: "S0",
+      priority: "P0",
+      quality: "complete",
+      suggestedTitle: "Crash on startup",
+      probableCause: "missing config",
+      troubleshooting: ["create a default config file"],
+      proposedChanges: [{ path: "src/main.ts", change: "add default config" }],
+      evidence: [{ kind: "reproduction_steps", excerpt: "rm config; start" }],
+      missingInformation: ["OS version"],
+      suggestedLabels: ["bug"],
+      suggestedActions: ["reproduce on a clean checkout"],
+      suggestedAssignee: "bb0813",
+      confidence: { severity: 0.9, rootCause: 0.8, suggestion: 0.7 },
+    });
+
+    // 开启 suggested_assignee 时保留值
+    const { adapter: adapterOn } = scriptedAdapter("provider-a", [richWithAssignee]);
+    const sectionsOn = new Set<IssueResultSection>([
+      "summary",
+      "suggested_assignee",
+    ]);
+    const outcomeOn = await analyzeIssue(
+      { ...options([adapterOn], [candidate]), sections: sectionsOn },
+      context,
+    );
+    expect(outcomeOn.outcome).toBe("valid");
+    if (outcomeOn.outcome !== "valid") return;
+    expect(outcomeOn.analysis.result.suggestedAssignee).toBe("bb0813");
+
+    // 关闭 suggested_assignee 时整个字段被移除（undefined）
+    const { adapter: adapterOff } = scriptedAdapter("provider-a", [richWithAssignee]);
+    const sectionsOff = new Set<IssueResultSection>(["summary"]);
+    const outcomeOff = await analyzeIssue(
+      { ...options([adapterOff], [candidate]), sections: sectionsOff },
+      context,
+    );
+    expect(outcomeOff.outcome).toBe("valid");
+    if (outcomeOff.outcome !== "valid") return;
+    expect(outcomeOff.analysis.result.suggestedAssignee).toBeUndefined();
+  });
+});
+
+describe("按类别分组的 Issue 结果区块 (#28)", () => {
+  const featureIssueJson = JSON.stringify({
+    contractVersion: "issue-analysis/v1",
+    category: "feature",
+    summary: "Add a dark mode toggle.",
+    severity: "unknown",
+    priority: "P2",
+    quality: "actionable",
+    proposedChanges: [{ path: "src/theme.ts", change: "add toggle" }],
+    suggestedLabels: ["feature"],
+    suggestedActions: ["implement toggle"],
+    evidence: [],
+    missingInformation: [],
+    suggestedAssignee: "bb0813",
+    confidence: { severity: 0.9, rootCause: 0.8, suggestion: 0.7 },
+  });
+
+  const bugIssueJson = JSON.stringify({
+    contractVersion: "issue-analysis/v1",
+    category: "bug",
+    summary: "Crash on startup.",
+    severity: "S0",
+    priority: "P0",
+    quality: "complete",
+    evidence: [{ kind: "reproduction_steps", excerpt: "rm config; start" }],
+    missingInformation: ["OS version"],
+    suggestedLabels: ["bug"],
+    suggestedActions: ["reproduce on a clean checkout"],
+    confidence: { severity: 0.9, rootCause: 0.8, suggestion: 0.7 },
+  });
+
+  const featureContext: IssueContext = {
+    ...context,
+    issue: { ...context.issue, title: "建议新增功能", labels: [] },
+  };
+
+  it("bug 组：该类别 Issue 用 bug 组开关过滤结果", async () => {
+    const { adapter } = scriptedAdapter("provider-a", [bugIssueJson]);
+    const outcome = await analyzeIssue(
+      {
+        ...options([adapter], [candidate]),
+        sectionsByCategory: {
+          bug: new Set<IssueResultSection>(["summary", "evidence"]),
+          feature: new Set<IssueResultSection>(["summary", "proposed_changes"]),
+        },
+      },
+      context,
+    );
+    expect(outcome.outcome).toBe("valid");
+    if (outcome.outcome !== "valid") return;
+    // bug 组只开 summary + evidence：其余字段应被清空/移除。
+    expect(outcome.analysis.result.missingInformation).toEqual([]);
+    expect(outcome.analysis.result.suggestedActions).toEqual([]);
+    expect(outcome.analysis.result.evidence).toHaveLength(1);
+    expect(outcome.analysis.result.summary).toBe("Crash on startup.");
+  });
+
+  it("feature 组：feature 类 Issue 用 feature 组开关过滤结果，并保留建议指派人", async () => {
+    const { adapter } = scriptedAdapter("provider-a", [featureIssueJson]);
+    const outcome = await analyzeIssue(
+      {
+        ...options([adapter], [candidate]),
+        sectionsByCategory: {
+          bug: new Set<IssueResultSection>(["summary", "evidence"]),
+          feature: new Set<IssueResultSection>([
+            "summary",
+            "proposed_changes",
+            "suggested_assignee",
+          ]),
+        },
+      },
+      featureContext,
+    );
+    expect(outcome.outcome).toBe("valid");
+    if (outcome.outcome !== "valid") return;
+    expect(outcome.analysis.result.proposedChanges).toHaveLength(1);
+    expect(outcome.analysis.result.suggestedAssignee).toBe("bb0813");
+    expect(outcome.analysis.result.suggestedActions).toEqual([]);
+  });
+
+  it("未配置分类组时回落到通用 sections", async () => {
+    const { adapter } = scriptedAdapter("provider-a", [bugIssueJson]);
+    const outcome = await analyzeIssue(
+      {
+        ...options([adapter], [candidate]),
+        sections: new Set<IssueResultSection>(["summary", "missing_information"]),
+        sectionsByCategory: { feature: new Set(["summary"]) },
+      },
+      context,
+    );
+    expect(outcome.outcome).toBe("valid");
+    if (outcome.outcome !== "valid") return;
+    // bug 组未配置 → 回落通用组：只保留 summary + missing_information，其余清空。
+    expect(outcome.analysis.result.missingInformation).toEqual(["OS version"]);
+    expect(outcome.analysis.result.evidence).toEqual([]);
   });
 });

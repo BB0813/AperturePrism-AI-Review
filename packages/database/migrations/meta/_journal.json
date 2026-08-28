@@ -134,6 +134,13 @@
       "when": 1788900000000,
       "tag": "0018_users_readonly",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1788900001000,
+      "tag": "0019_embedding_2048",
+      "breakpoints": true
     }
   ]
 }

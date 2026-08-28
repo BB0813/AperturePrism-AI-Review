@@ -54,6 +54,17 @@ export type IssueAnalyzerOptions = {
    */
   sections?: ReadonlySet<IssueResultSection>;
   /**
+   * 按 Issue 类别分别配置的结果区块开关（#28）。
+   * - prompt 阶段（前置）：用标题 / 标签的启发式猜测类别，取对应组的开关；
+   * - 校验阶段（后置）：用模型输出的真实 category 取对应组的开关。
+   * 缺省时回落到 `sections`（未配置该类别时也用 `sections` 兜底）。
+   */
+  sectionsByCategory?: Readonly<{
+    bug?: ReadonlySet<IssueResultSection>;
+    feature?: ReadonlySet<IssueResultSection>;
+    default?: ReadonlySet<IssueResultSection>;
+  }>;
+  /**
    * 开启后主分析先做一轮工具探索，让模型读取仓库源码再作答。不开启时模型只能
    * 看到 Issue 文本，无法给出定位到文件与位置的修复建议。默认关闭：探索会显著
    * 增加 token 消耗与单任务耗时。
@@ -96,6 +107,63 @@ function totalUsage(...usage: readonly ModelUsage[]): ModelUsage {
 }
 
 /**
+ * 启发式猜测 Issue 的疑似类别（bug / feature / 其它），仅用于 prompt 阶段的
+ * 前置区块选择。真实类别以模型输出为准（后置校正）。
+ *
+ * 依据：标题 / 正文中的关键词与标签。feature 常见词：功能/新增/支持/建议/希望/
+ * 能否/添加/优化；bug 常见词：报错/失败/bug/崩溃/异常/无法/不能/坏了。
+ */
+function guessIssueCategory(context: IssueContext): "bug" | "feature" | "other" {
+  const issue = context.issue;
+  const title = issue.title ?? "";
+  const body = issue.body ?? "";
+  const labels = issue.labels ?? [];
+  const hay = `${title}\n${body}\n${labels.join(" ")}`.toLowerCase();
+
+  const featureWords = ["feature", "feat:", "feat ", "enhancement", "新增", "添加", "支持", "建议", "希望", "能否", "功能", "优化", "需求"];
+  const bugWords = ["bug", "fix", "fix:", "报错", "错误", "失败", "异常", "崩溃", "无法", "不能", "坏了", "卡", "闪退", "崩溃", "死"];
+  const featureCount = featureWords.filter((w) => hay.includes(w)).length;
+  const bugCount = bugWords.filter((w) => hay.includes(w)).length;
+  if (bugCount > featureCount) return "bug";
+  if (featureCount > 0 && featureCount >= bugCount) return "feature";
+  return "other";
+}
+
+/**
+ * 前置：prompt 阶段根据启发式猜测类别选择区块组。未配置分类组时回落到 options.sections。
+ */
+function resolvePromptSections(
+  options: Pick<IssueAnalyzerOptions, "sections" | "sectionsByCategory">,
+  context: IssueContext,
+): ReadonlySet<IssueResultSection> | undefined {
+  if (!options.sectionsByCategory) return options.sections;
+  const category = guessIssueCategory(context);
+  const key: "bug" | "feature" | "default" =
+    category === "other" ? "default" : category;
+  return (
+    options.sectionsByCategory[key] ??
+    options.sectionsByCategory.default ??
+    options.sections
+  );
+}
+
+/**
+ * 后置：按模型输出的真实 category 选择区块组。未配置该类别时回落到 default / options.sections。
+ */
+function resolveResultSections(
+  options: Pick<IssueAnalyzerOptions, "sections" | "sectionsByCategory">,
+  category: string,
+): ReadonlySet<IssueResultSection> | undefined {
+  if (!options.sectionsByCategory) return options.sections;
+  const key = category === "bug" || category === "feature" ? category : "default";
+  return (
+    options.sectionsByCategory[key] ??
+    options.sectionsByCategory.default ??
+    options.sections
+  );
+}
+
+/**
  * 结果区块后置过滤：关闭的区块在 prompt 里已不要求输出，但模型仍可能不守约，
  * 这里对校验后的结果强制清空对应字段，保证评论 / 结果页 / 标签都不再出现。
  * summary 始终保留（契约硬性要求）。缺省（sections 未传）不修改原结果。
@@ -107,7 +175,12 @@ function applyResultSections(
   if (!sections) return graded;
   const result = graded.result;
   // 先剔除可选字段：条件展开只能「加」不能「删」，留着会在 ...result 时被原样带回。
-  const { suggestedTitle: _title, probableCause: _cause, ...rest } = result;
+  const {
+    suggestedTitle: _title,
+    probableCause: _cause,
+    suggestedAssignee: _assignee,
+    ...rest
+  } = result;
 
   const next: IssueAnalysisResult = {
     ...rest,
@@ -132,6 +205,11 @@ function applyResultSections(
       : {}),
     ...(sections.has("probable_cause") && result.probableCause !== undefined
       ? { probableCause: result.probableCause }
+      : {}),
+    ...(sections.has("suggested_assignee") &&
+    result.suggestedAssignee !== undefined &&
+    result.suggestedAssignee.length > 0
+      ? { suggestedAssignee: result.suggestedAssignee }
       : {}),
   };
 
@@ -180,7 +258,7 @@ export async function analyzeIssue(
       context,
       options.promptVersion,
       options.promptMode,
-      options.sections,
+      resolvePromptSections(options, context),
       codeAccess,
     ),
   );
@@ -192,7 +270,7 @@ export async function analyzeIssue(
         context,
         options.promptVersion,
         options.promptMode,
-        options.sections,
+        resolvePromptSections(options, context),
         codeAccess,
       ),
       options.tools.context,
@@ -218,7 +296,10 @@ export async function analyzeIssue(
   if (validation.outcome === "valid") {
     return {
       outcome: "valid",
-      analysis: applyResultSections(validation.analysis, options.sections),
+      analysis: applyResultSections(
+        validation.analysis,
+        resolveResultSections(options, validation.analysis.result.category),
+      ),
       usage: main.response.usage,
       candidate: main.candidate,
       attempts: main.attempts,
@@ -236,7 +317,7 @@ export async function analyzeIssue(
       validation.issues,
       options.promptVersion,
       options.promptMode,
-      options.sections,
+      resolvePromptSections(options, context),
       codeAccess,
     ),
     deadlineMs: remainingMs,
@@ -258,7 +339,10 @@ export async function analyzeIssue(
   if (repaired.outcome === "valid") {
     return {
       outcome: "valid",
-      analysis: applyResultSections(repaired.analysis, options.sections),
+      analysis: applyResultSections(
+        repaired.analysis,
+        resolveResultSections(options, repaired.analysis.result.category),
+      ),
       usage,
       candidate: repair.candidate,
       attempts,

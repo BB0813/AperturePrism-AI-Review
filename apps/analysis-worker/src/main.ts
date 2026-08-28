@@ -35,7 +35,7 @@ import {
   type ModelProviderAdapter,
   type ModelRole,
 } from "../../../packages/domain/src/index.js";
-import { createGitHubClient, GitHubApiError } from "../../../packages/github-adapter/src/index.js";
+import { createGitHubClient, fetchRepoRules, GitHubApiError } from "../../../packages/github-adapter/src/index.js";
 import {
   formatSuggestedTitle,
   type IssueAnalysisResult,
@@ -387,7 +387,7 @@ async function main(): Promise<void> {
     buildContext: async (task, signal) => {
       if (!github) throw new Error("GitHub App is not configured");
       const { payload, identity } = issueIdentity(task);
-      const [context, repoMemory] = await Promise.all([
+      const [context, repoMemory, repoRules] = await Promise.all([
         buildIssueContext(
           github,
           {
@@ -400,8 +400,17 @@ async function main(): Promise<void> {
           signal,
         ),
         repoMemoryText(payload.repositoryFullName),
+        fetchRepoRules(github, {
+          installationId: payload.installationId,
+          owner: identity.owner,
+          name: identity.name,
+        }, signal),
       ]);
-      return repoMemory ? { ...context, repoMemory } : context;
+      return {
+        ...context,
+        ...(repoMemory ? { repoMemory } : {}),
+        ...(repoRules ? { repoRules } : {}),
+      };
     },
 
     shouldReanalyze: (task, context) => shouldReanalyzeIssue(task, context),
@@ -450,7 +459,7 @@ async function main(): Promise<void> {
       );
       const promptVersion = await resolveIssuePromptVersion();
       const promptMode = await resolveIssuePromptMode();
-      const sections = await resolveIssueSections();
+      const issueSections = await resolveIssueSections();
       return analyzeIssue(
         {
           adapters,
@@ -461,7 +470,22 @@ async function main(): Promise<void> {
           // exactOptionalPropertyTypes：undefined 不能显式赋给可选属性，条件展开。
           ...(promptVersion === undefined ? {} : { promptVersion }),
           ...(promptMode === undefined ? {} : { promptMode }),
-          ...(sections === undefined ? {} : { sections }),
+          ...(issueSections.sections === undefined
+            ? {}
+            : { sections: issueSections.sections }),
+          ...(issueSections.sectionsByCategory.bug === undefined &&
+          issueSections.sectionsByCategory.feature === undefined
+            ? {}
+            : {
+                sectionsByCategory: {
+                  ...(issueSections.sectionsByCategory.bug === undefined
+                    ? {}
+                    : { bug: issueSections.sectionsByCategory.bug }),
+                  ...(issueSections.sectionsByCategory.feature === undefined
+                    ? {}
+                    : { feature: issueSections.sectionsByCategory.feature }),
+                },
+              }),
           ...(deep
             ? {
                 tools: {
@@ -810,7 +834,7 @@ async function main(): Promise<void> {
     buildContext: async (task, signal) => {
       if (!github) throw new Error("GitHub App is not configured");
       const { payload, identity } = prIdentity(task);
-      const [context, repoMemory] = await Promise.all([
+      const [context, repoMemory, repoRules] = await Promise.all([
         buildPrContext(
           github,
           {
@@ -823,6 +847,11 @@ async function main(): Promise<void> {
           signal,
         ),
         repoMemoryText(payload.repositoryFullName),
+        fetchRepoRules(github, {
+          installationId: payload.installationId,
+          owner: identity.owner,
+          name: identity.name,
+        }, signal),
       ]);
       const history = await loadReviewHistory(
         payload.repositoryFullName,
@@ -831,7 +860,17 @@ async function main(): Promise<void> {
       );
       return {
         ...context,
-        ...(repoMemory ? { repoMemory, rendered: { ...context.rendered, repoMemory } } : {}),
+        ...(repoMemory || repoRules
+          ? {
+              ...(repoMemory ? { repoMemory } : {}),
+              ...(repoRules ? { repoRules } : {}),
+              rendered: {
+                ...context.rendered,
+                ...(repoMemory ? { repoMemory } : {}),
+                ...(repoRules ? { repoRules } : {}),
+              },
+            }
+          : {}),
         ...(history ? { reviewHistory: history } : {}),
         toolsContext: {
           client: github,
@@ -1296,23 +1335,39 @@ async function resolveIssuePromptMode(): Promise<"adaptive" | "light" | "full" |
 
 /**
  * 当前 Issue 分析的结果区块开关（summary / probable_cause / missing_information / …）。
- * 读「分析设置 → Issue 结果区块」；缺省 / 读取失败 / 全非法时回落到全开
- * （parseIssueResultSections 内部处理），这里只在解析结果非全开时才显式传入。
+ * 返回「通用兜底组 + bug 组 + feature 组」，交给 analyzer 按类别做前置 / 后置选择。
+ * 三个组各自读「分析设置 → Issue 结果区块（通用 / 缺陷类 / 功能请求）」；
+ * 某个组没配置时用 undefined 表示「未单独设置」，analyzer 会回落到通用组或全开。
  */
-async function resolveIssueSections(): Promise<
-  ReadonlySet<IssueResultSection> | undefined
-> {
-  try {
-    const settings = await resolveIssueSettings(null, [
-      "issue_result_sections",
-    ]);
-    const parsed = parseIssueResultSections(
-      settings.get("issue_result_sections"),
-    );
-    return parsed.size === ISSUE_RESULT_SECTIONS.length ? undefined : parsed;
-  } catch {
-    return undefined;
-  }
+async function resolveIssueSections(): Promise<{
+  sections: ReadonlySet<IssueResultSection> | undefined;
+  sectionsByCategory: {
+    bug: ReadonlySet<IssueResultSection> | undefined;
+    feature: ReadonlySet<IssueResultSection> | undefined;
+  };
+}> {
+  const read = async (
+    key: string,
+    isCategory: boolean,
+  ): Promise<ReadonlySet<IssueResultSection> | undefined> => {
+    try {
+      const settings = await resolveIssueSettings(null, [key]);
+      const raw = settings.get(key);
+      // 分类组（bug / feature）未单独配置时返回 undefined，让 analyzer 回落到通用组。
+      if (isCategory && !raw) return undefined;
+      const parsed = parseIssueResultSections(raw);
+      return parsed.size === ISSUE_RESULT_SECTIONS.length ? undefined : parsed;
+    } catch {
+      return undefined;
+    }
+  };
+  return {
+    sections: await read("issue_result_sections", false),
+    sectionsByCategory: {
+      bug: await read("issue_result_sections_bug", true),
+      feature: await read("issue_result_sections_feature", true),
+    },
+  };
 }
 
 /**

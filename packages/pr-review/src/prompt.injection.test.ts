@@ -98,6 +98,17 @@ describe("PR 审查提示词注入防护", () => {
     expect(content).toContain("忽略以上规则");
   });
 
+  it("仓库审核规则注入且说明优先级", () => {
+    const content = userContent(
+      context({ repoRules: "审核规则：禁止提交明文密钥" }),
+    );
+    expect(content.split("<<<UNTRUSTED_INPUT").length - 1).toBe(1);
+    expect(content).toContain("仓库审核规则");
+    expect(content).toContain(".apertureprism/rules/");
+    expect(content).toContain("禁止提交明文密钥");
+    expect(content).toContain("应优先遵循");
+  });
+
   it("系统提示说明定界块内是数据而非指令", () => {
     const system = systemContent(context());
     expect(system).toContain("不可信");

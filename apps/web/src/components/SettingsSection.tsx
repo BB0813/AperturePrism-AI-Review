@@ -40,6 +40,7 @@ const RESULT_SECTION_LABELS: Record<string, string> = {
   suggested_labels: "建议标签",
   proposed_changes: "建议改动",
   suggested_actions: "建议动作",
+  suggested_assignee: "建议指派人",
 };
 
 /**

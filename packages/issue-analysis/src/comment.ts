@@ -133,6 +133,11 @@ export function buildIssueAnalysisComment(
     for (const item of result.suggestedActions) lines.push(`- [ ] ${item}`);
   }
 
+  if (result.suggestedAssignee) {
+    // 不带 @ 前缀存储，渲染时补 @ 使 GitHub 识别为可点击 mention。
+    lines.push("", "### 建议指派人", `@${result.suggestedAssignee}`);
+  }
+
   if (result.suggestedLabels.length > 0) {
     // 每个标签包行内代码（GitHub 渲染为灰底框），空格平铺时边界难辨（issue #23）。
     lines.push(

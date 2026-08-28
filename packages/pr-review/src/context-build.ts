@@ -27,6 +27,8 @@ export type PrReviewContext = {
   degraded: readonly string[];
   /** Consolidated repo memory (rules/knowledge), rendered as reference text. */
   repoMemory?: string;
+  /** 仓库 `.apertureprism/rules/` 目录下的审核规则（Sakura 式专属文件夹）。 */
+  repoRules?: string;
   /** 可选：AI 主动探索工具的仓库只读上下文（由 worker 注入）。 */
   toolsContext?: ToolExecutionContext;
   /** 可选：同一 PR 此前的审查对话（增量续跑，由 worker 注入）。 */

@@ -35,9 +35,9 @@ const LAST_PASS_KEY = "index_last_pass";
 /** Embeddings are requested in batches; a whole repo stays inside one fetch. */
 const EMBED_BATCH_SIZE = 16;
 /**
- * nv-embed-v1 caps a single input at 4096 tokens. Truncate each document
- * conservatively on characters before batching so one oversized issue cannot
- * fail the whole batch (a 400 aborts the entire repo pass).
+ * nemotron-3-embed-1b caps a single input at a few thousand tokens. Truncate
+ * each document conservatively on characters before batching so one oversized
+ * issue cannot fail the whole batch (a 400 aborts the entire repo pass).
  */
 const EMBED_MAX_CHARS = 3_000;
 

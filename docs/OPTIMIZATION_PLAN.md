@@ -38,7 +38,7 @@ GitHub ──webhook──▶ api ──▶ task-engine ──▶ (Redis 队列)
 
 关键数据流说明：
 1. **入库链路**：GitHub webhook（或手动触发）→ api 落任务 → analysis-worker 消费 → `recallRelated` 召回候选 → `judgeDuplicates` 模型裁决 → 分析 → 评论/标签回写 GitHub。
-2. **索引链路**：index-worker 拉取仓库 → 源码/文档向量化（nv-embed-v1，4096 维）→ 写入 pgvector → 供分析时检索上下文。
+2. **索引链路**：index-worker 拉取仓库 → 源码/文档向量化（nemotron-3-embed-1b，2048 维）→ 写入 pgvector → 供分析时检索上下文。
 3. **扫描链路**：scheduler 按周期扫描 → scan-worker 执行扫描任务 → 结果落库 → 触发分析。
 4. **前端链路**：web 通过 `/api/*` 读数据、SSE 订阅实时事件、`/update/*` 做在线更新。
 
@@ -240,7 +240,7 @@ P2（工程健康，持续）
 
 ### 4.1 Issue 分析质量深化
 
-- **上下文召回增强**：目前靠 embedding 检索（nv-embed-v1/4096 维）；补「标题相似度 + 代码符号 + 最近编辑文件」多路召回，再合并排序。
+- **上下文召回增强**：目前靠 embedding 检索（nemotron-3-embed-1b/2048 维）；补「标题相似度 + 代码符号 + 最近编辑文件」多路召回，再合并排序。
 - **低信息量识别**：延续 #16，对「信息量不足」的 issue 给出追问方向而非硬分析。
 - **建议可执行性**：输出建议尽量带文件路径与行号（已有 deep analysis 能力），并标注置信度。
 - **A/B 盲测**：定期抽取真实 issue，用新旧 prompt 各分析一次，双盲评分。

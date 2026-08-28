@@ -108,7 +108,7 @@ export function VectorPage() {
             <div className="panel-title"><h2>Embedding 配置</h2></div>
             <dl className="kv">
               <dt>模型</dt><dd className="mono">{stats.embeddingModel}</dd>
-              <dt>维度</dt><dd className="mono">4096</dd>
+              <dt>维度</dt><dd className="mono">2048</dd>
               <dt>最近索引</dt><dd className="mono">{stats.lastIndexedAt ? fmtTime(stats.lastIndexedAt) : "尚未索引"}</dd>
               <dt>状态</dt>
               <dd>
@@ -120,7 +120,7 @@ export function VectorPage() {
               </dd>
             </dl>
             <p className="faint" style={{ marginTop: 12, fontSize: 12 }}>
-              pgvector 4096 维先于 ANN 索引上限（2000），当前以精确顺序扫描召回，规模较小时可接受。
+              pgvector 2048 维先于 ANN 索引上限（2000），当前以精确顺序扫描召回，规模较小时可接受。
             </p>
           </section>
 

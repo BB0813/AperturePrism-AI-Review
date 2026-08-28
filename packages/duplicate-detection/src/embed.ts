@@ -1,6 +1,6 @@
-/** Dimension returned by nvidia/nv-embed-v1 (symmetric, no additional params). */
-export const EMBEDDING_DIMENSION = 4096;
-export const EMBEDDING_MODEL = "nvidia/nv-embed-v1" as const;
+/** Dimension returned by nvidia/nemotron-3-embed-1b (symmetric, no additional params). */
+export const EMBEDDING_DIMENSION = 2048;
+export const EMBEDDING_MODEL = "nvidia/nemotron-3-embed-1b" as const;
 
 export class EmbeddingError extends Error {
   constructor(message: string) {
@@ -12,7 +12,7 @@ export class EmbeddingError extends Error {
 export type EmbedInput = {
   baseUrl: string;
   apiKey: string;
-  /** Model name; defaults to nvdia's symmetric 4096-d model. */
+  /** Model name; defaults to nvidia's symmetric 2048-d model. */
   model?: string;
   texts: readonly string[];
   fetchImpl?: typeof fetch;
@@ -25,8 +25,8 @@ export type EmbeddingResponse = {
 };
 
 /**
- * Calls an OpenAI-compatible `/embeddings` endpoint. nv-embed-v1 is symmetric
- * and needs no extra request params beyond `{ model, input }`.
+ * Calls an OpenAI-compatible `/embeddings` endpoint. nemotron-3-embed-1b is
+ * symmetric and needs no extra request params beyond `{ model, input }`.
  */
 export async function embedTexts(
   input: EmbedInput,

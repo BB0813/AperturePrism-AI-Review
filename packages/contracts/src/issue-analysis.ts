@@ -78,6 +78,8 @@ export const issueAnalysisResultSchema = z
     missingInformation: z.array(z.string().min(1).max(500)).max(10).default([]),
     suggestedLabels: z.array(z.string().min(1).max(50)).max(10).default([]),
     suggestedActions: z.array(z.string().min(1).max(500)).max(10).default([]),
+    /** 建议指派的 GitHub 用户名（不带 @ 前缀）；无把握时省略，绝不编造。 */
+    suggestedAssignee: z.string().min(1).max(50).optional(),
     confidence: z.object({
       severity: confidenceSchema,
       rootCause: confidenceSchema,

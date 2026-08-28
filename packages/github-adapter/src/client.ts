@@ -134,6 +134,19 @@ export type GitHubClient = {
       deliveredAt: string;
     }[]
   >;
+  /**
+   * Reads repository metadata (GET /repos/{owner}/{name}), primarily to learn
+   * the default branch so repo-scoped file reads (rules folder etc.) can pin a
+   * stable ref. Returns null when the repo is unknown to this installation.
+   */
+  getRepository: (
+    input: {
+      installationId: string;
+      owner: string;
+      name: string;
+    },
+    signal?: AbortSignal,
+  ) => Promise<{ defaultBranch: string } | null>;
   getIssue: (
     input: {
       installationId: string;
@@ -732,6 +745,26 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
         signal,
       );
       return mapIssue(issue);
+    },
+
+    getRepository: async ({ installationId, owner, name }, signal) => {
+      try {
+        const repo = await authorized<Record<string, unknown>>(
+          installationId,
+          {
+            method: "GET",
+            path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`,
+          },
+          signal,
+        );
+        return {
+          defaultBranch:
+            typeof repo.default_branch === "string" ? repo.default_branch : "main",
+        };
+      } catch (error) {
+        if (error instanceof GitHubApiError && error.status === 404) return null;
+        throw error;
+      }
     },
 
     listIssues: async (

@@ -20,7 +20,7 @@ function embedWith(responder: (call: Call) => Response) {
 }
 
 describe("embedTexts", () => {
-  it("posts to /embeddings with model + input and returns 4096-d vectors", async () => {
+  it("posts to /embeddings with model + input and returns 2048-d vectors", async () => {
     const { calls, fn } = embedWith(() => {
       return new Response(
         JSON.stringify({

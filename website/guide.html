@@ -139,7 +139,7 @@ npm run dev --workspace apps/scheduler</div>
               <tr><td><code>MODEL_PROVIDER_BASE_URLS</code></td><td>Provider → OpenAI 兼容 baseUrl 的 JSON 映射</td></tr>
               <tr><td><code>CREDENTIAL_MASTER_KEY</code></td><td>AES-GCM 主密钥：解密 provider 密钥 / 记忆与专家团队模型调用</td></tr>
               <tr><td><code>DEFAULT_LLM_MODEL</code></td><td>安装向导预填的模型名（默认 <code>gpt-4o-mini</code>，按你的网关实际可用模型改）</td></tr>
-              <tr><td><code>EMBEDDING_BASE_URL</code> / <code>EMBEDDING_API_KEY</code> / <code>EMBEDDING_MODEL</code></td><td>与 review 模型独立配置（默认 <code>nvidia/nv-embed-v1</code>，4096 维）</td></tr>
+              <tr><td><code>EMBEDDING_BASE_URL</code> / <code>EMBEDDING_API_KEY</code> / <code>EMBEDDING_MODEL</code></td><td>与 review 模型独立配置（默认 <code>nvidia/nemotron-3-embed-1b</code>，2048 维）</td></tr>
               <tr><td><code>QQ_BOT_PROTOCOLS</code></td><td>NTQQ 网关 JSON（onebot11 / satori / milky）</td></tr>
               <tr><td><code>QQ_OFFICIAL_APP_ID</code> / <code>QQ_OFFICIAL_APP_SECRET</code> / 网关 / Intents</td><td>官方开放平台 api-v2</td></tr>
               <tr><td><code>ALERT_WEBHOOK_URL</code></td><td>告警 Webhook（飞书/钉钉/自定义），可在 WebUI 覆盖</td></tr>
@@ -193,8 +193,8 @@ DEFAULT_LLM_MODEL=gpt-4o-mini</div>
           <p>向量召回用独立嵌入配置：</p>
           <div class="code" data-cmd>EMBEDDING_BASE_URL=https://gateway.example.com/v1
 EMBEDDING_API_KEY=xxx
-EMBEDDING_MODEL=nvidia/nv-embed-v1</div>
-          <p>默认 <code>nv-embed-v1</code>（4096 维）。注意：向量只用于召回，重复等最终裁决由服务端策略完成。</p>
+EMBEDDING_MODEL=nvidia/nemotron-3-embed-1b</div>
+          <p>默认 <code>nemotron-3-embed-1b</code>（2048 维）。注意：向量只用于召回，重复等最终裁决由服务端策略完成。</p>
         </section>
 
         <section id="webui" class="gsec reveal">

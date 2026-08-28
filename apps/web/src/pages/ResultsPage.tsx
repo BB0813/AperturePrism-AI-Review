@@ -422,6 +422,7 @@ function IssueBody({ norm }: { norm: NormResult }) {
   const evidence = arrOf(r.evidence);
   const suggestedTitle = str(r.suggestedTitle);
   const probableCause = str(r.probableCause);
+  const suggestedAssignee = str(r.suggestedAssignee);
   const troubleshooting = stringArr(r.troubleshooting);
   const proposedChanges = arrOf(r.proposedChanges).map((p) => ({
     path: str(p.path),
@@ -497,6 +498,13 @@ function IssueBody({ norm }: { norm: NormResult }) {
               <li key={i}>{m}</li>
             ))}
           </ul>
+        </div>
+      ) : null}
+
+      {suggestedAssignee ? (
+        <div className="section">
+          <h4>建议指派人</h4>
+          <p className="action-item">@{suggestedAssignee}</p>
         </div>
       ) : null}
 

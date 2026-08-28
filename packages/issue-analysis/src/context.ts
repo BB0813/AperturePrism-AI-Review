@@ -30,6 +30,8 @@ export type IssueContext = {
   estimatedTokens: number;
   /** Consolidated repo memory (rules/knowledge), rendered as reference text. */
   repoMemory?: string;
+  /** 仓库 `.apertureprism/rules/` 目录下的审核规则（Sakura 式专属文件夹）。 */
+  repoRules?: string;
 };
 
 export type IssueContextBudget = {

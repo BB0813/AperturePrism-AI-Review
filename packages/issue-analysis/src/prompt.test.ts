@@ -100,6 +100,17 @@ describe("Issue 上下文的注入防护", () => {
     expect(content.split("<<<UNTRUSTED_INPUT").length - 1).toBe(3);
   });
 
+  it("仓库审核规则同样隔离且说明优先级", () => {
+    const content = userContent(
+      context({ repoRules: "仓库规则：所有密码必须用 argon2 存储" }),
+    );
+    expect(content.split("<<<UNTRUSTED_INPUT").length - 1).toBe(3);
+    expect(content).toContain("仓库审核规则");
+    expect(content).toContain(".apertureprism/rules/");
+    expect(content).toContain("所有密码必须用 argon2 存储");
+    expect(content).toContain("应优先遵循");
+  });
+
   it("系统提示说明定界块内是数据而非指令", () => {
     const system = buildIssueAnalysisMessages(context()).find(
       (m) => m.role === "system",
@@ -303,9 +314,10 @@ describe("提示词版本化与回滚", () => {
 });
 
 describe("Issue 结果区块开关", () => {
-  it("默认启用的区块是「全开去掉缺失信息与建议动作」", () => {
+  it("默认启用的区块是「全开去掉缺失信息、建议动作与建议指派人」", () => {
     expect(DEFAULT_ISSUE_RESULT_SECTIONS).not.toContain("missing_information");
     expect(DEFAULT_ISSUE_RESULT_SECTIONS).not.toContain("suggested_actions");
+    expect(DEFAULT_ISSUE_RESULT_SECTIONS).not.toContain("suggested_assignee");
     expect(DEFAULT_ISSUE_RESULT_SECTIONS).toContain("summary");
     expect(DEFAULT_ISSUE_RESULT_SECTIONS).toContain("proposed_changes");
     // 默认值串与集合一致（供设置项展示 / 保存）。
