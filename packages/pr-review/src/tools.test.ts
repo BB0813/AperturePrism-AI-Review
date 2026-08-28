@@ -15,6 +15,7 @@ function clientWith(overrides: Partial<GitHubClient>): GitHubClient {
   return {
     getFileContents: async () => ({ content: "const x = 1;\n" }),
     writeFileContents: async () => true,
+    deleteFileContents: async () => true,
     listDirectory: async () => [
       { name: "src", path: "src", type: "dir" },
       { name: "README.md", path: "README.md", type: "file" },

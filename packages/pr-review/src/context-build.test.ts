@@ -20,6 +20,7 @@ function makeGithub(): GitHubClient {
     getFileContents: async () => null,
     listDirectory: async () => [],
     writeFileContents: async () => true,
+    deleteFileContents: async () => true,
     getRepository: async () => ({ defaultBranch: "main" }),
     getIssue: async () => {
       throw new Error("unused");

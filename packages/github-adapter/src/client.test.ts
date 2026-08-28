@@ -372,7 +372,49 @@ describe("GitHub API client", () => {
     expect(last.init.method).toBe("PUT");
     const body = JSON.parse(String(last.init.body));
     expect(body.branch).toBe("main");
+    expect(body.sha).toBeUndefined();
     expect(Buffer.from(body.content, "base64").toString("utf8")).toBe("# rules");
+  });
+
+  it("writeFileContents with sha sends an update body (update mode)", async () => {
+    const { client, calls } = clientWith(
+      withToken(() => jsonResponse({ content: { name: "a.md" } })),
+    );
+    const ok = await client.writeFileContents({
+      installationId: "42",
+      owner: "o",
+      name: "r",
+      path: ".apertureprism/rules/a.md",
+      ref: "main",
+      content: "v2",
+      sha: "abc123",
+    });
+    expect(ok).toBe(true);
+    const body = JSON.parse(String(calls.at(-1)!.init.body));
+    expect(body.sha).toBe("abc123");
+  });
+
+  it("deleteFileContents DELETEs with the blob sha", async () => {
+    const { client, calls } = clientWith(
+      withToken(() => jsonResponse({ content: null })),
+    );
+    const ok = await client.deleteFileContents({
+      installationId: "42",
+      owner: "o",
+      name: "r",
+      path: ".apertureprism/rules/a.md",
+      ref: "main",
+      sha: "abc123",
+    });
+    expect(ok).toBe(true);
+    const last = calls.at(-1)!;
+    expect(last.init.method).toBe("DELETE");
+    expect(last.url).toBe(
+      "https://api.github.test/repos/o/r/contents/.apertureprism/rules/a.md",
+    );
+    const body = JSON.parse(String(last.init.body));
+    expect(body.sha).toBe("abc123");
+    expect(body.branch).toBe("main");
   });
 
   it("writeFileContents reports false when the file already exists", async () => {

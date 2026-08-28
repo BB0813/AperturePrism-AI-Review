@@ -250,7 +250,7 @@ export type GitHubClient = {
       ref: string;
     },
     signal?: AbortSignal,
-  ) => Promise<{ content: string; truncated?: boolean } | null>;
+  ) => Promise<{ content: string; truncated?: boolean; sha?: string } | null>;
   /** Lists directory entries at a ref via the contents API. */
   listDirectory: (
     input: {
@@ -263,9 +263,10 @@ export type GitHubClient = {
     signal?: AbortSignal,
   ) => Promise<{ name: string; path: string; type: string }[]>;
   /**
-   * Creates a new file via the contents API (PUT /repos/{owner}/{name}/contents/{path}).
-   * Fails when the file already exists. Used to seed an example rules file on a repo's
-   * first analysis. Returns false if the file already exists; true on create.
+   * Creates or updates a file via the contents API (PUT /repos/{owner}/{name}/contents/{path}).
+   * `sha` present → update (must match current blob sha); absent → create (fails if exists).
+   * Used to seed an example rules file on a repo's first analysis and to edit rules from the WebUI.
+   * Returns false if the file already exists (create mode) or the blob sha mismatched.
    */
   writeFileContents: (input: {
     installationId: string;
@@ -274,6 +275,19 @@ export type GitHubClient = {
     path: string;
     ref: string;
     content: string;
+    sha?: string;
+  }, signal?: AbortSignal) => Promise<boolean>;
+  /**
+   * Deletes a file via the contents API (DELETE /repos/{owner}/{name}/contents/{path}).
+   * Requires the current blob sha. Returns false when the file does not exist.
+   */
+  deleteFileContents: (input: {
+    installationId: string;
+    owner: string;
+    name: string;
+    path: string;
+    ref: string;
+    sha: string;
   }, signal?: AbortSignal) => Promise<boolean>;
   listIssueComments: (
     input: {
@@ -894,9 +908,11 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
       if (typeof data.type === "string" && data.type !== "file") return null;
       const base64 = typeof data.content === "string" ? data.content : "";
       if (!base64) return null;
+      const sha = typeof data.sha === "string" ? data.sha : undefined;
       return {
         content: Buffer.from(base64, "base64").toString("utf8"),
         truncated: data.truncated === true,
+        ...(sha ? { sha } : {}),
       };
     },
 
@@ -926,7 +942,7 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
     },
 
     writeFileContents: async (
-      { installationId, owner, name, path, ref, content },
+      { installationId, owner, name, path, ref, content, sha },
       signal,
     ) => {
       const safePath = String(path || "").replace(/^\/+/, "");
@@ -942,16 +958,44 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
             path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents/${encoded}`,
             // authorized -> request 会再做 JSON.stringify，这里传对象即可。
             body: {
-              message: "chore: seed AperturePrism example review rules",
+              message: sha
+                ? `chore: update AperturePrism review rule ${path}`
+                : "chore: seed AperturePrism example review rules",
               content: Buffer.from(content, "utf8").toString("base64"),
               branch: ref,
+              ...(sha ? { sha } : {}),
             },
           },
           signal,
         );
         return true;
       } catch (error) {
-        // 文件已存在（422 或 conflict）视为「已创建过」，不是错误。
+        // 文件已存在（422 或 conflict）或 sha 不匹配（409）视为「未成功」，不是致命错误。
+        if (error instanceof GitHubApiError) return false;
+        throw error;
+      }
+    },
+
+    deleteFileContents: async (
+      { installationId, owner, name, path, ref, sha },
+      signal,
+    ) => {
+      const safePath = String(path || "").replace(/^\/+/, "");
+      if (!safePath || !sha) return false;
+      const encoded = safePath.split("/").map(encodeURIComponent).join("/");
+      try {
+        await authorized<Record<string, unknown>>(
+          installationId,
+          {
+            method: "DELETE",
+            path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents/${encoded}`,
+            body: { message: `chore: remove AperturePrism review rule ${path}`, branch: ref, sha },
+          },
+          signal,
+        );
+        return true;
+      } catch (error) {
+        // 文件不存在（404）或 sha 不匹配视为「未删除」，不是致命错误。
         if (error instanceof GitHubApiError) return false;
         throw error;
       }

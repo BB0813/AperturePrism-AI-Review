@@ -19,7 +19,7 @@ describe("NAV information architecture", () => {
 
   it("covers every primary page", () => {
     const paths = NAV.flatMap((g) => g.items.map((i) => i.path));
-    for (const p of ["/", "/logs", "/issues", "/pr", "/tasks", "/repos", "/vector", "/scan", "/memory", "/labels", "/provider", "/agent", "/bot", "/github-access", "/analysis", "/ops", "/config", "/security", "/users", "/about"]) {
+    for (const p of ["/", "/logs", "/issues", "/pr", "/tasks", "/repos", "/vector", "/scan", "/memory", "/labels", "/repo-rules", "/provider", "/agent", "/bot", "/github-access", "/analysis", "/ops", "/config", "/security", "/users", "/about"]) {
       expect(paths, `missing nav entry for ${p}`).toContain(p);
     }
   });

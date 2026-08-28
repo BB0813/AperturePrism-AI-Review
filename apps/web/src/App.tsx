@@ -29,6 +29,7 @@ import { SetupPage } from "./pages/SetupPage";
 import { BotPage } from "./pages/BotPage";
 import { GitHubAccessPage } from "./pages/GitHubAccessPage";
 import { AnalysisSettingsPage } from "./pages/AnalysisSettingsPage";
+import { RepoRulesPage } from "./pages/RepoRulesPage";
 import {
   ActivityIcon,
   BotIcon,
@@ -94,6 +95,7 @@ export const NAV: NavGroup[] = [
     items: [
       { path: "/repos", label: "已安装仓库", icon: FolderIcon },
       { path: "/analysis", label: "分析设置", icon: SlidersIcon },
+      { path: "/repo-rules", label: "审核规则", icon: ShieldIcon },
       { path: "/vector", label: "向量存储", icon: DatabaseIcon },
       { path: "/scan", label: "仓库扫描", icon: RadarIcon },
       { path: "/memory", label: "记忆管理", icon: SparkleIcon },
@@ -241,6 +243,7 @@ function AuthedConsole(props: { onLogout: () => void }) {
   else if (active === "/bot") page = <BotPage />;
   else if (active === "/github-access") page = <GitHubAccessPage />;
   else if (active === "/analysis") page = <AnalysisSettingsPage />;
+  else if (active === "/repo-rules") page = <RepoRulesPage />;
   else if (active === "/provider") page = <ProviderPage />;
   else if (active === "/config") page = <ConfigPage />;
   else if (active === "/security") page = <SecurityPage />;

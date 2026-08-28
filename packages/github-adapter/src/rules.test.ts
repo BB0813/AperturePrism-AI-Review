@@ -121,4 +121,59 @@ describe("fetchRepoRules", () => {
     );
     expect(directoryCall?.url).toContain("ref=develop");
   });
+
+  it("ensureRepoRulesDir creates an example file when the directory is missing", async () => {
+    const { client, calls } = clientWith(
+      withToken((call) => {
+        if (call.url.endsWith("/repos/o/r"))
+          return jsonResponse({ default_branch: "main" });
+        const contentPath = call.url.match(/contents\/([^?]+)/)?.[1] ?? "";
+        if (decodeURIComponent(contentPath) === REPO_RULES_DIR) {
+          // 目录不存在 → 返回 404，触发创建。
+          return jsonResponse({ message: "Not Found" }, 404);
+        }
+        if (call.url.includes("/contents/")) {
+          return jsonResponse({ content: {} }, 201);
+        }
+        return jsonResponse({ message: "unexpected" }, 500);
+      }),
+    );
+
+    const created = await ensureRepoRulesDir(client, {
+      installationId: "42",
+      owner: "o",
+      name: "r",
+    });
+
+    expect(created).toBe(true);
+    const putCall = calls.find((c) => c.init.method === "PUT");
+    expect(putCall).toBeDefined();
+    const body = JSON.parse(String(putCall!.init.body));
+    expect(body.branch).toBe("main");
+    expect(Buffer.from(body.content, "base64").toString("utf8")).toContain("AperturePrism");
+  });
+
+  it("ensureRepoRulesDir does nothing when the directory already has entries", async () => {
+    const { client } = clientWith(
+      withToken((call) => {
+        if (call.url.endsWith("/repos/o/r"))
+          return jsonResponse({ default_branch: "main" });
+        const contentPath = call.url.match(/contents\/([^?]+)/)?.[1] ?? "";
+        if (decodeURIComponent(contentPath) === REPO_RULES_DIR) {
+          return jsonResponse([
+            { name: "a.md", path: `${REPO_RULES_DIR}/a.md`, type: "file" },
+          ]);
+        }
+        return jsonResponse({ content: Buffer.from("R").toString("base64"), encoding: "base64" });
+      }),
+    );
+
+    const created = await ensureRepoRulesDir(client, {
+      installationId: "42",
+      owner: "o",
+      name: "r",
+    });
+
+    expect(created).toBe(false);
+  });
 });
