@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseConsolidationJson } from "./consolidation";
+import { parseConsolidationJson } from "./consolidation.js";
 
 describe("parseConsolidationJson", () => {
   it("parses a valid array of entries", () => {
