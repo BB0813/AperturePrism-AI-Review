@@ -228,4 +228,33 @@ describeIntegration("GitHub webhook ingestion PostgreSQL integration", () => {
     const canceled = after.filter((t) => t.status === "canceled");
     expect(canceled.length).toBeGreaterThan(0);
   });
+
+  it("cancels active analysis tasks when the issue is deleted", async () => {
+    const opened = normalizeGitHubEvent("issues", `${prefix}-del-open`, {
+      action: "opened",
+      installation: { id: 42 },
+      repository: {
+        id: githubRepositoryId,
+        full_name: `${prefix}/repository`,
+      },
+      issue: { number: 88, updated_at: "2026-08-17T01:00:00Z" },
+    });
+    const created = await ingestGitHubWebhook(client.db, opened, "policy-v1");
+    expect(created.outcome).toBe("task_created");
+
+    const deleted = normalizeGitHubEvent("issues", `${prefix}-del-delete`, {
+      action: "deleted",
+      installation: { id: 42 },
+      repository: {
+        id: githubRepositoryId,
+        full_name: `${prefix}/repository`,
+      },
+      issue: { number: 88, updated_at: "2026-08-17T02:00:00Z" },
+    });
+    const result = await ingestGitHubWebhook(client.db, deleted, "policy-v1");
+    expect(result.outcome).toBe("task_canceled");
+    if (result.outcome === "task_canceled") {
+      expect(result.canceledCount).toBeGreaterThan(0);
+    }
+  });
 });

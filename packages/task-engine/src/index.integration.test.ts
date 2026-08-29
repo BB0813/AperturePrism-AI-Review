@@ -1,15 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabaseClient } from "../../../packages/database/src/client.js";
 import {
   analysisTasks,
+  repositories,
   taskAttempts,
   taskEvents,
 } from "../../../packages/database/src/schema.js";
 import type { DatabaseClient } from "../../../packages/database/src/client.js";
 import {
   beginPublishing,
+  cancelSubjectTasks,
   cancelTask,
   claimTask,
   completeTask,
@@ -41,6 +43,7 @@ describeIntegration("task state PostgreSQL integration", () => {
         select id from analysis_tasks where dedupe_key like ${`${prefix}%`}
       )`;
       await sql`delete from analysis_tasks where dedupe_key like ${`${prefix}%`}`;
+      await sql`delete from repositories where github_id like ${`${prefix}%`}`;
     });
     await client.close();
   });
@@ -259,5 +262,103 @@ describeIntegration("task state PostgreSQL integration", () => {
         reason: "terminal task must remain failed",
       }),
     ).toBe(false);
+  });
+
+  it("cancelSubjectTasks cancels a subject's active tasks but leaves others", async () => {
+    const repo = await client.db
+      .insert(repositories)
+      .values({
+        githubId: `${prefix}-repo-subject`,
+        owner: "acme",
+        name: "widget",
+        installationId: "inst-1",
+      })
+      .returning({ id: repositories.id });
+    const repositoryId = repo[0]!.id;
+
+    // 先建 running（claim + start），再建 queued，避免 claim 顺序歧义。
+    const running = await createAnalysisTask(client.db, {
+      taskType: "issue_analysis",
+      repositoryId,
+      subjectNumber: 555,
+      subjectRevision: "revision-running",
+      policyVersion: "policy-v1",
+      dedupeKey: `${prefix}:subject:running`,
+      payload: {},
+      priority: 1_000_000,
+    });
+    const leased = await claimTask(client.db, {
+      workerId: "worker-subject",
+      leaseDurationMs: 60_000,
+    });
+    expect(leased?.id).toBe(running.task.id);
+    expect(
+      await startTask(client.db, {
+        taskId: running.task.id,
+        workerId: "worker-subject",
+      }),
+    ).toBe(true);
+
+    const queued = await createAnalysisTask(client.db, {
+      taskType: "issue_analysis",
+      repositoryId,
+      subjectNumber: 555,
+      subjectRevision: "revision-queued",
+      policyVersion: "policy-v1",
+      dedupeKey: `${prefix}:subject:queued`,
+      payload: {},
+      priority: 1_000_000,
+    });
+    const otherSubject = await createAnalysisTask(client.db, {
+      taskType: "issue_analysis",
+      repositoryId,
+      subjectNumber: 999,
+      subjectRevision: "revision-other",
+      policyVersion: "policy-v1",
+      dedupeKey: `${prefix}:subject:other`,
+      payload: {},
+      priority: 1_000_000,
+    });
+    const otherType = await createAnalysisTask(client.db, {
+      taskType: "pr_review",
+      repositoryId,
+      subjectNumber: 555,
+      subjectRevision: "revision-pr",
+      policyVersion: "policy-v1",
+      dedupeKey: `${prefix}:subject:pr`,
+      payload: {},
+      priority: 1_000_000,
+    });
+
+    const canceledCount = await cancelSubjectTasks(client.db, {
+      taskType: "issue_analysis",
+      repositoryId,
+      subjectNumber: 555,
+      reason: "issue_closed",
+    });
+    expect(canceledCount).toBe(2);
+
+    const statuses = new Map(
+      (
+        await client.db
+          .select({ id: analysisTasks.id, status: analysisTasks.status })
+          .from(analysisTasks)
+          .where(eq(analysisTasks.repositoryId, repositoryId))
+      ).map((row) => [row.id, row.status]),
+    );
+    expect(statuses.get(running.task.id)).toBe("canceled");
+    expect(statuses.get(queued.task.id)).toBe("canceled");
+    expect(statuses.get(otherSubject.task.id)).toBe("queued");
+    expect(statuses.get(otherType.task.id)).toBe("queued");
+
+    // 幂等：再次取消同一 subject 不再命中。
+    expect(
+      await cancelSubjectTasks(client.db, {
+        taskType: "issue_analysis",
+        repositoryId,
+        subjectNumber: 555,
+        reason: "issue_closed",
+      }),
+    ).toBe(0);
   });
 });
