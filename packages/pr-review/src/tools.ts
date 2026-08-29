@@ -163,8 +163,25 @@ export async function runToolLoop(
     current = [...current, { role: "user", content: options.exploreInstruction }];
   }
 
+  // 空响应重试：模型（如 kimi-k3）在工具循环中偶发返回「既无 content 也无
+  // tool_calls」的空消息，openai-compatible 适配器据此抛 invalid_output
+  // （"did not contain message content"）。这是瞬态抖动而非真实失败——重试当前
+  // 轮即可，若直接上抛会让整个 deep 分析无谓地致命失败。
+  const invokeWithEmptyRetry: typeof invoke = async (request) => {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await invoke(request);
+      } catch (error) {
+        const emptyResponse =
+          error instanceof Error &&
+          /did not contain message content/.test(error.message);
+        if (!emptyResponse || attempt >= 2) throw error;
+      }
+    }
+  };
+
   for (;;) {
-    const response = await invoke({ messages: current, tools });
+    const response = await invokeWithEmptyRetry({ messages: current, tools });
     rounds += 1;
 
     if (!response.toolCalls || response.toolCalls.length === 0) {
@@ -189,7 +206,7 @@ export async function runToolLoop(
     current = [...current, assistantMsg, ...toolResults];
 
     if (rounds >= maxRounds) {
-      const final = await invoke({
+      const final = await invokeWithEmptyRetry({
         messages: [
           ...current,
           {
