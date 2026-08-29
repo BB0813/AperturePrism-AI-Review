@@ -59,7 +59,7 @@ type ConsolidationEntry = {
 };
 
 /** Parses the model's JSON-array contract; malformed output yields []. */
-function parseConsolidationJson(text: string): ConsolidationEntry[] {
+export function parseConsolidationJson(text: string): ConsolidationEntry[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
