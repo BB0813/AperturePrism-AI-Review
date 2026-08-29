@@ -70,6 +70,20 @@ docker compose -f docker/docker-compose.prod.yml exec -T postgres \
   把召回限制在同一仓库内，避免跨项目“相关”Issue（worker 分析默认已按仓库过滤）。
 - **同步 GitHub App 安装仓库**：`POST /repositories/sync`（管理员；单安装失败自动重试一次，
   返回 `details` 失败明细，WebUI「已安装仓库」页也会每 12 小时自动拉取）。
+
+> **重要：只有安装/授权了 GitHub App 的仓库才会被分析。** GitHub 只向已安装该 App 的仓库推送
+> webhook，未安装/未授权的仓库提交 issue/PR 不会触发 AperturePrism 分析、也不会出现在「已安装仓库」
+> 列表里（排查 #38 时确认：`repositories` 表仅含已授权安装的仓库）。
+>
+> 安装步骤（WebUI「GitHub 接入」页）：
+> 1. 点击「安装 GitHub Apps ↗」按钮，跳转到 GitHub 的 App 安装页；
+> 2. 选择要授权的仓库或「全部仓库」，确认安装（安装目标仓库需其管理员授权）；
+> 3. 回到系统的「安装/授权仓库」面板，点击「安装 GitHub Apps 并选择仓库 ↗」可进一步筛选授权仓库；
+> 4. 触发一次仓库同步（「已安装仓库」页的「同步仓库」），新仓库即纳入分析范围。
+>
+> 常见排查：某个仓库提交 issue 后 bot 无「正在分析」评论 → 先确认该仓库是否已在此系统被安装授权
+> （在「已安装仓库」页可见）；若不在，则需先安装 App 到该仓库。这与分析阶段失败（如模型 401 /
+> handler_error）是两类不同问题。
 - **一键撤回已发布分析**：`POST /repos/revoke`（管理员；body `{"repositoryFullName","number","type"}`，
   删除评论 / 撤销 PR Review / 移除建议标签，best-effort）。WebUI 结果页提供单条与批量撤回。
 - **批量重跑失败/取消任务**：`POST /tasks/rerun`（管理员；body `{"taskIds":[...]}`，把
