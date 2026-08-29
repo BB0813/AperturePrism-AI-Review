@@ -201,18 +201,19 @@ export function UpdatePanel() {
             {" "}· 最新 <b className="mono">{status.latest.version}</b>
           </>
         ) : null}
-        {status ? (
-          status.updateAvailable ? (
-            <span className="pill pill-warn" style={{ marginLeft: 8 }}>
-              可更新
-            </span>
-          ) : (
-            <span className="pill pill-ok" style={{ marginLeft: 8 }}>
-              已是最新
-            </span>
-          )
-        ) : null}
       </p>
+
+      {status ? (
+        status.updateAvailable ? (
+          <p className="faint" style={{ margin: "6px 0 0", fontSize: 12 }}>
+            <span className="pill pill-warn">发现新版本，可更新</span>
+          </p>
+        ) : (
+          <p className="faint" style={{ margin: "6px 0 0", fontSize: 12 }}>
+            <span className="pill pill-ok">已是最新版本</span>
+          </p>
+        )
+      ) : null}
 
       <div className="filters" style={{ marginTop: 10 }}>
         <button className="btn" onClick={() => void check()} disabled={checking}>
@@ -222,7 +223,16 @@ export function UpdatePanel() {
         <button
           className="btn btn-primary"
           onClick={() => void update()}
-          disabled={updating || !status?.latest.version}
+          disabled={
+            updating ||
+            !status?.latest.version ||
+            !status?.updateAvailable
+          }
+          title={
+            status && !status.updateAvailable
+              ? "已是最新版本，无需更新"
+              : undefined
+          }
         >
           {updating ? "更新中…" : "更新到最新"}
         </button>
