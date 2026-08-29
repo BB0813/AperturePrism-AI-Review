@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { currentVersion, isValidUpdateTarget } from "./update";
+import { currentVersion, isValidUpdateTarget } from "./update.js";
 
 describe("isValidUpdateTarget", () => {
   it("accepts semantic versions with or without v prefix", () => {

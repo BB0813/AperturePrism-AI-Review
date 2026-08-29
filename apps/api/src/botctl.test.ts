@@ -4,7 +4,7 @@ import type { ServerResponse } from "node:http";
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
 
 import { spawnSync } from "node:child_process";
-import { handleBotStart, handleBotStatus, handleBotStop, runBotctl } from "./botctl";
+import { handleBotStart, handleBotStatus, handleBotStop, runBotctl } from "./botctl.js";
 
 type SpawnResult = ReturnType<typeof spawnSync>;
 
