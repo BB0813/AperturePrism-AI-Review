@@ -24,6 +24,8 @@ export function AnalysisSettingsPage() {
           "issue_prompt_version",
           "issue_prompt_mode",
           "issue_result_sections",
+          "issue_result_sections_bug",
+          "issue_result_sections_feature",
         ]}
         title="Issue 分析"
         desc="多数项可按仓库单独覆盖；留空即跟随这里的全局默认"
