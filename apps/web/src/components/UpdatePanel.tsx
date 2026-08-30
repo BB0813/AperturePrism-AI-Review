@@ -214,6 +214,11 @@ export function UpdatePanel() {
           </p>
         )
       ) : null}
+      {status?.inProgress ? (
+        <p className="faint" style={{ margin: "6px 0 0", fontSize: 12 }}>
+          <span className="pill pill-warn">更新正在进行中，请勿重复操作</span>
+        </p>
+      ) : null}
 
       <div className="filters" style={{ marginTop: 10 }}>
         <button className="btn" onClick={() => void check()} disabled={checking}>
@@ -226,12 +231,15 @@ export function UpdatePanel() {
           disabled={
             updating ||
             !status?.latest.version ||
-            !status?.updateAvailable
+            !status?.updateAvailable ||
+            Boolean(status?.inProgress)
           }
           title={
-            status && !status.updateAvailable
-              ? "已是最新版本，无需更新"
-              : undefined
+            status?.inProgress
+              ? "已有更新在进行中"
+              : status && !status.updateAvailable
+                ? "已是最新版本，无需更新"
+                : undefined
           }
         >
           {updating ? "更新中…" : "更新到最新"}

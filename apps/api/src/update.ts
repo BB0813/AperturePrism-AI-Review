@@ -202,6 +202,10 @@ export async function handleUpdateStatus(
             latestDigest !== currentDigest,
         ),
         updateChannel: "latest",
+        // 是否正在执行更新（进程内锁）。暴露给前端：更新进行中时禁用「更新到
+        // 最新」按钮，避免刷新后封面按钮可点、一点就撞上 409 update_in_progress
+        // 却看不到任何"正在更新"的提示（#43）。
+        inProgress: updateRunning,
       },
       requestId,
     );

@@ -1226,6 +1226,7 @@ export type UpdateStatus = {
   latest: { tags: string[]; version: string | null; digest: string | null };
   updateAvailable: boolean;
   updateChannel: string;
+  inProgress?: boolean;
 };
 
 export type UpdateHistoryEntry = {
