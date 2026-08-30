@@ -244,12 +244,14 @@ async function runUpdate(
   updateRunning = true;
   const previous = currentVersion();
   let seq = 0;
+  // 心跳定时器可能因设置阶段异常而从未启动，故可空，方便兜底清理。
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
   const push = (level: string, message: string): void => {
     seq += 1;
     response.write(serializeSseEvent({ seq, type: "log", data: { level, message } }));
   };
   const done = (ok: boolean, reason: string | undefined): void => {
-    clearInterval(heartbeat);
+    if (heartbeat) clearInterval(heartbeat);
     response.write(
       serializeSseEvent({
         seq: seq + 1,
@@ -263,21 +265,43 @@ async function runUpdate(
     onDone(ok, reason);
   };
 
-  response.writeHead(200, {
-    "content-type": "text/event-stream; charset=utf-8",
-    "cache-control": "no-cache",
-    connection: "keep-alive",
-    "x-request-id": requestId,
-  });
-  response.write(": update stream\n\n");
+  // 同步设置阶段可能抛错（例如客户端在设置响应头之前就断开、writeHead 打到已
+  // 销毁的 socket、write 抛 ERR_STREAM_DESTROYED 等）。`updateRunning` 一旦置位，
+  // 若此处异常漏掉（此前无 finally），锁会永久卡住——之后一切更新请求都误返
+  // 409 update_in_progress、而实际并没有更新在跑，只能等 api 重启（#43 根因）。
+  // 这里 try/catch 兜底复位，绝不泄漏锁。
+  try {
+    response.writeHead(200, {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+      "x-request-id": requestId,
+    });
+    response.write(": update stream\n\n");
 
-  // 更新可能长时间静默（compose pull 的进度条用 `\r` 原地刷新、不产生换行，
-  // api 按 `\n` 切分后攒在缓冲区）。nginx 的 proxy_read_timeout 一旦超过静默
-  // 期就掐断连接，浏览器报 "network error"。每 30s 写一个 SSE 注释字节保持
-  // 连接存活；EventSource/手动 reader 都会忽略注释行。
-  const heartbeat = setInterval(() => {
-    response.write(": keepalive\n\n");
-  }, 30_000);
+    // 更新可能长时间静默（compose pull 的进度条用 `\r` 原地刷新、不产生换行，
+    // api 按 `\n` 切分后攒在缓冲区）。nginx 的 proxy_read_timeout 一旦超过静默
+    // 期就掐断连接，浏览器报 "network error"。每 30s 写一个 SSE 注释字节保持
+    // 连接存活；EventSource/手动 reader 都会忽略注释行。
+    heartbeat = setInterval(() => {
+      response.write(": keepalive\n\n");
+    }, 30_000);
+  } catch {
+    // 连接已坏：不能再用 response 写 SSE，直接复位锁 + 结束，避免永久占用。
+    updateRunning = false;
+    if (heartbeat) clearInterval(heartbeat);
+    try {
+      response.destroy();
+    } catch {
+      /* ignore */
+    }
+    try {
+      onDone(false, "stream_setup_failed");
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
 
   const args = [
     "--target", target,
@@ -348,7 +372,7 @@ async function runUpdate(
     // 更新脚本 —— 否则更新永远卡在「重建 web」那一步（历史里的 script_exit_null）。
     // 让 update.sh 在后台继续跑完，状态由子进程 close 事件写回更新历史；
     // updateRunning 由子进程 close 复位，避免并发更新。
-    clearInterval(heartbeat);
+    if (heartbeat) clearInterval(heartbeat);
   });
 }
 
