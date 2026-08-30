@@ -69,6 +69,7 @@ describe("registry integrity", () => {
       "issue_deep_analysis",
       "issue_reanalyze_min_change",
       "issue_rewrite_title",
+      "issue_use_unified_sections",
       "repo_rules_enabled",
     ]);
   });
