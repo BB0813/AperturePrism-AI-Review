@@ -46,6 +46,7 @@ import {
   buildIssueContext,
   buildFailureComment,
   buildPlaceholderComment,
+  collectIssueImages,
   decideReanalysis,
   detectSpamIssue,
   DEFAULT_MIN_CHANGE_RATIO,
@@ -522,15 +523,23 @@ async function main(): Promise<void> {
     },
 
     analyze: async (context: IssueContext, signal) => {
+      const repositoryFullName = `${context.repository.owner}/${context.repository.name}`;
       // 深度分析（读取仓库源码）默认关闭：会显著增加 token 消耗与耗时。
-      const deep = await issueDeepAnalysisEnabled(
-        `${context.repository.owner}/${context.repository.name}`,
-      );
+      const deep = await issueDeepAnalysisEnabled(repositoryFullName);
       const promptVersion = await resolveIssuePromptVersion();
       const promptMode = await resolveIssuePromptMode();
-      const issueSections = await resolveIssueSections(
-        `${context.repository.owner}/${context.repository.name}`,
-      );
+      const issueSections = await resolveIssueSections(repositoryFullName);
+      // 图片多模态：开启时下载 Issue 正文/评论里的图片并入上下文；任何图片失败
+      // 都降级（记入 degraded）而非失败，文本分析总能继续（#545 Phase 1）。
+      let ctx = context;
+      if (await issueVisionEnabled(repositoryFullName)) {
+        const collected = await collectIssueImages(context);
+        ctx = {
+          ...context,
+          images: collected.images,
+          degraded: [...context.degraded, ...collected.degraded],
+        };
+      }
       return analyzeIssue(
         {
           adapters,
@@ -573,7 +582,7 @@ async function main(): Promise<void> {
               }
             : {}),
         },
-        context,
+        ctx,
       );
     },
 
@@ -1468,6 +1477,26 @@ async function issueUseUnifiedSections(
     return parseBool(
       settings.get("issue_use_unified_sections"),
       BOOLEAN_DEFAULTS.issue_use_unified_sections ?? false,
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 是否开启该仓库的 Issue 图片多模态分析（#545 Phase 1）。
+ * 仓库级覆盖 → 全局默认（false）。开启后把 Issue 里的图随分析发给模型。
+ */
+async function issueVisionEnabled(
+  repositoryFullName: string | null,
+): Promise<boolean> {
+  try {
+    const settings = await resolveIssueSettings(repositoryFullName, [
+      "issue_vision_enabled",
+    ]);
+    return parseBool(
+      settings.get("issue_vision_enabled"),
+      BOOLEAN_DEFAULTS.issue_vision_enabled ?? false,
     );
   } catch {
     return false;

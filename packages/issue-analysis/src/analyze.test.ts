@@ -55,6 +55,7 @@ const context: IssueContext = {
   comments: [],
   degraded: [],
   estimatedTokens: 10,
+  images: [],
 };
 
 function scriptedAdapter(provider: string, contents: readonly string[]) {

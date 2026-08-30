@@ -31,6 +31,7 @@ function context(overrides: Partial<IssueContext> = {}): IssueContext {
     comments: [],
     degraded: [],
     estimatedTokens: 10,
+    images: [],
     ...overrides,
   };
 }

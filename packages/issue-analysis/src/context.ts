@@ -2,6 +2,7 @@ import type {
   GitHubClient,
   GitHubIssue,
 } from "../../../packages/github-adapter/src/index.js";
+import type { ModelImagePart } from "../../../packages/domain/src/index.js";
 
 export type IssueContextInput = {
   installationId: string;
@@ -26,6 +27,11 @@ export type IssueContext = {
   comments: readonly IssueCommentDocument[];
   /** Why the context was reduced below the full source, for the prompt. */
   degraded: readonly string[];
+  /**
+   * 多模态图片（issue_vision_enabled 开启时下载自 Issue 正文 / 评论的图）。
+   * 默认空数组；有内容时随 user 消息以 OpenAI image_url 块发给模型。
+   */
+  images: readonly ModelImagePart[];
   /** Estimated input tokens consumed by the rendered issue context. */
   estimatedTokens: number;
   /** Consolidated repo memory (rules/knowledge), rendered as reference text. */
@@ -125,6 +131,7 @@ export async function buildIssueContext(
     issue: { ...issue, body },
     comments,
     degraded,
+    images: [],
     estimatedTokens,
   };
 }

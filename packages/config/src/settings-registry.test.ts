@@ -70,6 +70,7 @@ describe("registry integrity", () => {
       "issue_reanalyze_min_change",
       "issue_rewrite_title",
       "issue_use_unified_sections",
+      "issue_vision_enabled",
       "repo_rules_enabled",
     ]);
   });

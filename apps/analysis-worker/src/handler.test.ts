@@ -86,6 +86,7 @@ function context(): IssueContext {
     comments: [],
     degraded: [],
     estimatedTokens: 5,
+    images: [],
   };
 }
 

@@ -22,10 +22,25 @@ export type OpenAICompatibleOptions = {
  * （assistant 携带 tool_calls、tool 消息携带 tool_call_id）字段名不被网关识别，
  * 网关返回 5xx → deep 分析（读源码）恒失败（issue #30 的拦路石）。
  */
+function toWireContent(message: ModelMessage): unknown {
+  // 多模态：有图片块时把纯文本 content 与图片拼成 OpenAI content 数组。
+  // 无图片时维持纯字符串，避免改变既有文本请求的报文结构。
+  if (message.imageParts && message.imageParts.length > 0) {
+    return [
+      { type: "text", text: message.content },
+      ...message.imageParts.map((part) => ({
+        type: "image_url",
+        image_url: { url: part.image_url.url },
+      })),
+    ];
+  }
+  return message.content;
+}
+
 function toWireMessage(message: ModelMessage): Record<string, unknown> {
   const base: Record<string, unknown> = {
     role: message.role,
-    content: message.content,
+    content: toWireContent(message),
   };
   if (message.role === "assistant" && message.toolCalls && message.toolCalls.length > 0) {
     base.tool_calls = message.toolCalls.map((call) => ({

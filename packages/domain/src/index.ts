@@ -108,6 +108,27 @@ export type ModelRole =
 
 export type ModelMessageRole = "system" | "user" | "assistant" | "tool";
 
+/** OpenAI 风格的图片内容块（image_url，可传 http(s) 或 data URL）。 */
+export type ModelImagePart = {
+  type: "image_url";
+  image_url: { url: string };
+};
+
+export type ModelMessage = {
+  role: ModelMessageRole;
+  content: string;
+  /**
+   * 可选：随该条消息一起发给模型的多模态图片块（OpenAI image_url 语义）。
+   * 为保持既有按字符串消费 content 的调用方不受影响，图片放在独立字段，
+   * 由适配器在序列化时与 content 拼成数组；content 本身仍是纯文本。
+   */
+  imageParts?: readonly ModelImagePart[];
+  /** role === "tool" 时回填对应的工具调用 id。 */
+  toolCallId?: string;
+  /** role === "assistant" 时模型请求的工具调用列表。 */
+  toolCalls?: readonly ModelToolCall[];
+};
+
 /** 工具参数 JSON Schema（简化子集：type + properties + required）。 */
 export type ToolParameterSchema = {
   type: string;

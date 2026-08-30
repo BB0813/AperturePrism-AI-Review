@@ -34,6 +34,7 @@ const context: IssueContext = {
   comments: [],
   degraded: [],
   estimatedTokens: 10,
+  images: [],
 };
 
 const spamVerdictJson = JSON.stringify({

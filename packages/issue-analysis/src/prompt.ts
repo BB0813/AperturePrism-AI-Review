@@ -2,6 +2,7 @@ import {
   fenceUntrusted,
   UNTRUSTED_CLOSE,
   UNTRUSTED_OPEN,
+  type ModelImagePart,
   type ModelInvocationRequest,
   type ModelMessage,
 } from "../../../packages/domain/src/index.js";
@@ -300,8 +301,13 @@ export function buildIssueAnalysisMessages(
       role: "system",
       content: getIssueSystemPrompt(promptVersion, mode, sections, codeAccess),
     },
-    { role: "user", content: renderIssueContext(context) },
+    { role: "user", content: renderIssueContext(context), ...imagePartsOf(context) },
   ];
+}
+
+/** 多模态：有图片时把 data URL 块作为 imageParts 附到 user 消息。 */
+function imagePartsOf(context: IssueContext): { imageParts?: readonly ModelImagePart[] } {
+  return context.images.length > 0 ? { imageParts: context.images } : {};
 }
 
 export function buildIssueAnalysisRepairRequest(
@@ -330,6 +336,7 @@ ${issues.map((issue) => `- ${issue}`).join("\n")}
 ${fenceUntrusted(invalidText)}
 
 请根据错误列表修正，重新只输出一个符合契约的 JSON 对象。`,
+        ...imagePartsOf(context),
       },
     ],
     responseFormat: "json",
