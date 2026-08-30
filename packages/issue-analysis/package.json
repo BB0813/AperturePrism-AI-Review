@@ -1,7 +1,7 @@
 {
   "name": "@apertureprism/issue-analysis",
   "private": true,
-  "version": "1.0.88",
+  "version": "1.0.89",
   "type": "module",
   "scripts": {
     "build": "tsc",
