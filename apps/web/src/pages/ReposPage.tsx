@@ -15,6 +15,7 @@ import { ArrowPathIcon, FolderIcon, GearIcon, RefreshIcon } from "../components/
 import { Empty, ErrorPanel, LoadingRows } from "../components/ui";
 import { explainError, explainUnknown } from "../lib/errors";
 import { useToast } from "../components/Toast";
+import { navigate } from "../hooks/useHash";
 
 /**
  * 未覆盖时的实际生效值：仓库覆盖 → 全局 → 应用默认。
@@ -335,14 +336,6 @@ export function ReposPage() {
           <p className="page-desc">GitHub App 授权仓库及其分析任务 / 结果统计</p>
         </div>
         <div className="actions">
-          <a
-            className="btn"
-            href="https://github.com/settings/installations"
-            target="_blank"
-            rel="noreferrer"
-          >
-            在 GitHub 添加仓库 ↗
-          </a>
           <button className="btn" onClick={() => { void sync(); }} disabled={syncBusy}>
             <ArrowPathIcon size={16} />
             {syncBusy ? "同步中…" : "同步仓库"}
@@ -356,8 +349,15 @@ export function ReposPage() {
 
       <section className="panel" style={{ padding: "10px 16px" }}>
         <p className="faint" style={{ margin: 0, fontSize: 12, lineHeight: 1.6 }}>
-          新仓库需要先授权给 GitHub App：点上方「在 GitHub 添加仓库」进入 GitHub Apps 安装管理页，
-          把目标仓库勾选到本应用下；授权后回到本页点「同步仓库」即可在这里出现并纳入扫描 / 分析。
+          新仓库需要先授权给 GitHub App：前往「
+          <a
+            href="#/github-access"
+            onClick={(e) => { e.preventDefault(); navigate("/github-access"); }}
+            style={{ color: "var(--accent-1, #3b82f6)", textDecoration: "underline" }}
+          >
+            GitHub 接入
+          </a>
+          」页在「安装并授权仓库」里把目标仓库挂到本应用下；授权后回到本页点「同步仓库」即可在这里出现并纳入扫描 / 分析。
         </p>
       </section>
 
@@ -449,7 +449,7 @@ export function ReposPage() {
           <LoadingRows />
         ) : !repos || repos.length === 0 ? (
           githubConfigured ? (
-            <Empty icon={<FolderIcon size={32} />} title="暂无可追踪仓库" hint="点上方「在 GitHub 添加仓库」把仓库授权给 App，再点「同步仓库」即可出现在这里" />
+            <Empty icon={<FolderIcon size={32} />} title="暂无可追踪仓库" hint="请前往「GitHub 接入」页把仓库授权给 App，再点「同步仓库」即可出现在这里" />
           ) : (
             <div style={{ textAlign: "center" }}>
               <Empty
