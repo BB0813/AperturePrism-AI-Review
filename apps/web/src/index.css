@@ -952,14 +952,10 @@ select.input {
   to   { opacity: 1; }
 }
 
-/* KPI stagger */
+/* KPI 整体淡入：同一批指标卡片同时显示，不逐个弹出。
+   原先的 nth-child 延迟（20ms→220ms）会让每个卡片依次淡入，形成「一个
+   个刷出来」的观感；现在去掉延迟，让整组一次性出现，信息一眼看全。 */
 .kpi-grid .kpi { animation: kpiEnter var(--dur-3) var(--ease) both; }
-.kpi-grid .kpi:nth-child(1) { animation-delay: 20ms; }
-.kpi-grid .kpi:nth-child(2) { animation-delay: 60ms; }
-.kpi-grid .kpi:nth-child(3) { animation-delay: 100ms; }
-.kpi-grid .kpi:nth-child(4) { animation-delay: 140ms; }
-.kpi-grid .kpi:nth-child(5) { animation-delay: 180ms; }
-.kpi-grid .kpi:nth-child(6) { animation-delay: 220ms; }
 @keyframes kpiEnter {
   from { opacity: 0; }
   to   { opacity: 1; }
