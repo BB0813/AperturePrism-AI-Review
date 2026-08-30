@@ -5861,6 +5861,29 @@ async function handleRequest(
     return;
   }
 
+  // /repositories/:id/settings 支持 PUT/GET，必须放在下面的 GET-only 兜底守卫
+  // 之前——否则 PUT（保存仓库级覆盖）会被守卫拦成 405，开关永远存不上（#42）。
+  if (
+    path.startsWith("/repositories/") &&
+    path.endsWith("/settings") &&
+    path !== "/repositories/settings"
+  ) {
+    const repositoryId = decodeURIComponent(
+      path.slice("/repositories/".length, path.length - "/settings".length),
+    ).trim();
+    if (!repositoryId) {
+      json(
+        response,
+        400,
+        { status: "error", reason: "repository id required" },
+        requestId,
+      );
+      return;
+    }
+    await handleRepositorySettings(request, response, repositoryId, requestId);
+    return;
+  }
+
   if (request.method !== "GET") {
     json(
       response,
@@ -5884,29 +5907,6 @@ async function handleRequest(
 
   if (path === "/repositories") {
     await handleRepositories(response, requestId);
-    return;
-  }
-
-  // /repositories/:id/settings —— 放在 /repositories/issues 之后即可：后者是
-  // 固定路径，不会撞上 uuid/settings 的形状。
-  if (
-    path.startsWith("/repositories/") &&
-    path.endsWith("/settings") &&
-    path !== "/repositories/settings"
-  ) {
-    const repositoryId = decodeURIComponent(
-      path.slice("/repositories/".length, path.length - "/settings".length),
-    ).trim();
-    if (!repositoryId) {
-      json(
-        response,
-        400,
-        { status: "error", reason: "repository id required" },
-        requestId,
-      );
-      return;
-    }
-    await handleRepositorySettings(request, response, repositoryId, requestId);
     return;
   }
 
