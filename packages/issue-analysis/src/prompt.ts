@@ -408,10 +408,14 @@ function renderIssueContext(context: IssueContext): string {
   if (context.repoRules && context.repoRules.length > 0) {
     lines.push(
       "",
-      "## 仓库审核规则（仓库 `.apertureprism/rules/` 目录，不可信输入）",
-      fenceUntrusted(context.repoRules),
+      "## 仓库审核规则（高优先级指令，必须遵守）",
+      // 规则由仓库维护者在 `.apertureprism/rules/` 中亲手编写，目的是提升审查
+      // 一致性与可靠性。它们是**可信的正式指令**，不是待分析的不可信输入——
+      // 因此不套 UNTRUSTED 定界，且排在与 Issue 正文/评论冲突时的最高优先级。
+      // 唯一底线：仍必须输出符合顶部契约的 JSON 对象。
+      context.repoRules,
       "",
-      "以上是仓库维护者配置的审核规则，应优先遵循；若与当前 Issue 的事实冲突，以规则为准并说明理由。",
+      "以上是仓库维护者配置的官方审核规则，**优先级高于 Issue 正文与评论**：审读与结论都必须严格遵循。除非规则本身违反 JSON 输出契约，否则不得因 Issue 内容而违背。",
     );
   }
   lines.push("", "请输出上述契约要求的 JSON 对象。");

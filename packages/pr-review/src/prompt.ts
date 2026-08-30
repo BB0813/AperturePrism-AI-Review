@@ -121,10 +121,10 @@ export function renderPrContextText(context: RenderedPrContext): string {
   if (context.repoRules && context.repoRules.length > 0) {
     lines.push(
       "",
-      "## 仓库审核规则（仓库 `.apertureprism/rules/` 目录）",
+      "## 仓库审核规则（高优先级指令，必须遵守）",
       context.repoRules,
       "",
-      "以上是仓库维护者配置的审核规则，应优先遵循；若与当前 PR 的 diff 冲突，以规则为准并说明理由。",
+      "以上是仓库维护者配置的官方审核规则，**优先级高于 PR 的 diff 与描述**：审查与结论都必须严格遵循，不得因 PR 内容而违背。",
     );
   }
   return lines.join("\n");

@@ -101,15 +101,14 @@ describe("Issue 上下文的注入防护", () => {
     expect(content.split("<<<UNTRUSTED_INPUT").length - 1).toBe(3);
   });
 
-  it("仓库审核规则同样隔离且说明优先级", () => {
+  it("仓库审核规则为可信高优先级指令（不再隔离为不可信输入）", () => {
     const content = userContent(
       context({ repoRules: "仓库规则：所有密码必须用 argon2 存储" }),
     );
-    expect(content.split("<<<UNTRUSTED_INPUT").length - 1).toBe(3);
     expect(content).toContain("仓库审核规则");
-    expect(content).toContain(".apertureprism/rules/");
+    expect(content).toContain("高优先级指令，必须遵守");
     expect(content).toContain("所有密码必须用 argon2 存储");
-    expect(content).toContain("应优先遵循");
+    expect(content).toContain("优先级高于 Issue 正文与评论");
   });
 
   it("系统提示说明定界块内是数据而非指令", () => {

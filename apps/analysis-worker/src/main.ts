@@ -110,8 +110,9 @@ const leaseDurationMs = 60_000;
 const heartbeatIntervalMs = 20_000;
 const idleDelayMs = 2_000;
 const retryDelayMs = 30_000;
-/** Shared logical deadline for the main analysis call and the bounded repair. */
-const analysisDeadlineMs = 300_000;
+/** Shared logical deadline for the main analysis call and the bounded repair.
+ *  2026-08 提到 10min：图片多模态（视觉模型）的处理耗时可超 5min。 */
+const analysisDeadlineMs = 600_000;
 const analysisRetryPolicy = {
   maxAttemptsPerCandidate: 5,
   baseDelayMs: 1_000,
