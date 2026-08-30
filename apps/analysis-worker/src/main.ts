@@ -534,6 +534,15 @@ async function main(): Promise<void> {
       let ctx = context;
       if (await issueVisionEnabled(repositoryFullName)) {
         const collected = await collectIssueImages(context);
+        logger.info(
+          {
+            repo: repositoryFullName,
+            subject: context.issue.number,
+            imagesCollected: collected.images.length,
+            imagesDegraded: collected.degraded.length,
+          },
+          "issue vision: collected images attached to analysis request",
+        );
         ctx = {
           ...context,
           images: collected.images,
