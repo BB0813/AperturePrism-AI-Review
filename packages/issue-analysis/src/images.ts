@@ -18,6 +18,8 @@ export const ISSUE_IMAGE_LIMITS = {
   maxSingleBytes: 5 * 1024 * 1024,
   /** 每张图片下载的硬超时。 */
   fetchTimeoutMs: 10_000,
+  /** 单张图片直接下载的最大尝试次数（github.com 访问常间歇性被墙，重试一次）。 */
+  downloadAttempts: 3,
 } as const;
 
 export type CollectedImages = {
@@ -36,6 +38,7 @@ export type IssueImageLimits = {
   maxTotalBytes: number;
   maxSingleBytes: number;
   fetchTimeoutMs: number;
+  downloadAttempts: number;
 };
 
 /** 匹配 markdown 图片 `![alt](https://...)`，Phase 1 只处理 http(s) 外链图。 */
@@ -109,42 +112,54 @@ export async function collectIssueImages(
       images.push({ type: "image_url", image_url: { url } });
       degraded.push(`image_via_url:${reason}:${shortUrl(url)}`);
     };
-    try {
+    // 先尝试直接下载（github.com 访问间歇被墙，重试几次）；多次失败才回退 URL。
+    let buffer: Uint8Array | null = null;
+    let downloadResult: "ok" | "fetch_failed" = "fetch_failed";
+    for (
+      let attempt = 0;
+      attempt < limits.downloadAttempts && buffer === null;
+      attempt += 1
+    ) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), limits.fetchTimeoutMs);
       let response: Response;
       try {
-        response = await fetchImpl(url, { signal: controller.signal });
-      } finally {
-        clearTimeout(timer);
+        try {
+          response = await fetchImpl(url, { signal: controller.signal });
+        } finally {
+          clearTimeout(timer);
+        }
+        if (response.ok) {
+          buffer = new Uint8Array(await response.arrayBuffer());
+          downloadResult = "ok";
+        }
+      } catch {
+        // transient; retry
       }
-      if (!response.ok) {
-        fallbackToUrl("fetch_failed");
-        continue;
-      }
-      const buffer = new Uint8Array(await response.arrayBuffer());
-      if (buffer.length > limits.maxSingleBytes) {
-        fallbackToUrl("too_large");
-        continue;
-      }
-      if (totalBytes + buffer.length > limits.maxTotalBytes) {
-        degraded.push("image_total_too_large");
-        break;
-      }
-      const mime = sniffMime(buffer);
-      if (!mime) {
-        fallbackToUrl("unsupported_format");
-        continue;
-      }
-      const base64 = Buffer.from(buffer).toString("base64");
-      images.push({
-        type: "image_url",
-        image_url: { url: `data:${mime};base64,${base64}` },
-      });
-      totalBytes += buffer.length;
-    } catch {
-      fallbackToUrl("fetch_failed");
     }
+    if (!buffer) {
+      fallbackToUrl(downloadResult);
+      continue;
+    }
+    if (buffer.length > limits.maxSingleBytes) {
+      fallbackToUrl("too_large");
+      continue;
+    }
+    if (totalBytes + buffer.length > limits.maxTotalBytes) {
+      degraded.push("image_total_too_large");
+      break;
+    }
+    const mime = sniffMime(buffer);
+    if (!mime) {
+      fallbackToUrl("unsupported_format");
+      continue;
+    }
+    const base64 = Buffer.from(buffer).toString("base64");
+    images.push({
+      type: "image_url",
+      image_url: { url: `data:${mime};base64,${base64}` },
+    });
+    totalBytes += buffer.length;
   }
 
   return { images, degraded };
