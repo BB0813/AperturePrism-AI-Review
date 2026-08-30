@@ -14,6 +14,7 @@ import {
 import { ArrowPathIcon, FolderIcon, GearIcon, RefreshIcon } from "../components/icons";
 import { Empty, ErrorPanel, LoadingRows } from "../components/ui";
 import { explainError, explainUnknown } from "../lib/errors";
+import { enumOptionLabel } from "../lib/labels";
 import { useToast } from "../components/Toast";
 import { navigate } from "../hooks/useHash";
 
@@ -143,6 +144,32 @@ function RepoSettings({ repo }: { repo: Repository }) {
                     <span className="faint" style={{ fontSize: 12 }}>
                       {busy ? "保存中…" : on ? "已开启" : "已关闭"}
                     </span>
+                    {item.overridden ? (
+                      <button
+                        className="btn"
+                        style={{ fontSize: 12 }}
+                        disabled={busy}
+                        onClick={() => void save(item.key, null)}
+                      >
+                        跟随全局
+                      </button>
+                    ) : null}
+                  </div>
+                ) : item.kind === "enum" ? (
+                  <div style={{ marginTop: 6, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <select
+                      className="input"
+                      style={{ flex: "0 1 160px", fontSize: 12 }}
+                      value={item.overridden ? item.value : (item.globalValue || item.defaultValue || "")}
+                      disabled={busy}
+                      onChange={(event) => void save(item.key, event.target.value)}
+                    >
+                      {(item.options ?? []).map((option) => (
+                        <option key={option} value={option}>
+                          {enumOptionLabel(item.key, option)}
+                        </option>
+                      ))}
+                    </select>
                     {item.overridden ? (
                       <button
                         className="btn"

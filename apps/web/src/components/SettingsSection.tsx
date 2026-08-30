@@ -8,6 +8,7 @@ import {
 import { ErrorPanel, LoadingRows, fmtTime } from "./ui";
 import { explainUnknown } from "../lib/errors";
 import { useToast } from "./Toast";
+import { enumOptionLabel } from "../lib/labels";
 
 /**
  * 生效来源徽章：数据库覆盖 / 环境变量 / 应用默认。
@@ -200,7 +201,7 @@ export function SettingField({
           >
             {(item.options ?? []).map((option) => (
               <option key={option} value={option}>
-                {option}
+                {enumOptionLabel(item.key, option)}
               </option>
             ))}
           </select>

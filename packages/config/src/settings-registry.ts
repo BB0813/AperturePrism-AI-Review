@@ -239,7 +239,7 @@ export const SETTINGS_REGISTRY: readonly SettingSpec[] = [
     envVar: null,
     hotReload: "poll",
     label: "Issue 图片多模态分析",
-    hint: "把 Issue 正文 / 评论里 markdown 图片下载后随分析一起发给模型（需模型支持视觉）。默认关闭；开启会显著增加 token 与耗时",
+    hint: "把 Issue 正文 / 评论里 markdown 图片下载后随分析一起发给模型（需模型支持视觉）。默认开启；开启会显著增加 token 与耗时",
   },
   {
     key: "issue_reanalyze_min_change",
@@ -598,7 +598,7 @@ export const BOOLEAN_DEFAULTS: Readonly<Record<string, boolean>> = {
   issue_rewrite_title: true,
   issue_deep_analysis: false,
   issue_use_unified_sections: false,
-  issue_vision_enabled: false,
+  issue_vision_enabled: true,
   repo_rules_enabled: true,
   pr_check_run: true,
   pr_auto_review: true,

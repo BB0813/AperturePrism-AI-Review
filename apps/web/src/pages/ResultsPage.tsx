@@ -10,6 +10,10 @@ import {
 import { ChevronDownIcon, ChevronRightIcon, RefreshIcon, SearchIcon, XCircleIcon } from "../components/icons";
 import { Empty, ErrorPanel, JsonBlock, LoadingRows, fmtTime, shortText } from "../components/ui";
 import { explainUnknown } from "../lib/errors";
+import {
+  issueCategoryLabel,
+  suggestedLabelLabel,
+} from "../lib/labels";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 import { useToast } from "../components/Toast";
 
@@ -378,7 +382,7 @@ function ResultCard({
         </span>
         <span className="chip mono">{shortText(item.revision, 10)}</span>
         <span className="faint">{fmtTime(item.createdAt)}</span>
-        <span className="pill pill-ok">published</span>
+        <span className="pill pill-ok">已发布</span>
         <a
           className="btn btn-ghost"
           style={{ marginLeft: "auto", padding: "4px 10px" }}
@@ -513,7 +517,7 @@ function IssueBody({ norm }: { norm: NormResult }) {
           <h4>建议标签</h4>
           <div className="tag-row">
             {labels.map((l, i) => (
-              <span key={i} className="tag">{l}</span>
+              <span key={i} className="tag">{suggestedLabelLabel(l)}</span>
             ))}
           </div>
         </div>
@@ -640,7 +644,7 @@ function PrBody({ norm }: { norm: NormResult }) {
             {pr.stats.files} 文件 · +{pr.stats.additions}/-{pr.stats.deletions}
           </span>
         ) : null}
-        <span className="pill pill-dim">{pr.findings.length} findings</span>
+        <span className="pill pill-dim">{pr.findings.length} 条发现</span>
       </div>
 
       {pr.summary ? <p className="result-summary">{pr.summary}</p> : null}
@@ -671,10 +675,16 @@ function PrBody({ norm }: { norm: NormResult }) {
   );
 }
 
+const TONE_LABELS: Record<string, string> = {
+  approve: "通过",
+  changes_requested: "需修改",
+  comment: "评论",
+};
+
 function ToneBadge({ tone }: { tone: string }) {
   const cls =
     tone === "approve" ? "pill-ok" : tone === "changes_requested" ? "pill-err" : "pill-dim";
-  return <span className={`pill ${cls}`}>{tone}</span>;
+  return <span className={`pill ${cls}`}>{TONE_LABELS[tone] ?? tone}</span>;
 }
 
 function prSeverityCls(value: string): string {
@@ -705,18 +715,18 @@ function ConfItem({ label, value }: { label: string; value?: number }) {
 
 function SeverityBadge({ value }: { value: string }) {
   if (!value) return null;
-  return <span className={`pill ${severityCls(value)}`}>Severity {value}</span>;
+  return <span className={`pill ${severityCls(value)}`}>严重度 {value}</span>;
 }
 function PriorityBadge({ value }: { value: string }) {
   if (!value) return null;
-  return <span className={`pill ${priorityCls(value)}`}>Priority {value}</span>;
+  return <span className={`pill ${priorityCls(value)}`}>优先级 {value}</span>;
 }
 function QualityBadge({ value }: { value: string }) {
   if (!value) return null;
   return <span className={`pill ${qualityCls(value)}`}>质量 {value}</span>;
 }
 function CategoryPill({ value }: { value: string }) {
-  return <span className="pill pill-dim">类型 {value}</span>;
+  return <span className="pill pill-dim">类型 {issueCategoryLabel(value)}</span>;
 }
 
 /* ---- class mapping (matches index.css tint classes) ---- */

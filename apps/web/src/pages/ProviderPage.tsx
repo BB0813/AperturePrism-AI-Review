@@ -9,6 +9,7 @@ import {
 import { GearIcon, RefreshIcon } from "../components/icons";
 import { ErrorPanel, LoadingRows } from "../components/ui";
 import { explainUnknown } from "../lib/errors";
+import { modelRoleLabel } from "../lib/labels";
 import { SettingsSection } from "../components/SettingsSection";
 import { useToast } from "../components/Toast";
 
@@ -249,7 +250,7 @@ export function ProviderPage() {
               <tbody>
                 {data.policies.map((policy) => (
                   <tr key={policy.role}>
-                    <td><span className="chip">{policy.role}</span></td>
+                    <td><span className="chip">{modelRoleLabel(policy.role)}</span></td>
                     <td><span className="chip mono">{policy.version}</span></td>
                     <td>
                       <span className="tag-row">
