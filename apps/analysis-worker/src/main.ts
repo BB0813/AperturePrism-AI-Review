@@ -528,7 +528,9 @@ async function main(): Promise<void> {
       );
       const promptVersion = await resolveIssuePromptVersion();
       const promptMode = await resolveIssuePromptMode();
-      const issueSections = await resolveIssueSections();
+      const issueSections = await resolveIssueSections(
+        `${context.repository.owner}/${context.repository.name}`,
+      );
       return analyzeIssue(
         {
           adapters,
@@ -1412,8 +1414,13 @@ async function resolveIssuePromptMode(): Promise<"adaptive" | "light" | "full" |
  * 返回「通用兜底组 + bug 组 + feature 组」，交给 analyzer 按类别做前置 / 后置选择。
  * 三个组各自读「分析设置 → Issue 结果区块（通用 / 缺陷类 / 功能请求）」；
  * 某个组没配置时用 undefined 表示「未单独设置」，analyzer 会回落到通用组或全开。
+ *
+ * 若该仓库开启了 `issue_use_unified_sections`（#44），则所有类别一律回落到通用组：
+ * 返回的 bug / feature 组均为 undefined，analyzer 对任何分类都走通用区块。
  */
-async function resolveIssueSections(): Promise<{
+async function resolveIssueSections(
+  repositoryFullName: string | null,
+): Promise<{
   sections: ReadonlySet<IssueResultSection> | undefined;
   sectionsByCategory: {
     bug: ReadonlySet<IssueResultSection> | undefined;
@@ -1425,7 +1432,7 @@ async function resolveIssueSections(): Promise<{
     isCategory: boolean,
   ): Promise<ReadonlySet<IssueResultSection> | undefined> => {
     try {
-      const settings = await resolveIssueSettings(null, [key]);
+      const settings = await resolveIssueSettings(repositoryFullName, [key]);
       const raw = settings.get(key);
       // 分类组（bug / feature）未单独配置时返回 undefined，让 analyzer 回落到通用组。
       if (isCategory && !raw) return undefined;
@@ -1435,13 +1442,36 @@ async function resolveIssueSections(): Promise<{
       return undefined;
     }
   };
+  const unified = await issueUseUnifiedSections(repositoryFullName);
   return {
     sections: await read("issue_result_sections", false),
-    sectionsByCategory: {
-      bug: await read("issue_result_sections_bug", true),
-      feature: await read("issue_result_sections_feature", true),
-    },
+    sectionsByCategory: unified
+      ? { bug: undefined, feature: undefined }
+      : {
+          bug: await read("issue_result_sections_bug", true),
+          feature: await read("issue_result_sections_feature", true),
+        },
   };
+}
+
+/**
+ * 是否让该仓库所有 Issue 都使用通用统一区块（#44）。
+ * 仓库级覆盖 → 全局默认（false）。开启后不再按功能请求 / 缺陷分类选择区块。
+ */
+async function issueUseUnifiedSections(
+  repositoryFullName: string | null,
+): Promise<boolean> {
+  try {
+    const settings = await resolveIssueSettings(repositoryFullName, [
+      "issue_use_unified_sections",
+    ]);
+    return parseBool(
+      settings.get("issue_use_unified_sections"),
+      BOOLEAN_DEFAULTS.issue_use_unified_sections ?? false,
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**

@@ -17,6 +17,7 @@ export const REPOSITORY_SETTING_KEYS = [
   "issue_auto_assign",
   "issue_assignee",
   "issue_deep_analysis",
+  "issue_use_unified_sections",
   "issue_reanalyze_min_change",
 ] as const;
 
