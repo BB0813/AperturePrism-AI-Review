@@ -154,7 +154,11 @@ const engine: TaskEngineOperations = {
 };
 
 /** A model role policy row; `expert_review` is an optional agent-team role. */
-type PolicyRole = ModelRole | "expert_review" | "spam_detection";
+type PolicyRole =
+  | ModelRole
+  | "expert_review"
+  | "spam_detection"
+  | "issue_analysis_vision";
 
 async function loadCandidates(role: PolicyRole): Promise<ModelCandidate[]> {
   const rows = await database.db
@@ -437,6 +441,9 @@ async function main(): Promise<void> {
     logger.warn(
       "no issue_analysis model candidates configured in the database",
     );
+  // 图片多模态专用候选：仅当某 Issue 携带图片时使用（视觉模型），纯文本走
+  // issueCandidates。未配置时回退到 issueCandidates（保持可用）。
+  const issueVisionCandidates = await loadCandidates("issue_analysis_vision");
   // Ad/spam detection uses its own role when configured, else issue_analysis.
   const spamCandidates = await loadCandidates("spam_detection");
   const reviewCandidates = await loadCandidates("pr_review");
@@ -550,10 +557,22 @@ async function main(): Promise<void> {
           degraded: [...context.degraded, ...collected.degraded],
         };
       }
+      // 文本 / 图片(多模态) 模型分流：携带图片时用 issue_analysis_vision 角色
+      // （视觉模型），否则用 issue_analysis（快模型）。视觉角色未配置时回退到
+      // issue_analysis，避免带图的文本分析也能跑。
+      const useVisionModel = ctx.images.length > 0 && issueVisionCandidates.length > 0;
+      const modelCandidates = useVisionModel
+        ? issueVisionCandidates
+        : issueCandidates;
+      if (useVisionModel)
+        logger.info(
+          { repo: repositoryFullName, subject: context.issue.number },
+          "issue vision: routing to vision model candidates",
+        );
       return analyzeIssue(
         {
           adapters,
-          candidates: issueCandidates,
+          candidates: modelCandidates,
           deadlineMs: analysisDeadlineMs,
           retryPolicy: analysisRetryPolicy,
           signal,

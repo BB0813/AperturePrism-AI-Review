@@ -4350,6 +4350,8 @@ const SETUP_ROLES: readonly { role: string; version: string }[] = [
   ...DEFAULT_POLICIES,
   { role: "expert_review", version: "expert-review-v1" },
   { role: "spam_detection", version: "spam-detection-v1" },
+  // 图片多模态专用角色：与 issue_analysis 视觉分流，默认就位（随 provider 添加自动建）。
+  { role: "issue_analysis_vision", version: "issue-analysis-v1" },
 ];
 
 /** Parses a JSON request body into an object; null on malformed input. */
