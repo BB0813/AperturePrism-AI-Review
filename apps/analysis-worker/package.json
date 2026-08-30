@@ -1,14 +1,14 @@
 {
   "name": "@apertureprism/analysis-worker",
   "private": true,
-  "version": "1.0.96",
+  "version": "1.0.97",
   "type": "module",
   "dependencies": {
-    "@apertureprism/config": "1.0.96",
-    "@apertureprism/database": "1.0.96",
-    "@apertureprism/domain": "1.0.96",
-    "@apertureprism/observability": "1.0.96",
-    "@apertureprism/task-engine": "1.0.96"
+    "@apertureprism/config": "1.0.97",
+    "@apertureprism/database": "1.0.97",
+    "@apertureprism/domain": "1.0.97",
+    "@apertureprism/observability": "1.0.97",
+    "@apertureprism/task-engine": "1.0.97"
   },
   "scripts": {
     "build": "tsc",
