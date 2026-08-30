@@ -25,6 +25,19 @@ export type CollectedImages = {
   degraded: readonly string[];
 };
 
+type ImageFetch = (
+  url: string,
+  init?: { signal?: AbortSignal },
+) => Promise<Response>;
+
+/** 采集上限参数（可覆盖），数值一律按 number，便于测试传任意小上限。 */
+export type IssueImageLimits = {
+  maxImages: number;
+  maxTotalBytes: number;
+  maxSingleBytes: number;
+  fetchTimeoutMs: number;
+};
+
 /** 匹配 markdown 图片 `![alt](https://...)`，Phase 1 只处理 http(s) 外链图。 */
 const IMAGE_URL_RE = /!\[[^\]]*]\(\s*(https?:\/\/[^)\s]+)\s*\)/g;
 
@@ -71,12 +84,12 @@ function shortUrl(url: string): string {
 export async function collectIssueImages(
   context: Pick<IssueContext, "issue" | "comments">,
   opts: {
-    fetchImpl?: typeof fetch;
-    limits?: Partial<typeof ISSUE_IMAGE_LIMITS>;
+    fetchImpl?: ImageFetch;
+    limits?: Partial<IssueImageLimits>;
   } = {},
 ): Promise<CollectedImages> {
-  const limits = { ...ISSUE_IMAGE_LIMITS, ...(opts.limits ?? {}) };
-  const fetchImpl = opts.fetchImpl ?? fetch;
+  const limits = { ...ISSUE_IMAGE_LIMITS, ...(opts.limits ?? {}) } as IssueImageLimits;
+  const fetchImpl: ImageFetch = opts.fetchImpl ?? fetch;
   const images: ModelImagePart[] = [];
   const degraded: string[] = [];
   let totalBytes = 0;
