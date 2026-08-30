@@ -101,6 +101,14 @@ export async function collectIssueImages(
       degraded.push("image_total_too_large");
       break;
     }
+    // 方案 A：本地能下载并校验就用 data URL（可控大小/格式）；下载或校验失败的
+    // 图片不再丢弃，而是把原始 URL 直接交给模型网关去抓取（image_url 支持 http）
+    // —— 解决容器无法访问 github.com 等图片宿主时图片完全用不上的问题。原始 URL
+    // 无法计量字节，只按张数计入 maxImages。
+    const fallbackToUrl = (reason: string) => {
+      images.push({ type: "image_url", image_url: { url } });
+      degraded.push(`image_via_url:${reason}:${shortUrl(url)}`);
+    };
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), limits.fetchTimeoutMs);
@@ -111,12 +119,12 @@ export async function collectIssueImages(
         clearTimeout(timer);
       }
       if (!response.ok) {
-        degraded.push(`image_fetch_failed:${shortUrl(url)}`);
+        fallbackToUrl("fetch_failed");
         continue;
       }
       const buffer = new Uint8Array(await response.arrayBuffer());
       if (buffer.length > limits.maxSingleBytes) {
-        degraded.push(`image_too_large:${shortUrl(url)}`);
+        fallbackToUrl("too_large");
         continue;
       }
       if (totalBytes + buffer.length > limits.maxTotalBytes) {
@@ -125,7 +133,7 @@ export async function collectIssueImages(
       }
       const mime = sniffMime(buffer);
       if (!mime) {
-        degraded.push(`image_unsupported_format:${shortUrl(url)}`);
+        fallbackToUrl("unsupported_format");
         continue;
       }
       const base64 = Buffer.from(buffer).toString("base64");
@@ -135,10 +143,9 @@ export async function collectIssueImages(
       });
       totalBytes += buffer.length;
     } catch {
-      degraded.push(`image_fetch_failed:${shortUrl(url)}`);
+      fallbackToUrl("fetch_failed");
     }
   }
 
-  if (urls.length > 0 && images.length === 0) degraded.push("no_images_collected");
   return { images, degraded };
 }

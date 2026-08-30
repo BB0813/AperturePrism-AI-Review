@@ -26,7 +26,6 @@ describe("isRepositorySettingKey", () => {
       "embedding_api_key",
       "github_app_id",
       "github_app_private_key",
-      "spam_handling",
       "pr_check_run",
       "pr_auto_review",
     ]) {

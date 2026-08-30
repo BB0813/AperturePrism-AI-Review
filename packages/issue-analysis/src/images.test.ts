@@ -54,7 +54,7 @@ describe("collectIssueImages", () => {
     expect(result.degraded).toHaveLength(0);
   });
 
-  it("degrades unsupported formats and failed downloads instead of throwing", async () => {
+  it("falls back to the raw image URL when download/validation fails (方案 A)", async () => {
     const calls = new Map<string, Response>([
       ["https://x.com/bad.gif", bytesResponse([0x47, 0x49, 0x46] /* gif */)],
     ]);
@@ -68,10 +68,12 @@ describe("collectIssueImages", () => {
         },
       },
     );
-    expect(result.images).toHaveLength(0);
-    expect(result.degraded.length).toBeGreaterThan(0);
-    expect(result.degraded.join(",")).toContain("image_unsupported_format");
-    expect(result.degraded.join(",")).toContain("image_fetch_failed");
+    // 失败的图不再丢弃，而是以原始 URL 交给模型网关抓取。
+    expect(result.images).toHaveLength(2);
+    expect(result.images[0]!.image_url.url).toBe("https://x.com/bad.gif");
+    expect(result.images[1]!.image_url.url).toBe("https://x.com/nope.png");
+    expect(result.degraded.join(",")).toContain("image_via_url:unsupported_format");
+    expect(result.degraded.join(",")).toContain("image_via_url:fetch_failed");
   });
 
   it("caps how many images are sent", async () => {

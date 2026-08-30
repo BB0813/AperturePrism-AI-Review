@@ -802,7 +802,7 @@ async function main(): Promise<void> {
       const target = `${payload.repositoryFullName}#${payload.subjectNumber}`;
       let action: "none" | "close" | "delete" = "none";
       try {
-        action = await spamHandlingMode();
+        action = await spamHandlingMode(payload.repositoryFullName);
         if (action === "close") {
           await closeSpamIssue(githubClient, payload, identity, verdict.reason);
         } else if (action === "delete") {
@@ -1741,14 +1741,18 @@ async function applyIssueEnhancements(input: {
   );
 }
 
-/** Reads the ad/spam handling policy from `system_settings`; defaults to close. */
-async function spamHandlingMode(): Promise<"none" | "close" | "delete"> {
+/** Reads the ad/spam handling policy with repository override; defaults to close. */
+async function spamHandlingMode(
+  repositoryFullName: string | null = null,
+): Promise<"none" | "close" | "delete"> {
   try {
-    const settings = await loadSettings(database.db, ["spam_handling"]);
+    const settings = await resolveIssueSettings(repositoryFullName, [
+      "spam_handling",
+    ]);
     return parseSpamHandling(settings.get("spam_handling"));
   } catch (error) {
     logger.warn(
-      { err: error },
+      { err: error, repo: repositoryFullName },
       "spam handling setting read failed; using close",
     );
     return "close";

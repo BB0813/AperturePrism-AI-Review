@@ -20,6 +20,8 @@ export const REPOSITORY_SETTING_KEYS = [
   "issue_use_unified_sections",
   "issue_vision_enabled",
   "issue_reanalyze_min_change",
+  "spam_handling",
+  "repo_rules_enabled",
 ] as const;
 
 export type RepositorySettingKey = (typeof REPOSITORY_SETTING_KEYS)[number];

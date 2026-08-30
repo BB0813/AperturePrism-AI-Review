@@ -168,11 +168,11 @@ export const SETTINGS_REGISTRY: readonly SettingSpec[] = [
     group: "issue",
     kind: "enum",
     secret: false,
-    repoScoped: false,
+    repoScoped: true,
     envVar: null,
     hotReload: "poll",
     label: "广告 Issue 处理",
-    hint: "none 不处理 / close 关闭 / delete 删除；分析前自识别广告类 Issue",
+    hint: "none 不处理 / close 关闭 / delete 删除；分析前自识别广告类 Issue。可在此设全局默认，也可在「已安装仓库」页按仓库单独覆盖",
     options: ["none", "close", "delete"],
   },
   {
