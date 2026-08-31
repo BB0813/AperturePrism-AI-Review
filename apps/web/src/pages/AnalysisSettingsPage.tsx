@@ -14,8 +14,15 @@ export function AnalysisSettingsPage() {
 
       <SettingsSection
         keys={[
-          "spam_handling",
           "repo_rules_enabled",
+          "spam_handling",
+          "issue_auto_assign",
+          "issue_assignee",
+          "issue_rewrite_title",
+          "issue_deep_analysis",
+          "issue_use_unified_sections",
+          "issue_vision_enabled",
+          "issue_reanalyze_min_change",
           "issue_prompt_version",
           "issue_prompt_mode",
           "issue_result_sections",
@@ -23,7 +30,7 @@ export function AnalysisSettingsPage() {
           "issue_result_sections_feature",
         ]}
         title="Issue 分析"
-        desc="自动指派 / 标题改写 / 深度分析等逐仓可覆盖的项请在「已安装仓库」页设置；这里保留全局不可覆盖项与结果区块"
+        desc="此处为全部 Issue 分析项的全局默认，一处配置、所有仓库生效；如需某一仓库单独覆盖，可在「已安装仓库」页针对该仓库调整"
       />
 
       <SettingsSection
