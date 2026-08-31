@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>更新日志 — AperturePrism</title>
+  <meta name="description" content="AperturePrism 版本更新日志：每个版本的更新内容与发布时间，来自 GitHub Releases。" />
+  <link rel="preload" href="assets/fonts/cabinet-800.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="assets/fonts/geist.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="assets/fonts/geist-mono.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="assets/style.css?v=4" />
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到正文</a>
+
+  <header class="nav" id="nav">
+    <div class="container nav__inner">
+      <a class="brand" href="index.html" aria-label="AperturePrism 首页">
+        <img class="brand__mark" src="assets/logo.png" alt="AperturePrism" />
+      </a>
+      <nav class="nav__links" aria-label="主导航">
+        <a href="index.html">官网</a>
+        <a href="index.html#capabilities">核心能力</a>
+        <a href="index.html#architecture">系统架构</a>
+        <a href="index.html#console">控制台</a>
+        <a href="guide.html">配置教程</a>
+        <a href="#timeline" class="active">更新日志</a>
+      </nav>
+      <div class="nav__actions">
+        <a class="btn btn--ghost" href="https://github.com/BB0813/AperturePrism-AI-Review" target="_blank" rel="noreferrer">GitHub</a>
+        <a class="btn btn--primary" href="index.html#quickstart">开始部署</a>
+        <button class="nav__toggle" id="navToggle" aria-label="打开菜单" aria-expanded="false">
+          <span></span><span></span><span></span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div class="drawer" id="drawer" aria-hidden="true">
+    <nav class="drawer__links" aria-label="移动端导航">
+      <a href="index.html">官网</a>
+      <a href="index.html#capabilities">核心能力</a>
+      <a href="index.html#architecture">系统架构</a>
+      <a href="index.html#console">控制台</a>
+      <a href="guide.html">配置教程</a>
+      <a href="#timeline">更新日志</a>
+      <a href="https://github.com/BB0813/AperturePrism-AI-Review" target="_blank" rel="noreferrer">GitHub ↗</a>
+    </nav>
+  </div>
+
+  <main id="main">
+    <div class="guide-hero">
+      <div class="container">
+        <p class="hero__eyebrow mono">CHANGELOG · 版本更新</p>
+        <h1 class="guide-hero__title">更新日志</h1>
+        <p class="guide-hero__sub">每个版本的更新内容与发布时间，直接来自 GitHub Releases。最近 12 个版本默认展开，更早的可点击展开。</p>
+      </div>
+    </div>
+
+    <div class="container">
+      <div class="chlog__meta mono">
+        <span>当前最新 <strong>v1.0.105</strong></span>
+        <i></i>
+        <span>共 92 个版本</span>
+        <i></i>
+        <span>起始 2026-08-19 21:29</span>
+      </div>
+
+      <div class="timeline" id="timeline">
+        <details class="ver" open data-latest="">
+          <summary>
+            <span class="ver__tag">v1.0.105</span>
+            <span class="ver__date mono">2026-08-31 20:53</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>分析设置页放开显示全部 Issue 分析的全局默认项（自动指派/标题改写/深度分析/图片多模态等），一处配置全仓库生效，已安装仓库页仍可逐仓覆盖</span></li></ul>
+        </details>
+        <details class="ver" open>
+          <summary>
+            <span class="ver__tag">v1.0.104</span>
+            <span class="ver__date mono">2026-08-31 17:40</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>登录时先把输入 token 写入 localStorage 再 fetchMe 校验，修复全新浏览器无历史 token 时输对也误报「令牌无效」；校验失败则清掉无效 token</span></li></ul>
+        </details>
+        <details class="ver" open>
+          <summary>
+            <span class="ver__tag">v1.0.103</span>
+            <span class="ver__date mono">2026-08-31 00:59</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>WebUI 中文本地化 + issue_vision_enabled 默认开启</span></li></ul>
+        </details>
+        <details class="ver" open>
+          <summary>
+            <span class="ver__tag">v1.0.102</span>
+            <span class="ver__date mono">2026-08-31 00:04</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>新增 issue_analysis_vision 角色，Issue 携带图片时分流到视觉模型、纯文本走 issue_analysis；SETUP_ROLES 自动建该角色（默认就位）</span></li></ul>
+        </details>
+        <details class="ver" open>
+          <summary>
+            <span class="ver__tag">v1.0.101</span>
+            <span class="ver__date mono">2026-08-30 23:28</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>分析超时 5min→10min（支持图片多模态视觉模型较慢）；仓库审核规则改为可信高优先级指令（Issue 与 PR），不再作为不可信输入隔离</span></li></ul>
+        </details>
+        <details class="ver" open>
+          <summary>
+            <span class="ver__tag">v1.0.100</span>
+            <span class="ver__date mono">2026-08-30 22:56</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>图片直接下载加重试（github.com 访问间歇被墙），多次失败才回退 URL，确保尽量产出 data URL 让模型无需再访问 github</span></li></ul>
+        </details>
+        <details class="ver" open>
+          <summary>
+            <span class="ver__tag">v1.0.99</span>
+            <span class="ver__date mono">2026-08-30 22:18</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>方案A——图片下载/校验失败时回退为原始 URL 交给模型网关抓取（解决容器无法访问 github.com 图片宿主）；spam_handling / repo_rules_enabled 改为可在已安装仓库页按仓库独立设置</span></li></ul>
+        </details>
+        <details class="ver" open>
+          <summary>
+            <span class="ver__tag">v1.0.98</span>
+            <span class="ver__date mono">2026-08-30 21:18</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>图片多模态采集时记录 imagesCollected/degraded 日志，便于确认图片已拼入分析请求</span></li></ul>
+        </details>
+        <details class="ver" open>
+          <summary>
+            <span class="ver__tag">v1.0.97</span>
+            <span class="ver__date mono">2026-08-30 20:09</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>放宽 images 采集的 limits/fetch 类型定义，修复 v1.0.96 的 typecheck 失败</span></li></ul>
+        </details>
+        <details class="ver" open>
+          <summary>
+            <span class="ver__tag">v1.0.94</span>
+            <span class="ver__date mono">2026-08-30 17:10</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>runUpdate 同步设置阶段异常兜底复位 updateRunning，杜绝锁泄漏导致的假 409（#43 根因）</span></li></ul>
+        </details>
+        <details class="ver" open>
+          <summary>
+            <span class="ver__tag">v1.0.93</span>
+            <span class="ver__date mono">2026-08-30 16:53</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>settings-registry 期望列表补充新增的 issue_use_unified_sections 键（#44）</span></li></ul>
+        </details>
+        <details class="ver" open>
+          <summary>
+            <span class="ver__tag">v1.0.91</span>
+            <span class="ver__date mono">2026-08-30 14:58</span>
+            <span class="ver__count mono">2 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>已安装仓库页移除「在 GitHub 添加仓库」按钮，改为引导去接入页（#41）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>移除 KPI 指标卡片的逐个弹出动画，让整组指标同时显示</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.90</span>
+            <span class="ver__date mono">2026-08-30 14:19</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>仓库级设置保存被 GET-only 路由兜底守卫拦成 405</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.89</span>
+            <span class="ver__date mono">2026-08-30 13:26</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>分析设置页精简 Issue 分析，仓库级可覆盖项移至已安装仓库页</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.88</span>
+            <span class="ver__date mono">2026-08-29 15:33</span>
+            <span class="ver__count mono">2 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>deep 工具循环对瞬态空响应重试，避免整个分析致命失败</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>运行手册补充 GitHub App 安装范围说明（#38）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.87</span>
+            <span class="ver__date mono">2026-08-29 10:38</span>
+            <span class="ver__count mono">2 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>分析设置页补齐「缺陷类」「功能请求」Issue 结果区块开关（#40）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>版本已最新时禁用「更新到最新」按钮并标注「已是最新版本」（#37）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.86</span>
+            <span class="ver__date mono">2026-08-29 08:36</span>
+            <span class="ver__count mono">4 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>scheduler 测试导入补 .js 后缀，修复 typecheck</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>NodeNext 下测试导入补 .js 后缀，修复 typecheck</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>补 update/botctl/consolidation/auth 缺失覆盖 + 导出 parseConsolidationJson</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>为手动取消任务功能补单元测试与集成测试</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.83</span>
+            <span class="ver__date mono">2026-08-29 06:31</span>
+            <span class="ver__count mono">2 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>手动取消运行中任务（WebUI 列表/详情取消按钮 + POST /tasks/cancel）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>nginx 转发 /repo-rules 接口，修复审核规则页加载失败</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.82</span>
+            <span class="ver__date mono">2026-08-29 06:04</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>Issue 关闭/删除时自动取消其分析任务 — 借鉴 PR#540 防过期 worker 补发评论</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.81</span>
+            <span class="ver__date mono">2026-08-29 05:36</span>
+            <span class="ver__count mono">3 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>rules.test 补 ensureRepoRulesDir 导入（typecheck）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>新增「审核规则」功能页 — 集中管理仓库规则开关与文件(增删改查/上传/URL导入)</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>seed AperturePrism example review rules</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.80</span>
+            <span class="ver__date mono">2026-08-28 19:01</span>
+            <span class="ver__count mono">3 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>修两个测试失败（repoScoped 白名单补 repo_rules_enabled、writeFileContents 去掉重复 JSON.stringify）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>修复 typecheck（loadRepoRules 传入 github、mock 补 writeFileContents）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>仓库审核规则开关(总开关+仓库级) + 首次分析自动创建示例 rules 目录 (#28 延伸)</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.79</span>
+            <span class="ver__date mono">2026-08-28 17:47</span>
+            <span class="ver__count mono">2 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>修复上一批改动的失败断言（审核规则 mock 路径、嵌入模型名已切 nemotron）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>Issue 审核新增建议指派人字段，并按 bug/feature 分类型配置结果区块 (#36)(#28)</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.78</span>
+            <span class="ver__date mono">2026-08-28 09:05</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>路由失败错误带上底层网关响应 —— 便于定位 deep 分析 5xx 根因</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.77</span>
+            <span class="ver__date mono">2026-08-28 08:48</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>非 2xx 时记录网关真实响应体 —— 便于排查 deep 分析 5xx</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.76</span>
+            <span class="ver__date mono">2026-08-28 08:05</span>
+            <span class="ver__count mono">2 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>修正工具序列化测试的 undefined 索引访问（typecheck）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>移除误提交的网关测试脚本（含凭据，安全轮换）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.74</span>
+            <span class="ver__date mono">2026-08-28 07:22</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>PR 审查输出中文（#33）+ 手动写入审核规则/仓库知识（#32）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.73</span>
+            <span class="ver__date mono">2026-08-28 06:38</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>bot 打的标签同步进本地标签配置 —— WebUI 标签配置可见（#31）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.72</span>
+            <span class="ver__date mono">2026-08-28 02:34</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>不支持的 webhook 事件（check_suite 等）返回 202 而非 500 —— 防投递成功率被噪声拉低、自检误报签名不一致</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.71</span>
+            <span class="ver__date mono">2026-08-28 02:18</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>update.sh env 重建保留 AP_VERIFY/OAUTH_REDIRECT_URI —— 防在线更新重建到默认网络导致 502 网络分裂</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.70</span>
+            <span class="ver__date mono">2026-08-28 00:25</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>v9 codeAccess 测试用 disabled 段特征文本断言（基文含「当前代码访问」）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.67</span>
+            <span class="ver__date mono">2026-08-27 22:09</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>Webhook 自检移除 active 字段 —— /app/hook/config 返回扁平对象且无 active（实测）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.66</span>
+            <span class="ver__date mono">2026-08-27 21:45</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>自检改为读配置 + 最近投递统计 —— GitHub 无 App 级 ping 端点（ping|pings 均 404 实测）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.65</span>
+            <span class="ver__date mono">2026-08-27 05:15</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>App webhook 测试投递端点为单数 /app/hook/ping（404 实测修正）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.64</span>
+            <span class="ver__date mono">2026-08-27 04:53</span>
+            <span class="ver__count mono">3 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>pr-review 测试 mock 补齐 webhook 自检三方法（typecheck）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>从版本库移除含凭据的本地工具 ap_ssh.py 并加入 ignore</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>Webhook 自检按钮 + release/deploy 脚本化（v1.0.64 前置）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.63</span>
+            <span class="ver__date mono">2026-08-27 03:02</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>Issue 提示词 v8 —— 优先级评级校准，bug/feature 基线 P2（v1.0.63, #24）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.62</span>
+            <span class="ver__date mono">2026-08-27 00:17</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>建议标签真正落到 GitHub Issue + 评论标签灰框渲染（v1.0.62, #23）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.61</span>
+            <span class="ver__date mono">2026-08-27 00:16</span>
+            <span class="ver__count mono">0 项</span>
+          </summary>
+          <ul class="ver__items"><li class='cl-misc'><span class='cl-tag'>chore</span><span>构建 / 发布调整</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.59</span>
+            <span class="ver__date mono">2026-08-26 22:59</span>
+            <span class="ver__count mono">3 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>结果区块后置过滤 —— 关闭的可选字段需从对象中移除而非仅省略</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>结果区块开关测试的类型收窄 —— Set&lt;IssueResultSection&gt; 与 has() 断言修正</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>Issue 分析结果区块开关 —— 缺失信息/建议动作可独立配置（v1.0.59）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.58</span>
+            <span class="ver__date mono">2026-08-26 21:27</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>审核结果改进 —— 结果页补全 + 失败提示 + 深度分析引导（v1.0.58）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.57</span>
+            <span class="ver__date mono">2026-08-26 21:06</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>issue 分析 invalid_output 容错 —— 提取围栏/文内 JSON + 提高 token 预算（v1.0.57）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.56</span>
+            <span class="ver__date mono">2026-08-26 20:30</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>GitHub 接入页明确标注 Webhook 未配置的风险（v1.0.56）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.55</span>
+            <span class="ver__date mono">2026-08-26 17:25</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>Issue 分析新增提示词模式（自适应/轻量/全量），与版本正交（v1.0.55）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.54</span>
+            <span class="ver__date mono">2026-08-26 16:51</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>Issue 分析提示词 v6 —— 功能请求轻量直达实现，缺陷类保持信息量（v1.0.54）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.53</span>
+            <span class="ver__date mono">2026-08-26 16:08</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>在线更新被 web 重建中断后中止 + 前端 network error 误报（v1.0.53）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.52</span>
+            <span class="ver__date mono">2026-08-26 15:27</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>在线更新 — 容器 compose 不支持 --progress，改 SSE 心跳保活（v1.0.52）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.51</span>
+            <span class="ver__date mono">2026-08-26 15:10</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>在线更新 network error — 长时 SSE 流被 nginx read 超时掐断（v1.0.51）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.50</span>
+            <span class="ver__date mono">2026-08-26 14:43</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>同步仓库成功路径重复读 response body 导致 body stream already read（v1.0.50）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.49</span>
+            <span class="ver__date mono">2026-08-26 14:02</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>/config 与 /setup/status 的 githubAppConfigured 改为按有效凭据判断（DB 覆盖优先）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.48</span>
+            <span class="ver__date mono">2026-08-26 13:42</span>
+            <span class="ver__count mono">3 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>typecheck — 提示词版本查询用局部变量消除索引访问 undefined；worker 的 promptVersion 条件展开规避 exactOptionalPropertyTypes</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>告警阈值可配置 + OpsPage 轮询 + 同步链路健壮性 + Issue 提示词版本化（v1.0.48）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>官网新增完整配置教程页与三步配置速览，命令块一键复制</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.47</span>
+            <span class="ver__date mono">2026-08-26 12:22</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>接入状态区增加「安装 GitHub Apps」按钮（指向 installations/new）（v1.0.47）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.46</span>
+            <span class="ver__date mono">2026-08-26 12:10</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>WebUI 增加 GitHub App 安装/授权仓库引导（/config 返回 appSlug + 安装链接）（v1.0.46）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.45</span>
+            <span class="ver__date mono">2026-08-26 10:52</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>告警 webhook 通知（alert_webhook_url 配置 + 状态迁移 diff + 触发/恢复 POST JSON）（v1.0.45）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.44</span>
+            <span class="ver__date mono">2026-08-26 09:04</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>WebUI 增加 qq-bot 启动/关闭按钮（后端 /bot/status|start|stop + botctl.sh + nginx 白名单）（v1.0.44）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.43</span>
+            <span class="ver__date mono">2026-08-26 03:23</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>nginx 代理补上 metrics/alerts 路径（运维页此前拿到 SPA index.html 导致 JSON 解析失败）（v1.0.43）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.42</span>
+            <span class="ver__date mono">2026-08-26 03:03</span>
+            <span class="ver__count mono">2 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>v1.0.42（rerun 清理旧 attempts + API 端口仅 loopback 绑定防公网直连）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>rerun 重置任务时清理旧 attempts（避免重跑撞唯一约束 task_attempts_task_number_unique）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.41</span>
+            <span class="ver__date mono">2026-08-26 02:28</span>
+            <span class="ver__count mono">2 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>告警单测类型修正（ReadonlyMap key 用 AlertRuleId 而非 string）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>Phase C 告警规则（队列积压/失败/滞留）+ 密码验证登录（令牌校验+401 自动登出）（v1.0.41）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.40</span>
+            <span class="ver__date mono">2026-08-26 01:36</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>同步从 GitHub 发现新安装（修复新用户 0 仓库）+ 队列可靠性指标（失败/滞留任务量规）（v1.0.40）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.39</span>
+            <span class="ver__date mono">2026-08-25 11:19</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>removeRepository 改用任务 id 数组绑定（postgres-js 不支持 inArray+subquery）（v1.0.39）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.38</span>
+            <span class="ver__date mono">2026-08-25 11:02</span>
+            <span class="ver__count mono">3 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>webhook 轮换回退查询改 best-effort（DB 不可用不阻塞验签）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>metrics 量规改用裸 SQL 查询（避免 drizzle Helper 类型不兼容 select）</span></li><li class="cl-feat"><span class="cl-tag">feat</span><span>feat(ops+sync): 仓库同步支持删除已取消授权/移除安装 + 轮换消费侧（webhook 双密钥）+ Phase C 指标/运维页（v1.0.38）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.37</span>
+            <span class="ver__date mono">2026-08-25 07:55</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-feat"><span class="cl-tag">feat</span><span>feat(security+quality): issue/pr eval 基线集 + 密钥轮换回滚窗口 + 只读操作员角色（迁移0018）（v1.0.37）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.36</span>
+            <span class="ver__date mono">2026-08-25 07:23</span>
+            <span class="ver__count mono">2 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>修正注入回归断言（pr-review 夹具 keptFiles + issue 定界计数）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>Phase B — PR 审查补不可信定界 + 注入回归集扩充 + 审计扩围（users/backup/update.apply）（v1.0.36）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.35</span>
+            <span class="ver__date mono">2026-08-25 06:36</span>
+            <span class="ver__count mono">3 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>修复 repos-page 测试断言（owner 匹配改为精确，避免命中下拉 option）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>#15 收尾（index.html no-cache + 仓库页空态分级）+ 同步加固（409幂等/重试退避/限流中断）（v1.0.35）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>新增系统全面优化方案（现状盘点/分模块优化/路线图）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.34</span>
+            <span class="ver__date mono">2026-08-25 05:33</span>
+            <span class="ver__count mono">2 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>补 provider-page 测试的 fetchSettings mock（SettingsSection 依赖）（v1.0.34）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>系统配置去重——设置迁移到专属页 + 导航重排（v1.0.34）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.33</span>
+            <span class="ver__date mono">2026-08-25 04:06</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>Issue 相关建议过模型裁决，不再误关联文本相似但无关的 issue（#14）（v1.0.33）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.32</span>
+            <span class="ver__date mono">2026-08-25 02:52</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>settings 重构收尾（移除未接线的死代码）+ Issue 分析低信息量先给方向（#16）（v1.0.32）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.31</span>
+            <span class="ver__date mono">2026-08-25 02:35</span>
+            <span class="ver__count mono">8 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>设置系统重构（注册表统一事实源）+ 产品官网 + Pages 部署（v1.0.31）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>新增项目官网静态页并接入 GitHub Pages 部署</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>Update CNAME</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>Create CNAME</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>Delete CNAME</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>Create CNAME</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>WebUI 配置 GitHub App、编辑按变化幅度重分析、按仓库粒度控制（v1.0.30）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>资源限制改用 mem_limit/cpus，deploy.resources 在 compose up 下无效</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.29</span>
+            <span class="ver__date mono">2026-08-24 18:52</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>修复获取模型失败、限制容器资源、分析优先怀疑代码</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.28</span>
+            <span class="ver__date mono">2026-08-24 14:16</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>Issue 分析加提示词注入防护</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.27</span>
+            <span class="ver__date mono">2026-08-24 09:21</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>Issue 标题改写默认开启（#5 后续）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.26</span>
+            <span class="ver__date mono">2026-08-24 07:05</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>模型路由页补上配置入口（#2）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.25</span>
+            <span class="ver__date mono">2026-08-24 05:54</span>
+            <span class="ver__count mono">2 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>分析失败时收尾占位评论，不再永远停在「正在分析」</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>标注深度分析依赖网关的 tools 支持</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.24</span>
+            <span class="ver__date mono">2026-08-24 01:12</span>
+            <span class="ver__count mono">2 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>补齐测试 fixture 的新增必填字段</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>Issue 分析给出原因与修复方案，失败原因可诊断（#6）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.23</span>
+            <span class="ver__date mono">2026-08-23 10:21</span>
+            <span class="ver__count mono">3 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>中文 Issue 重复检测失效（#8 与 #9 互不召回）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>WebUI 错误提示可执行化、补齐三态、移除重复的 Bot 配置入口</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>移除过时的交接文档</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.22</span>
+            <span class="ver__date mono">2026-08-23 03:54</span>
+            <span class="ver__count mono">4 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>补齐 listCollaborators 的 mock 与可空作者类型</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>配置项开关化、默认指派协作者、Issue 标题加标签与重要度前缀</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>安装与在线更新增加磁盘空间预检和悬空镜像回收</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>修复 bot 自身三个缺陷（自我召回 / 重复评论自激 / 无关缺失信息）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.21</span>
+            <span class="ver__date mono">2026-08-22 23:03</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>在线更新收尾——migrate 加 -T、只拉应用镜像避开 docker.io 超时（v1.0.21）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.20</span>
+            <span class="ver__date mono">2026-08-22 22:33</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>在线更新修复完成——api 镜像装 curl + 修正 env 重建正则（v1.0.20）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.19</span>
+            <span class="ver__date mono">2026-08-22 22:08</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>在线更新不再因重建 api 容器中断（独立 helper 完成 api 重启）（v1.0.19）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.18</span>
+            <span class="ver__date mono">2026-08-22 17:58</span>
+            <span class="ver__count mono">1 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>WebUI 机器人配置页 + QQ 机器人任务执行接入 + CI 自动建 Release（v1.0.18）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.17</span>
+            <span class="ver__date mono">2026-08-22 17:23</span>
+            <span class="ver__count mono">4 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>功能</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 任务详情页 Check Run 实时状态轮询：每 5s 查询 GitHub 展示进行中/排队/完成·结论 + 直达链接</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 结果页批量删除（POST /results/delete，管理员）+ 批量导出当前筛选结果为 JSON</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 任务队列「列设置」下拉：显隐类型/对象/状态/策略/尝试/错误/更新时间，localStorage 持久化</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.16</span>
+            <span class="ver__date mono">2026-08-22 17:23</span>
+            <span class="ver__count mono">4 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-docs"><span class="cl-tag">docs</span><span>文档与配置</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- RUNBOOK/README 补齐：/tasks/rerun /repos/revoke /repositories/sync /scans /update 端点、Docker 部署 override（images-mirror / compose.verify）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 清理个人中转站残留：SetupPage 占位符、.env.example URL 通用化；新增 DEFAULT_LLM_MODEL 环境变量（默认 gpt-4o-mini，可配）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 在线更新脚本保留 DEFAULT_LLM_MODEL</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.15</span>
+            <span class="ver__date mono">2026-08-22 17:23</span>
+            <span class="ver__count mono">6 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>功能</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 结果页批量撤回（勾选 + 全选本页）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 任务队列批量重跑：POST /tasks/rerun 将 failed/canceled 任务回队重试（尝试数清零）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 任务详情页「发布与外部对象」面板：Check Run / 评论 / Review 状态 + GitHub 直达链接</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- /index/related 支持 repositoryFullName 过滤，限制同仓库召回</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- README 模型排查段落通用化</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.14</span>
+            <span class="ver__date mono">2026-08-22 17:24</span>
+            <span class="ver__count mono">4 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>修复与优化</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 跨仓库召回过滤：相关 Issue 限制在同一仓库内，不再关联其他项目</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 同步仓库：单安装失败自动重试 + 返回失败原因明细（details）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 在线更新：阶段进度条 + 日志折叠 + 完成后自动刷新页面</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.13</span>
+            <span class="ver__date mono">2026-08-22 17:24</span>
+            <span class="ver__count mono">6 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>功能（D 阶段审查交互）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- PR Check Runs 可视化（pr_check_run 开关）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 行内评论（锚点失效自动降级普通评论）+ pr_auto_review 开关</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 一键撤回：/repos/revoke（管理员）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 标签配置免前缀表单</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 默认模型切换 mimo-v2.5-pro</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.12</span>
+            <span class="ver__date mono">2026-08-22 05:12</span>
+            <span class="ver__count mono">4 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>AperturePrism-AI-Review v1.0.12</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>## 模型与诊断</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 默认模型从 deepseek-v4-flash 切换为 deepseek-v3.2（deepseek-v4-flash 在 newapi 上返回 402 余额不足，导致所有分析/审查任务 handler_error；deepseek-v3.2 已验证可用）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- worker 失败事件现在携带 sanitized 错误详情并记录 error 级日志，handler_error 不再无迹可寻</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.11</span>
+            <span class="ver__date mono">2026-08-21 22:53</span>
+            <span class="ver__count mono">4 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>AperturePrism-AI-Review v1.0.11</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>## 在线更新后 502 修复</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- update.sh：api 健康检查通过后，再经 nginx 层探测 `/health/live`（覆盖容器重建的 IP 传播窗口），并停留几秒，结束时提示"更新完成，请稍等几秒再刷新页面"——避免更新完立刻刷新撞上 502</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- nginx：api 容器重建/未就绪时返回可读 JSON（`api_unavailable` + "服务正在重启，请稍后刷新页面"），不再显示裸 502 页</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.10</span>
+            <span class="ver__date mono">2026-08-21 22:22</span>
+            <span class="ver__count mono">5 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>AperturePrism-AI-Review v1.0.10</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>## WebUI 修复</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 修复手机端菜单消失：桌面端 `display:none` 默认规则曾写在媒体查询之后，覆盖了移动端汉堡按钮的显示，现已调整 CSS 顺序</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 抽屉动画改为纯水平滑入（translate3d + 100dvh），页面进场动画去掉纵向位移，消除"上滑"观感</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 「已安装仓库」页新增「在 GitHub 添加仓库」入口（跳转 GitHub Apps 安装管理页）+ 引导提示，空状态也给出操作指引</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.9</span>
+            <span class="ver__date mono">2026-08-21 21:48</span>
+            <span class="ver__count mono">12 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>AperturePrism-AI-Review v1.0.9</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>## C 阶段：Issue 增强</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 自动指派：分析完成后自动把 Issue 指派给 issue_assignee（默认仓库所有者，跳过作者本人）；`issue_auto_assign=true` 开启，可在 WebUI「系统配置」热更新</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 标题改写：模型分析时给出更清晰的「建议标题」（suggestedTitle），`issue_rewrite_title=true` 时自动改写 Issue 标题；分析评论与 WebUI 结果页均展示建议标题</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 语义关联展示：相关 Issue 随结果持久化，WebUI「Issue 分析」结果卡展示语义关联 Issue（含相似度）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>## 更新与手动触发修复</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 在线更新：update.sh 增加 compose 文件缺失预检与可操作提示；版本/摘要检测纳入 scan-worker</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 手动触发优化：新增 GET /repositories/issues 列出最近 open Issue/PR，WebUI「已安装仓库」手动触发改为下拉选择 + 手动编号</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 修复 v1.0.7 之前旧版本无法在线自更新问题（需一次性手动升级，详见 README「升级」）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>## WebUI 修复</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 移动端抽屉菜单：锁定背景滚动、打开时内容复位顶部、动画与性能优化</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 标签配置页补充「规则键 → GitHub 标签」图例说明</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.8</span>
+            <span class="ver__date mono">2026-08-21 21:10</span>
+            <span class="ver__count mono">12 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>AperturePrism-AI-Review v1.0.8</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>## 仓库扫描（B 功能）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 新增 scan-worker 服务：定时扫描已安装仓库的 open Issue / PR</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 全局开关 + 逐仓库独立配置：启用、间隔（分钟）、每次扫描上限（Issue / PR 数量）、自动分析开关</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 自动为未分析过的 Issue / PR 创建分析任务（复用 dedupe，已分析/未变化自动跳过）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 可选「自动建跟踪 Issue」：发现新 PR 时在仓库创建 GitHub Issue 报告（默认关闭，逐仓库开启）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- WebUI 新增「仓库扫描」菜单页：全局开关 / 逐仓库配置 / 立即扫描（手动触发）/ 扫描历史</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 扫描历史落库 scan_runs：扫描数、新建任务数、跟踪 Issue 数、跳过数</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 新表：scan_configs / scan_runs / scan_tracking（迁移 0016）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>## 其他</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- GitHub 适配器新增 listPullRequests / createIssue 方法</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- CI：build-and-push 新增 scan-worker 目标</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.7</span>
+            <span class="ver__date mono">2026-08-21 20:41</span>
+            <span class="ver__count mono">19 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>AperturePrism-AI-Review v1.0.7</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 修复 v1.0.1 升级工具 EACCES：镜像内 chmod +x update.sh、以 /bin/sh 执行</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- WebUI 用户管理卡片布局优化</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 修复 WebUI 版本显示「未知」与更新 JSON 解析错误（补全 /update 代理 + 版本回退读取 package.json）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 版本号 1.0.2 → 1.0.3 全量同步（22 个 package.json + lock）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- install.mjs 源码 / Docker Compose 全栈二选一安装，自动安装 Node/Docker 依赖</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- bootstrap.sh 无 Node 时自动安装 Node ≥ 22</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- nginx gzip + 缓存、OAuth redirect_uri 动态推导</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- compose 安装 env 路径解析修复（绝对路径）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- OAuth 回调显式 OAUTH_REDIRECT_URI 注入，修复反代 / TLS 终结场景登录</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- Agentic AI 工具系统：模型可调用 read_file / list_directory / get_git_info 主动探索仓库上下文</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 自适应审查策略：按 PR 规模自动选择 quick / standard / deep 模式</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 增量审查续跑：PR 多次推送时参考历史对话继续审查</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- WebUI 移动端抽屉导航</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- WebUI toast 反馈 / 导航重构 / 任务排序 / PR 结果展示 + 测试</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 安装脚本摘要打印 WebUI 管理 token</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 标签配置独立菜单 + 首次自动填充 11 条默认常用标签规则（category / severity）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 修复在线更新 script_exit_1：update.sh compose 文件改用绝对路径引用</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- CI 修复：web 测试独立 workspace 运行</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.1</span>
+            <span class="ver__date mono">2026-08-21 02:06</span>
+            <span class="ver__count mono">8 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>AperturePrism-AI-Review v1.0.1</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>**在线更新**</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- WebUI 系统配置页新增「版本与更新」：检查更新（当前/最新版本对比）、一键更新（SSE 实时日志，失败自动回滚）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- GET /update/status · POST /update/apply（管理员）· GET /update/history</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- api 镜像内置 docker CLI，compose 挂载 docker.sock（只读），更新脚本 pull→migrate→up→健康检查→回滚</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 支持 NAS verify 网络场景（AP_VERIFY=1）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>**安装仓库同步**</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- WebUI「已安装仓库」新增「同步仓库」按钮，每 12 小时后台自动拉取 GitHub App 安装仓库（POST /repositories/sync）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v1.0.0</span>
+            <span class="ver__date mono">2026-08-21 01:24</span>
+            <span class="ver__count mono">14 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span>AperturePrism-AI-Review v1.0.0 正式版</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>**Web UI / UX**</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 双主题：浅色/深色一键切换（跟随系统偏好），控制台顶栏切换按钮</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 字体本地化：移除 Google Fonts 阻塞，Geist/Cabinet Grotesk 本地托管，首屏提速</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 概览页修复状态分布条形图不可见、背景光晕固定；侧栏底部按钮不再被裁切</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 事件流 JSON 语法高亮、统一错误面板（带重试）、任务/结果页搜索</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 侧栏品牌使用项目 Logo</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>**平台/部署**</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- GET 请求 5s 缓存 + 显式失效，13 页面刷新接入</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- compose 项目名统一 AperturePrism-AI-Review（容器 apertureprism-ai-review-*）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- README 新增真实截图预览与部署说明</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>**API / 运维**</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- Vite 代理补全（本地预览全功能）；修复 /provider 侧栏高亮串扰</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 在线更新落地计划（docs/ONLINE_UPDATE_PLAN.md）</span></li></ul>
+        </details>
+        <details class="ver">
+          <summary>
+            <span class="ver__tag">v0.0.1</span>
+            <span class="ver__date mono">2026-08-19 21:29</span>
+            <span class="ver__count mono">26 项</span>
+          </summary>
+          <ul class="ver__items"><li class="cl-misc"><span class="cl-tag">misc</span><span># AperturePrism-AI-Review v0.0.1</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>独立开发的 GitHub Issue 分析与 Pull Request 审查平台首个版本。</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>## 功能</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- **Issue 分析**：GitHub Webhook（验签 + 幂等入库）→ 多模型路由 → 结构化分级（S0-S3 / P0-P3 / 完整度）→ 幂等评论 + 自动打标</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- **PR 审查**：diff 解析与行映射、大小/预算降级、结构化 finding + 服务端严重度策略、幂等 Review 发布</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- **重复 Issue 检测**：标准化 + 信号抽取 + 全文/向量（pgvector）召回 → 模型裁决</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- **仓库记忆**：反思沉淀 → 合并 Agent → 上下文回灌</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- **Agent Skills / 专家团队**：6 个内置技能 + 多专家并行审查</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- **仓库互助**：注册 GitHub 账户 → 定时给目标仓库点星</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- **手动触发**：WebUI 按仓库 + 编号触发 Issue/PR（`POST /tasks/manual`）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- **广告识别**：分析前自识别广告/垃圾 Issue，按 `spam_handling` 策略关闭或删除（可配置）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- **Web 控制台**：深色玻璃 UI、GitHub OAuth 登录 + 管理员角色、SSE 实时事件、操作审计、配置备份、用户管理</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- **QQ 机器人**：NTQQ 第三方协议（OneBot 11 / Satori / Milky）+ 官方开放平台 api-v2</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- **AstrBot 插件**：`plugins/astrbot_plugin_apertureprism/`（napcat + QQ 官方桥接）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- **运维**：一键安装脚本、Docker 全栈打包、迁移/备份脚本、健康检查、CI 构建 GHCR 镜像</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>## 发布内容</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 源码包：`AperturePrism-AI-Review-v0.0.1-source.zip`（`git archive` 导出，不含密钥/环境文件）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>- 镜像：GitHub Actions 构建并发布到 `ghcr.io/bb0813/apertureprism-ai-review/&lt;target&gt;:v0.0.1`（api / analysis-worker / index-worker / scheduler / qq-bot / migrate / web）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>## 快速开始</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>```bash</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span># Docker（镜像从 GHCR 拉取）</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>cp .env.example .env.production   # 填 DATABASE_URL / REDIS_URL / CREDENTIAL_MASTER_KEY / GITHUB_* / EMBEDDING_*</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>docker compose -f docker/docker-compose.prod.yml --env-file .env.production run --rm migrate</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>docker compose -f docker/docker-compose.prod.yml --env-file .env.production up -d</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>```</span></li><li class="cl-misc"><span class="cl-tag">misc</span><span>详见 [README.md](https://github.com/BB0813/AperturePrism-AI-Review/blob/main/README.md) 与 [运维手册](https://github.com/BB0813/AperturePrism-AI-Review/blob/main/docs/RUNBOOK.md)。</span></li></ul>
+        </details>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer__inner">
+      <div class="footer__brand">
+        <img class="footer__mark" src="assets/logo.png" alt="AperturePrism" />
+        <p>把 AI 代码审查做成一条可落地的产品链路。</p>
+      </div>
+      <div class="footer__links">
+        <a href="index.html">官网</a>
+        <a href="index.html#capabilities">核心能力</a>
+        <a href="index.html#architecture">系统架构</a>
+        <a href="#timeline">更新日志</a>
+      </div>
+      <div class="footer__links">
+        <a href="guide.html">完整配置教程 ↗</a>
+        <a href="index.html#quickstart">快速开始</a>
+        <a href="index.html#console">控制台</a>
+      </div>
+      <p class="footer__copy mono">APERTUREPRISM © <span id="year"></span> · 开源 · MIT License</p>
+    </div>
+  </footer>
+
+  <script src="assets/app.js?v=4"></script>
+</body>
+</html>
+
+
