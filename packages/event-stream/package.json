@@ -1,7 +1,7 @@
 {
   "name": "@apertureprism/event-stream",
   "private": true,
-  "version": "1.0.104",
+  "version": "1.0.105",
   "type": "module",
   "scripts": {
     "build": "tsc",
