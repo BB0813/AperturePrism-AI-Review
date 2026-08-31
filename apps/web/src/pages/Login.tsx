@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchMe, fetchOAuthStatus, fetchSetupStatus } from "../lib/api";
+import { setToken } from "../lib/auth";
 import { useTheme } from "../hooks/useTheme";
 import { MoonIcon, SunIcon } from "../components/icons";
 
@@ -23,6 +24,8 @@ export function Login(props: { onAuthenticated: (token: string) => void }) {
   }, []);
 
   // 真正的密码验证：先拿令牌调一次受保护接口，通过了才进入控制台。
+  // 注意：fetchMe 用的是存储里的 token，所以先把输入值写入 localStorage 再校验；
+  // 否则全新浏览器（无历史 token）即使输对也只会带空/旧 token 而误报「令牌无效」。
   const submit = async () => {
     const token = value.trim();
     if (!token) {
@@ -31,10 +34,13 @@ export function Login(props: { onAuthenticated: (token: string) => void }) {
     }
     setBusy(true);
     setError(null);
+    setToken(token); // 先落库，fetchMe 才有正确的 token 可用
     try {
       await fetchMe();
       props.onAuthenticated(token);
     } catch (err) {
+      // 校验失败：清掉刚才写入的 token，避免下次误用这个无效值
+      setToken("");
       const messageText = err instanceof Error ? err.message : "";
       setError(
         messageText.includes("unauthorized")
