@@ -425,7 +425,7 @@ body.no-scroll::after { content: ""; position: fixed; inset: 0; background: rgba
 .gsec__end a { color: var(--prism-2); text-decoration: none; }
 
 /* ---------- changelog page ---------- */
-.chlog__meta { display: inline-flex; align-items: center; gap: 14px; color: var(--faint); font-size: 13px; flex-wrap: wrap; margin: -24px auto 40px; padding: 12px 22px; border: 1px solid var(--border); border-radius: 999px; background: rgba(255,255,255,0.02); }
+.chlog__meta { display: flex; align-items: center; justify-content: center; gap: 14px; color: var(--faint); font-size: 13px; flex-wrap: wrap; width: fit-content; margin: 32px auto 44px; padding: 12px 22px; border: 1px solid var(--border); border-radius: 999px; background: rgba(255,255,255,0.02); }
 .chlog__meta strong { color: var(--prism-1); }
 .chlog__meta i { width: 4px; height: 4px; border-radius: 50%; background: var(--prism-2); }
 .timeline { display: grid; gap: 14px; padding-bottom: 90px; }

@@ -1,0 +1,64 @@
+# 发布新版后自动重新生成官网「更新日志」页并部署到 GitHub Pages。
+#
+# 触发链：tag push → docker-publish 构建镜像并创建 GitHub Release（published）
+#        → 本 workflow 在 release.published 时重新生成 changelog.html
+#
+# 为什么在这里直接部署，而不是等 push 回 main 触发 pages.yml：
+#   GITHUB_TOKEN 提交回 main 不会触发新的 workflow（GitHub 防递归机制），
+#   所以本 workflow 生成文件并提交后，自己 upload-pages-artifact + deploy-pages 完成发布。
+# 用 PAT（如 secrets.GH_PAT）提交则可以正常触发，两种方式均可用。
+name: Generate & deploy changelog
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+# 与 pages.yml 共用同一 concurrency group，避免与官网推送触发的部署并发冲突。
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  generate-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Generate changelog from GitHub Releases
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/gen-changelog.mjs
+
+      - name: Commit updated changelog back to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add website/changelog.html
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: 自动更新官网更新日志页（$(date -u +%Y-%m-%d)）"
+            git push
+          else
+            echo "changelog 无变化，跳过提交"
+          fi
+
+      - name: Upload static site artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: website
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4
