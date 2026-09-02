@@ -96,6 +96,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -130,3 +131,11 @@ jobs:
           body_path: /tmp/release-body.md
           draft: false
           prerelease: false
+
+      # 闭环：release 由 GITHUB_TOKEN 创建时，release.published 事件会被 GitHub
+      # 静默吞掉（GITHUB_TOKEN 触发的事件不会新建 workflow run，workflow_dispatch 除外）。
+      # 因此 release 创建成功后显式用 workflow_dispatch 触发更新日志重新生成 + 部署。
+      - name: Trigger changelog regeneration
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run "Generate & deploy changelog" --ref main
