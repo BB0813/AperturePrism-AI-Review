@@ -633,12 +633,14 @@ async function main(): Promise<void> {
             buildAnalysisOptions(issueCandidates, analysisDeadlineMs),
             { ...ctx, images: [] },
           );
-          // 显示层标记：视觉/图片理解未参与，供评论展示提示（结果与发布链路可见）。
-          (
-            fallback.analysis.result as IssueAnalysisResult & {
-              _visionSkipped?: boolean;
-            }
-          )._visionSkipped = true;
+          // 显示层标记：仅当文本分析产出有效结果时标注「视觉未参与」。
+          if (fallback.outcome === "valid") {
+            (
+              fallback.analysis.result as IssueAnalysisResult & {
+                _visionSkipped?: boolean;
+              }
+            )._visionSkipped = true;
+          }
           return fallback;
         }
       }
