@@ -561,58 +561,70 @@ async function main(): Promise<void> {
       // （视觉模型），否则用 issue_analysis（快模型）。视觉角色未配置时回退到
       // issue_analysis，避免带图的文本分析也能跑。
       const useVisionModel = ctx.images.length > 0 && issueVisionCandidates.length > 0;
-      const modelCandidates = useVisionModel
-        ? issueVisionCandidates
-        : issueCandidates;
       if (useVisionModel)
         logger.info(
           { repo: repositoryFullName, subject: context.issue.number },
           "issue vision: routing to vision model candidates",
         );
-      return analyzeIssue(
-        {
-          adapters,
-          candidates: modelCandidates,
-          deadlineMs: analysisDeadlineMs,
-          retryPolicy: analysisRetryPolicy,
-          signal,
-          // exactOptionalPropertyTypes：undefined 不能显式赋给可选属性，条件展开。
-          ...(promptVersion === undefined ? {} : { promptVersion }),
-          ...(promptMode === undefined ? {} : { promptMode }),
-          ...(issueSections.sections === undefined
-            ? {}
-            : { sections: issueSections.sections }),
-          ...(issueSections.sectionsByCategory.bug === undefined &&
-          issueSections.sectionsByCategory.feature === undefined
-            ? {}
-            : {
-                sectionsByCategory: {
-                  ...(issueSections.sectionsByCategory.bug === undefined
-                    ? {}
-                    : { bug: issueSections.sectionsByCategory.bug }),
-                  ...(issueSections.sectionsByCategory.feature === undefined
-                    ? {}
-                    : { feature: issueSections.sectionsByCategory.feature }),
+      // 分析选项按候选模型参数化：视觉失败时复用同一套配置，仅换文本模型候选。
+      const buildAnalysisOptions = (candidates: ModelCandidate[]) => ({
+        adapters,
+        candidates,
+        deadlineMs: analysisDeadlineMs,
+        retryPolicy: analysisRetryPolicy,
+        signal,
+        // exactOptionalPropertyTypes：undefined 不能显式赋给可选属性，条件展开。
+        ...(promptVersion === undefined ? {} : { promptVersion }),
+        ...(promptMode === undefined ? {} : { promptMode }),
+        ...(issueSections.sections === undefined
+          ? {}
+          : { sections: issueSections.sections }),
+        ...(issueSections.sectionsByCategory.bug === undefined &&
+        issueSections.sectionsByCategory.feature === undefined
+          ? {}
+          : {
+              sectionsByCategory: {
+                ...(issueSections.sectionsByCategory.bug === undefined
+                  ? {}
+                  : { bug: issueSections.sectionsByCategory.bug }),
+                ...(issueSections.sectionsByCategory.feature === undefined
+                  ? {}
+                  : { feature: issueSections.sectionsByCategory.feature }),
+              },
+            }),
+        ...(deep
+          ? {
+              tools: {
+                context: {
+                  client: assertGithub(github),
+                  installationId: context.installationId,
+                  owner: context.repository.owner,
+                  name: context.repository.name,
+                  // 默认分支：Issue 不像 PR 那样绑定某个 commit。
+                  ref: "HEAD",
                 },
-              }),
-          ...(deep
-            ? {
-                tools: {
-                  context: {
-                    client: assertGithub(github),
-                    installationId: context.installationId,
-                    owner: context.repository.owner,
-                    name: context.repository.name,
-                    // 默认分支：Issue 不像 PR 那样绑定某个 commit。
-                    ref: "HEAD",
-                  },
-                  maxRounds: 4,
-                },
-              }
-            : {}),
-        },
-        ctx,
-      );
+                maxRounds: 4,
+              },
+            }
+          : {}),
+      });
+      // 视觉模型优先；若视觉模型服务不可用导致分析失败，回退到文本模型重跑一次
+      // （丢弃图片，保证带图 Issue 也能出分析，不因图片理解失败而整条失败）。
+      if (useVisionModel) {
+        try {
+          return await analyzeIssue(buildAnalysisOptions(issueVisionCandidates), ctx);
+        } catch (error) {
+          logger.warn(
+            { err: error, repo: repositoryFullName, subject: context.issue.number },
+            "issue vision: vision model failed, falling back to text analysis",
+          );
+          return analyzeIssue(buildAnalysisOptions(issueCandidates), {
+            ...ctx,
+            images: [],
+          });
+        }
+      }
+      return analyzeIssue(buildAnalysisOptions(issueCandidates), ctx);
     },
 
     recallRelated: async (context) => {
@@ -684,6 +696,24 @@ async function main(): Promise<void> {
 
     publishFinal: async (task, analysis, related) => {
       const { payload, identity } = issueIdentity(task);
+      // #50：先做自动指派，并把「建议指派人」对齐到实际指派，再发布评论，
+      // 避免模型输出的个人猜测与真实自动指派不一致。
+      let assignedAssignees: string[] = [];
+      try {
+        assignedAssignees = await applyIssueEnhancements({
+          github: assertGithub(github),
+          installationId: payload.installationId,
+          owner: identity.owner,
+          name: identity.name,
+          issueNumber: payload.subjectNumber,
+          analysis: analysis.result,
+        });
+      } catch (error) {
+        logger.warn({ err: error, taskId: task.id }, "issue enhancement skipped");
+      }
+      if (assignedAssignees.length > 0) {
+        analysis.result.suggestedAssignee = assignedAssignees[0];
+      }
       await publishIssueComment({
         store: publicationStore,
         github: assertGithub(github),
@@ -719,17 +749,6 @@ async function main(): Promise<void> {
         analysis: analysis.result,
       }).catch((error: unknown) =>
         logger.warn({ err: error, taskId: task.id }, "label application skipped"),
-      );
-      // Issue 增强：自动指派 + 标题改写（best-effort，受运行时设置控制）。
-      await applyIssueEnhancements({
-        github: assertGithub(github),
-        installationId: payload.installationId,
-        owner: identity.owner,
-        name: identity.name,
-        issueNumber: payload.subjectNumber,
-        analysis: analysis.result,
-      }).catch((error: unknown) =>
-        logger.warn({ err: error, taskId: task.id }, "issue enhancement skipped"),
       );
     },
 
@@ -1713,11 +1732,11 @@ async function applyIssueEnhancements(input: {
     IssueAnalysisResult,
     "severity" | "priority" | "suggestedLabels" | "suggestedTitle"
   >;
-}): Promise<void> {
+}): Promise<string[]> {
   const cfg = await issueEnhancementConfig(`${input.owner}/${input.name}`);
   // 标题按 [标签][重要度]标题 格式拼装（issue #5），前缀由服务端生成。
   const suggested = formatSuggestedTitle(input.analysis) ?? "";
-  if (!cfg.autoAssign && !(cfg.rewriteTitle && suggested)) return;
+  if (!cfg.autoAssign && !(cfg.rewriteTitle && suggested)) return [];
 
   // 需要作者（跳过自己）与当前标题（避免无效改写）时再拉取一次 Issue。
   const issue = await input.github.getIssue({
@@ -1742,7 +1761,7 @@ async function applyIssueEnhancements(input: {
   if (cfg.rewriteTitle && suggested && suggested !== issue.title) {
     patches.title = suggested;
   }
-  if (Object.keys(patches).length === 0) return;
+  if (Object.keys(patches).length === 0) return [];
 
   await input.github.updateIssue({
     installationId: input.installationId,
@@ -1759,6 +1778,8 @@ async function applyIssueEnhancements(input: {
     },
     "issue enhancement applied",
   );
+  // 返回实际指派人（评论用于对齐「建议指派人」与真实指派，避免不一致）。
+  return patches.assignees ?? [];
 }
 
 /** Reads the ad/spam handling policy with repository override; defaults to close. */
