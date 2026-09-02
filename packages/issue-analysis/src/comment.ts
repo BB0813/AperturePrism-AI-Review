@@ -85,6 +85,14 @@ export function buildIssueAnalysisComment(
     result.summary,
   ];
 
+  // 显示层标记：视觉/图片理解未参与（带图 Issue 在视觉模型不可用时回退文本）。
+  if ((result as { _visionSkipped?: boolean })._visionSkipped) {
+    lines.push(
+      "",
+      "> ⚠️ 该 Issue 含图片，但视觉模型暂不可用，本次分析未读取图片（已回退文本分析）。",
+    );
+  }
+
   // 与实际改写保持一致：展示服务端拼装后的 [标签][重要度]标题（issue #5）。
   const suggestedTitle = formatSuggestedTitle(result);
   if (suggestedTitle) {

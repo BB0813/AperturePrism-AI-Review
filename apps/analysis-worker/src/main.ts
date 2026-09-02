@@ -567,10 +567,14 @@ async function main(): Promise<void> {
           "issue vision: routing to vision model candidates",
         );
       // 分析选项按候选模型参数化：视觉失败时复用同一套配置，仅换文本模型候选。
-      const buildAnalysisOptions = (candidates: ModelCandidate[]) => ({
+      // capDeadlineMs 允许分阶段限制时间——视觉阶段给短 budget，失败后把剩余时间留给文本。
+      const buildAnalysisOptions = (
+        candidates: ModelCandidate[],
+        capDeadlineMs: number,
+      ) => ({
         adapters,
         candidates,
-        deadlineMs: analysisDeadlineMs,
+        deadlineMs: capDeadlineMs,
         retryPolicy: analysisRetryPolicy,
         signal,
         // exactOptionalPropertyTypes：undefined 不能显式赋给可选属性，条件展开。
@@ -611,20 +615,34 @@ async function main(): Promise<void> {
       // 视觉模型优先；若视觉模型服务不可用导致分析失败，回退到文本模型重跑一次
       // （丢弃图片，保证带图 Issue 也能出分析，不因图片理解失败而整条失败）。
       if (useVisionModel) {
+        // 视觉阶段用较短 budget：视觉模型不可用时快速失败，把剩余时间留给文本兜底。
         try {
-          return await analyzeIssue(buildAnalysisOptions(issueVisionCandidates), ctx);
+          return await analyzeIssue(
+            buildAnalysisOptions(
+              issueVisionCandidates,
+              Math.min(analysisDeadlineMs, 60_000),
+            ),
+            ctx,
+          );
         } catch (error) {
           logger.warn(
             { err: error, repo: repositoryFullName, subject: context.issue.number },
             "issue vision: vision model failed, falling back to text analysis",
           );
-          return analyzeIssue(buildAnalysisOptions(issueCandidates), {
-            ...ctx,
-            images: [],
-          });
+          const fallback = await analyzeIssue(
+            buildAnalysisOptions(issueCandidates, analysisDeadlineMs),
+            { ...ctx, images: [] },
+          );
+          // 显示层标记：视觉/图片理解未参与，供评论展示提示（结果与发布链路可见）。
+          (
+            fallback.analysis.result as IssueAnalysisResult & {
+              _visionSkipped?: boolean;
+            }
+          )._visionSkipped = true;
+          return fallback;
         }
       }
-      return analyzeIssue(buildAnalysisOptions(issueCandidates), ctx);
+      return analyzeIssue(buildAnalysisOptions(issueCandidates, analysisDeadlineMs), ctx);
     },
 
     recallRelated: async (context) => {
