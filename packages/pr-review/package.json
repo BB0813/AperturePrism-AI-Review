@@ -1,7 +1,7 @@
 {
   "name": "@apertureprism/pr-review",
   "private": true,
-  "version": "1.0.105",
+  "version": "1.0.106",
   "type": "module",
   "scripts": {
     "build": "tsc",
