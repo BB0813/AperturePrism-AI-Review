@@ -1,7 +1,7 @@
 {
   "name": "apertureprism-ai-review",
   "private": true,
-  "version": "1.0.108",
+  "version": "1.0.109",
   "type": "module",
   "packageManager": "npm@11.18.0",
   "workspaces": [
