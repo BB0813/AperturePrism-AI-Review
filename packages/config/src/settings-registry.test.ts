@@ -109,7 +109,6 @@ describe("parseBool + BOOLEAN_DEFAULTS pin current behaviour", () => {
   it("reproduces the default-off keys (previously === \"true\")", () => {
     for (const key of [
       "issue_auto_assign",
-      "issue_deep_analysis",
       "agent_team_enabled",
     ]) {
       const def = BOOLEAN_DEFAULTS[key]!;
@@ -126,6 +125,7 @@ describe("parseBool + BOOLEAN_DEFAULTS pin current behaviour", () => {
   it("reproduces the default-on keys (previously !== \"false\")", () => {
     for (const key of [
       "issue_rewrite_title",
+      "issue_deep_analysis",
       "pr_check_run",
       "pr_auto_review",
       "scan_enabled",
