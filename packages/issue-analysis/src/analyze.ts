@@ -279,8 +279,11 @@ export async function analyzeIssue(
         exploreInstruction:
           "你可以调用 read_file / list_directory / get_git_info 查看仓库源码，" +
           "以定位这个 Issue 描述的问题出在哪个文件。请先定位再作答：" +
-          "proposedChanges 里的 path 必须是你确实读到过的真实文件；" +
-          "找不到相关代码时省略该字段并说明原因，不要凭猜测编造路径或行号。",
+          "优先用 list_directory 浏览根目录并读 README 等文档，理解该功能 / 命令 / 指令的" +
+          "正确使用与触发方式，据此判断报告者的操作是否符合预期（很多" +
+          "「指令没反应 / 按钮不存在」其实是触发方式问题，先自查再下结论）；" +
+          "深入 read_file 相关源码确认缺陷根因。proposedChanges 里的 path 必须是你确实" +
+          "读到过的真实文件；找不到相关代码时省略该字段并说明原因，不要凭猜测编造路径或行号。",
         ...(options.tools.maxRounds === undefined
           ? {}
           : { maxRounds: options.tools.maxRounds }),

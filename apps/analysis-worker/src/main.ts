@@ -596,7 +596,9 @@ async function main(): Promise<void> {
                   : { feature: issueSections.sectionsByCategory.feature }),
               },
             }),
-        ...(deep
+        // 仅缺陷类开启读仓定位（deep 由 issue_deep_analysis 开关控制）；feature 轻量
+        // 不读仓，避免对纯需求描述也触发耗时的代码探索。
+        ...(deep && isDefectIssue(context)
           ? {
               tools: {
                 context: {
@@ -1436,8 +1438,9 @@ async function resolveIssueSettings(
 }
 
 /**
- * 是否允许 Issue 分析读取仓库源码。默认关闭：探索会显著增加 token 消耗与
- * 单任务耗时，需用户显式开启。读取失败时按关闭处理，不因设置不可用而改变行为。
+ * 是否允许 Issue 分析读取仓库源码。默认启用：读仓让模型给出可落地、精确到
+ * 文件/函数的建议（用户 09-04 反馈）。读取失败时按关闭处理，不因设置不可用
+ * 而改变行为。
  */
 async function issueDeepAnalysisEnabled(
   repositoryFullName: string | null,
@@ -1453,6 +1456,22 @@ async function issueDeepAnalysisEnabled(
   } catch {
     return false;
   }
+}
+
+/**
+ * 判定 Issue 是否属「缺陷类」（bug / security / performance），决定是否值得
+ * 读仓定位。feature 等需求类描述不判为缺陷，保持轻量。基于标题 / 正文 / 标签
+ * 的启发式匹配：命中报错、失败、异常、崩溃、无法、安全、性能等缺陷语义即命中。
+ */
+const DEFECT_HINT =
+  /bug|fix|fault|defect|error|fail|crash|exception|stack|报错|错误|失败|异常|崩溃|无法|不能|卡死|闪退|坏了|安全|漏洞|泄漏|泄露|性能|慢|卡|风险/i;
+
+function isDefectIssue(context: IssueContext): boolean {
+  const issue = context.issue;
+  const hay = `${issue.title ?? ""}\n${issue.body ?? ""}\n${
+    (issue.labels ?? []).join(" ")
+  }`;
+  return DEFECT_HINT.test(hay);
 }
 
 /**

@@ -596,7 +596,7 @@ export function parseBool(
 export const BOOLEAN_DEFAULTS: Readonly<Record<string, boolean>> = {
   issue_auto_assign: false,
   issue_rewrite_title: true,
-  issue_deep_analysis: false,
+  issue_deep_analysis: true,
   issue_use_unified_sections: false,
   issue_vision_enabled: true,
   repo_rules_enabled: true,

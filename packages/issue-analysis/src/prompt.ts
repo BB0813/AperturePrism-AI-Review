@@ -13,7 +13,7 @@ import type { IssueContext } from "./context.js";
 export { fenceUntrusted, UNTRUSTED_CLOSE, UNTRUSTED_OPEN };
 
 /** Bump when the prompt semantics change so the idempotency key changes too. */
-export const ISSUE_ANALYSIS_PROMPT_VERSION = "v9" as const;
+export const ISSUE_ANALYSIS_PROMPT_VERSION = "v10" as const;
 /** Policy version embedded in task dedupe keys; must include the prompt version. */
 export const ISSUE_ANALYSIS_POLICY_VERSION =
   `issue-analysis-${ISSUE_ANALYSIS_PROMPT_VERSION}` as const;
@@ -126,6 +126,27 @@ const SYSTEM_PROMPT_V9 = `${SYSTEM_PROMPT_V8}
 - evidence 只能引用 Issue 正文 / 评论中**实际出现**的原文摘录（复现步骤、日志、堆栈、报错原文等实质证据）；Issue 里没有这类实质证据时，evidence 输出空数组 —— 不要用「影响范围」等泛化描述凑数。
 - 是否具备代码访问能力以系统消息末尾的「当前代码访问」段落为准；标注无能力时按该段规则执行。`;
 
+/**
+ * v10：缺陷类智能取材 + 读仓可落地（用户 09-04 反馈）。
+ * 在 v9 基础上：
+ * - 缺陷类内部按来源区分「使用/配置/触发型」（指令/按钮/配置不生效）与
+ *   「报错/运行时型」（异常/崩溃/堆栈/网络失败），取材策略不同——
+ *   前者优先读 README / 源码自判触发方式，**不**反复索要复现步骤；后者才
+ *   索取报错原文 / 红字日志 / 堆栈。
+ * - 能靠读仓库自答的信息一律不作为缺失信息向用户索取。
+ * - 做过代码定位后，proposedChanges 要写到「不熟悉项目的人能照着改」的程度。
+ */
+const SYSTEM_PROMPT_V10 = `${SYSTEM_PROMPT_V9}
+
+缺陷类智能取材与可落地建议（补充规则，必须遵守；与上方冲突时以此为准）：
+- **能靠读仓库自答的，就不向用户索要**。缺陷类（bug / security / performance）按问题来源分为两类，取材策略不同：
+  - **「使用/配置/触发型」缺陷** —— 问题出在某个功能 / 命令 / 插件 / 指令 / 按钮 / 配置条目如何被使用、触发或启用（例如「某个插件指令没反应」「某按钮入口找不到」「某项配置不生效」）。这类缺陷的**正确触发 / 使用方式通常写在 README 或相关源码里**：只要具备代码访问能力，就应先用 read_file / list_directory 去查根目录 README 与相关模块源码，自行判断应当如何触发、当前实现是什么、是否符合报告者的预期 —— **不要**反复向报告者索要复现步骤、完整操作流程或截图。
+  - **「报错/运行时型」缺陷** —— 出现错误、异常、崩溃、断言、堆栈、接口 4xx / 5xx、连接 / 同步 / 命令执行失败等。这一类才需要报告者提供原始线索：确切的报错原文（红字日志）、堆栈、失败的命令与完整输出，作为 evidence。
+  - 以上两类的归属不确定时，按更贴近描述的类别取材，不要在缺失信息里同时索要两者。
+- **missingInformation 只留「读回仓后仍无法自行回答、且能直接推进定位」的少数项**。通过读 README / 源码即可得知的触发方式、预期行为、相关文件位置，一律不作为缺失信息向用户索取。
+- **读仓后必须能落地**：做过代码定位后，proposedChanges 的 change 要写到「不熟悉该项目的人（例如帮忙改代码的朋友）能照着动手」的程度——明确改哪个文件、哪个函数 / 片段，改动意图与具体改法；并配合 troubleshooting / suggestedActions 给出可执行的验证方式。若定位结论与用户描述不符（例如源码里指令理应能够触发却没有），在 probableCause 中说明依据。
+- **未读仓时退化取材**：没有代码访问能力时，才依据现有描述与仓库记忆作出推断；信息不足时只取少数关键项列为 missingInformation，不要机械套用「请提供复现步骤 / 版本 / 截图 / 日志」模板。对「使用/配置/触发型」缺陷，即便没有源码，也应先给出最可能的排查方向，而不是索要完整复现流程。`;
+
 /** 无代码访问时 proposedChanges.path 的统一占位值；comment.ts 渲染时不再包代码框。 */
 export const CODE_ACCESS_UNKNOWN_PATH = "（未读取源码，路径待确认）";
 
@@ -148,8 +169,11 @@ const CODE_ACCESS_DISABLED_INSTRUCTION = `
  * 快照登记进本表，再写新版本正文 —— 这样新版本翻车时可一键回退。
  */
 const ISSUE_SYSTEM_PROMPTS: Readonly<Record<string, string>> = {
-  // v9（当前）：代码定位诚实性 —— 无源码上下文禁止编造路径、证据不充数（#25）。
-  [ISSUE_ANALYSIS_PROMPT_VERSION]: SYSTEM_PROMPT_V9,
+  // v10（当前）：缺陷类智能取材（指令触发型不索要复现、报错型才要日志）+ 读仓可落地
+  //（用户 09-04 反馈）。
+  [ISSUE_ANALYSIS_PROMPT_VERSION]: SYSTEM_PROMPT_V10,
+  // v9：代码定位诚实性 —— 无源码上下文禁止编造路径、证据不充数（#25）。
+  v9: SYSTEM_PROMPT_V9,
   // v8：优先级评级校准 —— bug/feature 基线 P2，不再动辄 low（#24）。
   v8: SYSTEM_PROMPT_V8,
   // v7：增强「已执行操作」约束（#19）。
