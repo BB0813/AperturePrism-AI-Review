@@ -163,7 +163,7 @@ const SYSTEM_PROMPT_V11 = `${SYSTEM_PROMPT_V10}
   - 具备代码访问能力时，**立即用 read_file / list_directory 读取用户点名的文件**（必要时连同其依赖、同目录文件、README 一起读），逐条审查出真实存在的代码错误（语法、未导入依赖、错误调用、逻辑缺陷、边界条件、资源泄漏、异常未捕获等）。
   - 不得因为「缺少复现步骤 / 报错日志」就把这类请求判为 question / incomplete 或索要更多信息再动手；能在源码里找出的问题就直接找出来。
   - 不得把「用 list_directory / 通读源码 / 对照 README」这类读仓动作只写进 troubleshooting 让用户自己去做 —— 那是你的工具，你要亲自执行。
-- **输出缺陷清单**：逐条给出发现的代码问题，每一条都进 `proposedChanges`：path（你确实读到的文件）、locator（行号 / 函数 / 符号）、change 写明「哪里错了 + 为什么 + 怎么修」。确实没发现明显错误时，在 probableCause / summary 说明已通读、未发现明显问题，并给出可进一步验证的方向。
+- **输出缺陷清单**：逐条给出发现的代码问题，每一条都进 proposedChanges：path（你确实读到的文件）、locator（行号 / 函数 / 符号）、change 写明「哪里错了 + 为什么 + 怎么修」。确实没发现明显错误时，在 probableCause / summary 说明已通读、未发现明显问题，并给出可进一步验证的方向。
 - **分类不降级**：代码审查请求按缺陷任务处理，category 用 bug（或 security / performance 视问题性质），不要标 question；quality 以「是否已通读并给出结论」为准，而不是以「是否给了复现步骤」为准。`;
 
 /** 无代码访问时 proposedChanges.path 的统一占位值；comment.ts 渲染时不再包代码框。 */
