@@ -1459,12 +1459,14 @@ async function issueDeepAnalysisEnabled(
 }
 
 /**
- * 判定 Issue 是否属「缺陷类」（bug / security / performance），决定是否值得
- * 读仓定位。feature 等需求类描述不判为缺陷，保持轻量。基于标题 / 正文 / 标签
- * 的启发式匹配：命中报错、失败、异常、崩溃、无法、安全、性能等缺陷语义即命中。
+ * 判定 Issue 是否属「缺陷类」（bug / security / performance）或「代码审查请求」，
+ * 决定是否读仓定位。命中以下任一条即读仓：
+ * 1. 缺陷类语义：报错、失败、异常、崩溃、无法、安全、性能等；
+ * 2. 代码审查请求：检查/审查/看看某文件或代码的 bug / 错误 / 哪里有问题（即便
+ *    未明说 bug，用户点名要挑错也应读仓）。feature 等纯需求描述不误判。
  */
 const DEFECT_HINT =
-  /bug|fix|fault|defect|error|fail|crash|exception|stack|报错|错误|失败|异常|崩溃|无法|不能|卡死|闪退|坏了|安全|漏洞|泄漏|泄露|性能|慢|卡|风险/i;
+  /bug|fix|fault|defect|error|fail|crash|exception|stack|报错|错误|失败|异常|崩溃|无法|不能|卡死|闪退|坏了|安全|漏洞|泄漏|泄露|性能|慢|卡|风险|review|check|inspect|检查|审查|审阅|看看|哪里错|哪里不对|哪里有问题|哪写错|有问题|帮我看|找.*bug|挑错/i;
 
 function isDefectIssue(context: IssueContext): boolean {
   const issue = context.issue;

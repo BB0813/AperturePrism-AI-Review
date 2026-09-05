@@ -282,6 +282,9 @@ export async function analyzeIssue(
           "优先用 list_directory 浏览根目录并读 README 等文档，理解该功能 / 命令 / 指令的" +
           "正确使用与触发方式，据此判断报告者的操作是否符合预期（很多" +
           "「指令没反应 / 按钮不存在」其实是触发方式问题，先自查再下结论）；" +
+          "如果用户点名要求检查某个文件或代码（如「检查 main.py 的 bug」），必须当场" +
+          "用 read_file 读取该文件（连同其依赖/同目录文件），逐条找出真实代码错误并回报，" +
+          "不要只做成建议步骤或反问更多信息。" +
           "深入 read_file 相关源码确认缺陷根因。proposedChanges 里的 path 必须是你确实" +
           "读到过的真实文件；找不到相关代码时省略该字段并说明原因，不要凭猜测编造路径或行号。",
         ...(options.tools.maxRounds === undefined

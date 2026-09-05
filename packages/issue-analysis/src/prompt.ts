@@ -13,7 +13,7 @@ import type { IssueContext } from "./context.js";
 export { fenceUntrusted, UNTRUSTED_CLOSE, UNTRUSTED_OPEN };
 
 /** Bump when the prompt semantics change so the idempotency key changes too. */
-export const ISSUE_ANALYSIS_PROMPT_VERSION = "v10" as const;
+export const ISSUE_ANALYSIS_PROMPT_VERSION = "v11" as const;
 /** Policy version embedded in task dedupe keys; must include the prompt version. */
 export const ISSUE_ANALYSIS_POLICY_VERSION =
   `issue-analysis-${ISSUE_ANALYSIS_PROMPT_VERSION}` as const;
@@ -147,6 +147,25 @@ const SYSTEM_PROMPT_V10 = `${SYSTEM_PROMPT_V9}
 - **读仓后必须能落地**：做过代码定位后，proposedChanges 的 change 要写到「不熟悉该项目的人（例如帮忙改代码的朋友）能照着动手」的程度——明确改哪个文件、哪个函数 / 片段，改动意图与具体改法；并配合 troubleshooting / suggestedActions 给出可执行的验证方式。若定位结论与用户描述不符（例如源码里指令理应能够触发却没有），在 probableCause 中说明依据。
 - **未读仓时退化取材**：没有代码访问能力时，才依据现有描述与仓库记忆作出推断；信息不足时只取少数关键项列为 missingInformation，不要机械套用「请提供复现步骤 / 版本 / 截图 / 日志」模板。对「使用/配置/触发型」缺陷，即便没有源码，也应先给出最可能的排查方向，而不是索要完整复现流程。`;
 
+/**
+ * v11：代码审查请求（用户 09-05 反馈 #14 ——「帮我检查 main.py 的 bug」被误判为
+ * question 且不读仓）。
+ * 在 v10 基础上：
+ * - 识别「点名声请审查某文件/代码的 bug/错误」这类代码审查请求，明确要求模型
+ *   用工具**实际读取**点名文件并逐条输出缺陷，而不是把审查当 question 索要信息
+ *   或只把读仓步骤写进建议。
+ */
+const SYSTEM_PROMPT_V11 = `${SYSTEM_PROMPT_V10}
+
+代码审查请求（补充规则，必须遵守；与上方冲突时以此为准）：
+- **识别审查请求**：当 Issue 明确请求「检查 / 审查 / 看看某文件 / 某段代码的 bug / 错误 / 哪里有问题 / 怎么改」，或点名了具体文件（如「帮我检查 main.py 的 bug」）时，这是一次**代码审查请求** —— 用户是请你去读代码找出问题，而不是报告一个带复现/日志的缺陷。
+- **必须亲自读码，而不是打发或转嫁**：
+  - 具备代码访问能力时，**立即用 read_file / list_directory 读取用户点名的文件**（必要时连同其依赖、同目录文件、README 一起读），逐条审查出真实存在的代码错误（语法、未导入依赖、错误调用、逻辑缺陷、边界条件、资源泄漏、异常未捕获等）。
+  - 不得因为「缺少复现步骤 / 报错日志」就把这类请求判为 question / incomplete 或索要更多信息再动手；能在源码里找出的问题就直接找出来。
+  - 不得把「用 list_directory / 通读源码 / 对照 README」这类读仓动作只写进 troubleshooting 让用户自己去做 —— 那是你的工具，你要亲自执行。
+- **输出缺陷清单**：逐条给出发现的代码问题，每一条都进 `proposedChanges`：path（你确实读到的文件）、locator（行号 / 函数 / 符号）、change 写明「哪里错了 + 为什么 + 怎么修」。确实没发现明显错误时，在 probableCause / summary 说明已通读、未发现明显问题，并给出可进一步验证的方向。
+- **分类不降级**：代码审查请求按缺陷任务处理，category 用 bug（或 security / performance 视问题性质），不要标 question；quality 以「是否已通读并给出结论」为准，而不是以「是否给了复现步骤」为准。`;
+
 /** 无代码访问时 proposedChanges.path 的统一占位值；comment.ts 渲染时不再包代码框。 */
 export const CODE_ACCESS_UNKNOWN_PATH = "（未读取源码，路径待确认）";
 
@@ -169,9 +188,11 @@ const CODE_ACCESS_DISABLED_INSTRUCTION = `
  * 快照登记进本表，再写新版本正文 —— 这样新版本翻车时可一键回退。
  */
 const ISSUE_SYSTEM_PROMPTS: Readonly<Record<string, string>> = {
-  // v10（当前）：缺陷类智能取材（指令触发型不索要复现、报错型才要日志）+ 读仓可落地
-  //（用户 09-04 反馈）。
-  [ISSUE_ANALYSIS_PROMPT_VERSION]: SYSTEM_PROMPT_V10,
+  // v11（当前）：代码审查请求 —— 识别「检查某文件/代码 bug」意图，强制读仓
+  // 亲自逐条挑错，不再当 question 打发（用户 09-05 反馈 #14）。
+  [ISSUE_ANALYSIS_PROMPT_VERSION]: SYSTEM_PROMPT_V11,
+  // v10：缺陷类智能取材（指令触发型不索要复现、报错型才要日志）+ 读仓可落地。
+  v10: SYSTEM_PROMPT_V10,
   // v9：代码定位诚实性 —— 无源码上下文禁止编造路径、证据不充数（#25）。
   v9: SYSTEM_PROMPT_V9,
   // v8：优先级评级校准 —— bug/feature 基线 P2，不再动辄 low（#24）。
