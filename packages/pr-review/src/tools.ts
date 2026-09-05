@@ -5,7 +5,12 @@ import type {
   ModelToolCall,
   ModelToolSpec,
 } from "../../../packages/domain/src/index.js";
+import { createLogger } from "../../../packages/observability/src/index.js";
 import type { GitHubClient } from "../../../packages/github-adapter/src/client.js";
+
+/** 工具执行诊断日志（同 main.ts 使用的 fmt），便于排查 deep 读仓工具是否被
+ *  模型调用、执行成败与耗时。无实例级 logger 可注入，用独立实例（同写 stdout）。 */
+const logger = createLogger();
 
 /**
  * AI 主动探索工具系统：审查模型可按需调用工具读取仓库上下文，
@@ -185,9 +190,18 @@ export async function runToolLoop(
     rounds += 1;
 
     if (!response.toolCalls || response.toolCalls.length === 0) {
+      logger.info(
+        { rounds, owner: ctx.owner, name: ctx.name, toolCalls: 0 },
+        "deep tool loop finished without tool calls",
+      );
       current = [...current, { role: "assistant", content: response.content }];
       return { messages: current, rounds };
     }
+
+    logger.info(
+      { rounds, owner: ctx.owner, name: ctx.name, toolCalls: response.toolCalls.length },
+      "deep tool loop round",
+    );
 
     const assistantMsg: ModelMessage = {
       role: "assistant",
@@ -196,7 +210,21 @@ export async function runToolLoop(
     };
     const toolResults: ModelMessage[] = [];
     for (const call of response.toolCalls) {
+      const started = Date.now();
       const result = await executeToolCall(call.name, call.arguments, ctx);
+      const fields = {
+        owner: ctx.owner,
+        name: ctx.name,
+        tool: call.name,
+        arguments: call.arguments.slice(0, 200),
+        ok: result.ok,
+        ms: Date.now() - started,
+      };
+      if (result.ok) {
+        logger.info(fields, "deep tool executed");
+      } else {
+        logger.warn(fields, "deep tool failed");
+      }
       toolResults.push({
         role: "tool",
         content: result.content,

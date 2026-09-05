@@ -534,6 +534,18 @@ async function main(): Promise<void> {
       const repositoryFullName = `${context.repository.owner}/${context.repository.name}`;
       // 深度分析（读取仓库源码）默认关闭：会显著增加 token 消耗与耗时。
       const deep = await issueDeepAnalysisEnabled(repositoryFullName);
+      // 决策留痕：tools 是否注入取决于 deep && isDefectIssue，二者任一副不成立都会
+      // 导致模型读不到仓库（无 read_file/list_directory），深读挑错静默失效。
+      logger.info(
+        {
+          repo: repositoryFullName,
+          subject: context.issue.number,
+          deep,
+          defect: isDefectIssue(context),
+          toolsInjected: deep && isDefectIssue(context),
+        },
+        "issue deep decision: tools injection",
+      );
       const promptVersion = await resolveIssuePromptVersion();
       const promptMode = await resolveIssuePromptMode();
       const issueSections = await resolveIssueSections(repositoryFullName);
@@ -1453,7 +1465,13 @@ async function issueDeepAnalysisEnabled(
       settings.get("issue_deep_analysis"),
       BOOLEAN_DEFAULTS.issue_deep_analysis ?? false,
     );
-  } catch {
+  } catch (error) {
+    // 读设置失败时静默降级为不读仓（安全），但必须留痕，否则 deep 读仓会无影无踪地
+    // 失效、极难排查（工具不注入时模型无法读仓挑错，评论只会诚实说"未读取文件"）。
+    logger.warn(
+      { err: error, repo: repositoryFullName },
+      "issue deep analysis settings read failed; disabling deep source reading",
+    );
     return false;
   }
 }
