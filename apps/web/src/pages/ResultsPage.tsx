@@ -426,7 +426,10 @@ function IssueBody({ norm }: { norm: NormResult }) {
   const evidence = arrOf(r.evidence);
   const suggestedTitle = str(r.suggestedTitle);
   const probableCause = str(r.probableCause);
-  const suggestedAssignee = str(r.suggestedAssignee);
+  const suggestedAssignee = str(r.suggestedAssignee)
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
   const troubleshooting = stringArr(r.troubleshooting);
   const proposedChanges = arrOf(r.proposedChanges).map((p) => ({
     path: str(p.path),
@@ -505,10 +508,12 @@ function IssueBody({ norm }: { norm: NormResult }) {
         </div>
       ) : null}
 
-      {suggestedAssignee ? (
+      {suggestedAssignee.length > 0 ? (
         <div className="section">
           <h4>建议指派人</h4>
-          <p className="action-item">@{suggestedAssignee}</p>
+          <p className="action-item">
+            {suggestedAssignee.map((login) => `@${login}`).join(" ")}
+          </p>
         </div>
       ) : null}
 

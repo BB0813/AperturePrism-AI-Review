@@ -142,8 +142,14 @@ export function buildIssueAnalysisComment(
   }
 
   if (result.suggestedAssignee) {
-    // 不带 @ 前缀存储，渲染时补 @ 使 GitHub 识别为可点击 mention。
-    lines.push("", "### 建议指派人", `@${result.suggestedAssignee}`);
+    // 不带 @ 前缀存储，逗号分隔多人（issue #53）；渲染时逐个补 @ 使 GitHub 识别为可点击 mention。
+    const assignees = result.suggestedAssignee
+      .split(",")
+      .map((login) => login.trim())
+      .filter((login) => login.length > 0);
+    if (assignees.length > 0) {
+      lines.push("", "### 建议指派人", assignees.map((login) => `@${login}`).join(" "));
+    }
   }
 
   if (result.suggestedLabels.length > 0) {

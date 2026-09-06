@@ -770,8 +770,10 @@ async function main(): Promise<void> {
       } catch (error) {
         logger.warn({ err: error, taskId: task.id }, "issue enhancement skipped");
       }
+      // #53：自动指派可多人，全部写回 suggestedAssignee（逗号分隔），
+      // 评论与结果页逐个 @，不再只体现第一个。
       if (assignedAssignees.length > 0) {
-        analysis.result.suggestedAssignee = assignedAssignees[0];
+        analysis.result.suggestedAssignee = assignedAssignees.join(", ");
       }
       await publishIssueComment({
         store: publicationStore,

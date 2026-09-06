@@ -78,8 +78,11 @@ export const issueAnalysisResultSchema = z
     missingInformation: z.array(z.string().min(1).max(500)).max(10).default([]),
     suggestedLabels: z.array(z.string().min(1).max(50)).max(10).default([]),
     suggestedActions: z.array(z.string().min(1).max(500)).max(10).default([]),
-    /** 建议指派的 GitHub 用户名（不带 @ 前缀）；无把握时省略，绝不编造。 */
-    suggestedAssignee: z.string().min(1).max(50).optional(),
+    /**
+     * 建议指派的 GitHub 用户列表，逗号分隔、不含 @ 前缀（如 "user1, user2"）；
+     * 服务端自动指派后回写全部实际指派人（issue #53）；无把握时省略，绝不编造。
+     */
+    suggestedAssignee: z.string().min(1).max(500).optional(),
     confidence: z.object({
       severity: confidenceSchema,
       rootCause: confidenceSchema,

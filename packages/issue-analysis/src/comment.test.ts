@@ -145,4 +145,27 @@ describe("issue comment templates", () => {
     expect(comment).toContain("### 建议标签");
     expect(comment).toContain("`security` `review-bot` `context-awareness`");
   });
+
+  it("建议指派人逗号分隔多人时逐个 @（issue #53）", () => {
+    const graded = applyGradingRules({
+      ...result,
+      suggestedAssignee: "bb0813, mjy1113451, alice",
+    });
+    const comment = buildIssueAnalysisComment(graded);
+
+    expect(comment).toContain("### 建议指派人");
+    expect(comment).toContain("@bb0813 @mjy1113451 @alice");
+    expect(comment).not.toContain("@@");
+  });
+
+  it("建议指派人只含单用户名时仅 @ 一个", () => {
+    const graded = applyGradingRules({
+      ...result,
+      suggestedAssignee: "bb0813",
+    });
+    const comment = buildIssueAnalysisComment(graded);
+
+    expect(comment).toContain("### 建议指派人");
+    expect(comment).toContain("@bb0813");
+  });
 });
