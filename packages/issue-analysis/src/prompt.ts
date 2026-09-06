@@ -13,7 +13,7 @@ import type { IssueContext } from "./context.js";
 export { fenceUntrusted, UNTRUSTED_CLOSE, UNTRUSTED_OPEN };
 
 /** Bump when the prompt semantics change so the idempotency key changes too. */
-export const ISSUE_ANALYSIS_PROMPT_VERSION = "v12" as const;
+export const ISSUE_ANALYSIS_PROMPT_VERSION = "v13" as const;
 /** Policy version embedded in task dedupe keys; must include the prompt version. */
 export const ISSUE_ANALYSIS_POLICY_VERSION =
   `issue-analysis-${ISSUE_ANALYSIS_PROMPT_VERSION}` as const;
@@ -181,6 +181,19 @@ const SYSTEM_PROMPT_V12 = `${SYSTEM_PROMPT_V11}
   - 通读后确实没发现可定位缺陷时，如实写"已通读，未发现明显缺陷"，并给出可进一步验证的方向；不得以"无权限"代替。
 - 输出契约（JSON）不受影响：工具读取获得的源码信息应落入 proposedChanges / probableCause / evidence 等字段。`;
 
+/**
+ * v13：功能请求类也读仓（issue #56）。
+ * 在 v12 基础上：feature/enhancement 请求同样必须先读源码，再给出具体改动
+ * 位置（文件 + 行号/符号），不再只给方向性描述。
+ */
+const SYSTEM_PROMPT_V13 = `${SYSTEM_PROMPT_V12}
+
+功能请求也要读仓（issue #56，必须遵守；与上方冲突时以此为准）：
+- 功能请求（feature / enhancement：新增功能、建议、希望支持某能力等）在「当前代码访问」可用时，**同样必须**先调用 read_file / list_directory 读取仓库源码，再输出审核结果：
+  - 先定位该功能应落在哪个模块 / 文件，参照仓库现有实现风格给出**具体改动方案**：proposedChanges 的 path 用真实文件路径、locator 给行号 / 函数 / 符号，change 写清「加在哪、怎么加、与现有代码如何衔接」。
+  - 禁止只给"建议新增 XX 功能"这类方向性描述就完事——用户要的是能直接照着改的落地建议。
+  - 确实读不到源码时，才按「当前代码访问」不可用的占位路径规则处理，并在 change 里说明。`;
+
 /** 无代码访问时 proposedChanges.path 的统一占位值；comment.ts 渲染时不再包代码框。 */
 export const CODE_ACCESS_UNKNOWN_PATH = "（未读取源码，路径待确认）";
 
@@ -203,8 +216,10 @@ const CODE_ACCESS_DISABLED_INSTRUCTION = `
  * 快照登记进本表，再写新版本正文 —— 这样新版本翻车时可一键回退。
  */
 const ISSUE_SYSTEM_PROMPTS: Readonly<Record<string, string>> = {
-  // v12（当前）：工具调用优先 —— 读仓为先决条件，禁止用"无代码访问"逃避（09-06）。
-  [ISSUE_ANALYSIS_PROMPT_VERSION]: SYSTEM_PROMPT_V12,
+  // v13（当前）：功能请求类也读仓，给出具体改动位置（#56）。
+  [ISSUE_ANALYSIS_PROMPT_VERSION]: SYSTEM_PROMPT_V13,
+  // v12：工具调用优先 —— 读仓为先决条件，禁止用"无代码访问"逃避（09-06）。
+  v12: SYSTEM_PROMPT_V12,
   // v11：代码审查请求 —— 识别"检查某文件/代码 bug"意图，强制读仓亲自挑错。
   v11: SYSTEM_PROMPT_V11,
   // v10：缺陷类智能取材（指令触发型不索要复现、报错型才要日志）+ 读仓可落地。

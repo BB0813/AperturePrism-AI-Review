@@ -39,6 +39,7 @@ import { createGitHubClient, ensureRepoRulesDir, EXAMPLE_RULES_FILE, fetchRepoRu
 import {
   formatSuggestedTitle,
   type IssueAnalysisResult,
+  type ProposedChange,
 } from "../../../packages/contracts/src/index.js";
 import {
   analyzeIssue,
@@ -46,6 +47,7 @@ import {
   buildIssueContext,
   buildFailureComment,
   buildPlaceholderComment,
+  CODE_ACCESS_UNKNOWN_PATH,
   collectIssueImages,
   decideReanalysis,
   detectSpamIssue,
@@ -534,21 +536,24 @@ async function main(): Promise<void> {
       const repositoryFullName = `${context.repository.owner}/${context.repository.name}`;
       // 深度分析（读取仓库源码）默认关闭：会显著增加 token 消耗与耗时。
       const deep = await issueDeepAnalysisEnabled(repositoryFullName);
-      // 决策留痕：tools 是否注入取决于 deep && isDefectIssue，二者任一副不成立都会
+      // 决策留痕：tools 是否注入取决于 deep && (defect|feature)，三者任一副不成立都会
       // 导致模型读不到仓库（无 read_file/list_directory），深读挑错静默失效。
+      const shouldReadRepo =
+        isDefectIssue(context) || isFeatureRequest(context);
       logger.info(
         {
           repo: repositoryFullName,
           subject: context.issue.number,
           deep,
           defect: isDefectIssue(context),
-          toolsInjected: deep && isDefectIssue(context),
+          feature: isFeatureRequest(context),
+          toolsInjected: deep && shouldReadRepo,
         },
         "issue deep decision: tools injection",
       );
-      // 方案B：审查/缺陷类主动预读被点名目标文件并注入上下文，保证模型无论是否
+      // 方案B：审查/缺陷类及功能请求类主动预读被点名目标文件并注入上下文，保证模型无论是否
       // 调用工具都能看到源码（deepseek 的 function-calling 不稳定）。tools 仍保留。
-      if (deep && isDefectIssue(context)) {
+      if (deep && shouldReadRepo) {
         try {
           const preload = await preloadTargetFiles(assertGithub(github), context);
           if (preload.length > 0) {
@@ -631,10 +636,9 @@ async function main(): Promise<void> {
                   : { feature: issueSections.sectionsByCategory.feature }),
               },
             }),
-        // 仅缺陷类开启读仓定位（deep 由 issue_deep_analysis 开关控制）；feature 轻量
-        // 不读仓，避免对纯需求描述也触发耗时的代码探索。缺陷/审查类额外开启强制读仓，
-        // 防止模型跳过工具直接以"无代码访问能力"逃避。
-        ...(deep && isDefectIssue(context)
+        // 缺陷类与功能请求类开启读仓定位（deep 由 issue_deep_analysis 开关控制）；
+        // 开启后额外注入强制读仓，防止模型跳过工具直接以"无代码访问能力"逃避。
+        ...(deep && shouldReadRepo
           ? {
               tools: {
                 context: {
@@ -774,6 +778,36 @@ async function main(): Promise<void> {
       // 评论与结果页逐个 @，不再只体现第一个。
       if (assignedAssignees.length > 0) {
         analysis.result.suggestedAssignee = assignedAssignees.join(", ");
+      }
+      // #57：发布前校验 proposedChanges.path 真实存在，移除编造的文件/文件夹路径。
+      if ((analysis.result.proposedChanges ?? []).length > 0) {
+        try {
+          const verified = await verifyProposedChangePaths({
+            reader: assertGithub(github),
+            installationId: payload.installationId,
+            owner: identity.owner,
+            name: identity.name,
+            changes: analysis.result.proposedChanges,
+          });
+          if (verified.length !== analysis.result.proposedChanges.length) {
+            logger.warn(
+              {
+                repo: payload.repositoryFullName,
+                subject: payload.subjectNumber,
+                before: analysis.result.proposedChanges.length,
+                after: verified.length,
+              },
+              "proposed change paths verified: dropped hallucinated paths",
+            );
+          }
+          analysis.result.proposedChanges = verified;
+        } catch (error) {
+          // 校验整体失败（罕见）不阻断发布，保留原建议。
+          logger.warn(
+            { err: error, taskId: task.id },
+            "proposed change path verification skipped",
+          );
+        }
       }
       await publishIssueComment({
         store: publicationStore,
@@ -1521,6 +1555,23 @@ function isDefectIssue(context: IssueContext): boolean {
   return DEFECT_HINT.test(hay);
 }
 
+/**
+ * 判定 Issue 是否属「功能请求类」（feature / enhancement），决定是否读仓定位
+ * 并给出具体改动位置（issue #56）。标签含 feature/enhancement，或标题/正文
+ * 含较强的功能请求语义（新增、支持某能力、希望加…）即命中；与 isDefectIssue
+ * 相互独立，任一命中都会触发读仓。
+ */
+const FEATURE_HINT =
+  /feature|feat|新功能|新增|能否.*(支持|加|添加)|能不能.*(支持|加|添加)|希望.*(支持|加|添加|增加|做|实现)|建议.*(支持|加|添加|增加|做|实现|增强)|增强|优化|加一个|加个|添加.*(功能|支持)|支持.*功能|想要.*(功能|支持)|需求|提议/i;
+
+function isFeatureRequest(context: IssueContext): boolean {
+  const issue = context.issue;
+  const labels = issue.labels ?? [];
+  if (labels.includes("feature") || labels.includes("enhancement")) return true;
+  const hay = `${issue.title ?? ""}\n${issue.body ?? ""}`;
+  return FEATURE_HINT.test(hay);
+}
+
 /** 最小文件读取器：避免引入 github-adapter 的完整 GitHubClient 类型依赖。 */
 type FileReader = {
   getFileContents(args: {
@@ -1574,6 +1625,52 @@ async function preloadTargetFiles(
     }
   }
   return out;
+}
+
+/**
+ * #57：发布前校验 proposedChanges 里的 path 是否真实存在于仓库。
+ * 模型在无源码上下文时会凭猜测编造文件/文件夹路径（core/ 幻觉），
+ * 这里用 contents API 逐个确认；不存在或非文件（目录）的路径从
+ * proposedChanges 中移除，避免评论展示无法定位的改动点。
+ * 占位路径（未读取源码）跳过校验；best-effort：GitHub 校验失败时
+ * 保留原条目，不因接口抖动误删模型真实给出的建议。
+ */
+async function verifyProposedChangePaths(input: {
+  reader: FileReader;
+  installationId: string;
+  owner: string;
+  name: string;
+  changes: readonly ProposedChange[];
+}): Promise<ProposedChange[]> {
+  const kept: ProposedChange[] = [];
+  for (const change of input.changes) {
+    if (!change.path || change.path === CODE_ACCESS_UNKNOWN_PATH) {
+      kept.push(change);
+      continue;
+    }
+    try {
+      const file = await input.reader.getFileContents({
+        installationId: input.installationId,
+        owner: input.owner,
+        name: input.name,
+        path: change.path,
+        ref: "HEAD",
+      });
+      // getFileContents 对目录/非文件/404 返回 null → 视为不存在，移除。
+      if (file) {
+        kept.push(change);
+      } else {
+        logger.warn(
+          { repo: `${input.owner}/${input.name}`, path: change.path },
+          "proposed change path not found; dropped before publish",
+        );
+      }
+    } catch (error) {
+      // 校验失败（网络/限流等）不误删，保留原建议。
+      kept.push(change);
+    }
+  }
+  return kept;
 }
 
 /**

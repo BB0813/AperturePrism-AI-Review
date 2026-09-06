@@ -9,6 +9,7 @@ vi.mock("../lib/api", () => ({
   fetchSettings: vi.fn(async () => ({ items: [] })),
   clearSetting: vi.fn(async () => {}),
   saveSetting: vi.fn(async () => {}),
+  deleteProvider: vi.fn(async () => ({ status: "ok" })),
   saveProvider: vi.fn(async () => ({
     status: "ok",
     provider: "p",

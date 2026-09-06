@@ -120,7 +120,13 @@ export type ModelPolicy = {
 
 export type ProviderOverview = {
   policies: ModelPolicy[];
-  accounts: string[];
+  accounts: ProviderAccount[];
+};
+
+export type ProviderAccount = {
+  provider: string;
+  name: string;
+  baseUrl: string;
 };
 
 export type Summary = {
@@ -1163,6 +1169,38 @@ export async function saveProvider(input: {
   accountName?: string;
 }): Promise<ProviderSaveResult> {
   return (await postSetup("/setup/provider", input)) as ProviderSaveResult;
+}
+
+/** Deletes a provider account and prunes it from every role policy (issue #58). */
+export async function deleteProvider(input: {
+  provider: string;
+  accountName: string;
+}): Promise<{ status: string }> {
+  const response = await fetch("/providers/delete", {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify(input),
+  });
+  const data = (await response.json().catch(() => ({}))) as {
+    status?: string;
+    reason?: string;
+    hint?: string;
+    httpStatus?: number;
+    endpoint?: string;
+    detail?: string;
+  };
+  if (!response.ok) {
+    if (!data.reason) throw new Error(`request failed with ${response.status}`);
+    const parts = [data.reason];
+    if (data.hint) parts.push(`— ${data.hint}`);
+    if (data.httpStatus) parts.push(`（上游状态 ${data.httpStatus}）`);
+    throw new Error(parts.join(" "));
+  }
+  return data as { status: string };
 }
 
 /** Stores the embedding endpoint as a hot runtime setting. */

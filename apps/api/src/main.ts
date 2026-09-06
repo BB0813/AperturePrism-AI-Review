@@ -13,7 +13,7 @@ import {
   type AlertThresholds,
   type AlertTransition,
 } from "./alerts.js";
-import { and, asc, desc, eq, gt, inArray, isNotNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, like, or } from "drizzle-orm";
 import {
   ALLOWED_SETTING_KEYS,
   BOOLEAN_DEFAULTS,
@@ -1651,14 +1651,31 @@ async function handleProviders(
       .from(modelRolePolicies)
       .orderBy(asc(modelRolePolicies.role)),
     database.db
-      .select({ name: providerAccounts.name })
+      .select({ provider: providerAccounts.provider, name: providerAccounts.name })
       .from(providerAccounts)
-      .orderBy(asc(providerAccounts.name)),
+      .orderBy(asc(providerAccounts.provider)),
   ]);
+  // 为每个账户补上运行时保存的 baseUrl（用于编辑表单回填；未保存过的为空串）。
+  const baseRows = await database.db
+    .select({ key: systemSettings.key, value: systemSettings.value })
+    .from(systemSettings)
+    .where(like(systemSettings.key, "model_provider_base_url:%"));
+  const baseByProvider = new Map<string, string>();
+  for (const row of baseRows) {
+    const provider = row.key.slice("model_provider_base_url:".length);
+    baseByProvider.set(provider, row.value);
+  }
   json(
     response,
     200,
-    { policies, accounts: accounts.map((account) => account.name) },
+    {
+      policies,
+      accounts: accounts.map((account) => ({
+        provider: account.provider,
+        name: account.name,
+        baseUrl: baseByProvider.get(account.provider) ?? "",
+      })),
+    },
     requestId,
   );
 }
@@ -4502,13 +4519,14 @@ async function handleSetupProvider(
     typeof body?.accountName === "string" && body.accountName.trim().length > 0
       ? body.accountName.trim()
       : `${provider || "model"}-main`;
-  if (!provider || !baseUrl || !apiKey || !model) {
+  // 编辑已有账户时 apiKey 可留空（保留旧密钥，只更新 baseUrl/model）；新建必填。
+  if (!provider || !baseUrl || !model) {
     json(
       response,
       400,
       {
         status: "error",
-        reason: "provider, baseUrl, apiKey and model required",
+        reason: "provider, baseUrl and model required",
       },
       requestId,
     );
@@ -4529,7 +4547,38 @@ async function handleSetupProvider(
   }
   try {
     const cipher = createCredentialCipher(config.credentialMasterKey);
-    const sealed = cipher.seal(apiKey);
+    // apiKey 留空时从库里读取现有密文保留原密钥（支持编辑表单不重填密钥）；
+    // 无现有密文且未给 key 则报错。
+    let sealed: string;
+    if (apiKey) {
+      sealed = cipher.seal(apiKey);
+    } else {
+      const existing = await database.db
+        .select({ credential: providerAccounts.encryptedCredential })
+        .from(providerAccounts)
+        .where(
+          and(
+            eq(providerAccounts.provider, provider),
+            eq(providerAccounts.name, accountName),
+          ),
+        )
+        .limit(1);
+      const current = existing[0]?.credential;
+      if (!current) {
+        json(
+          response,
+          400,
+          {
+            status: "error",
+            reason: "api_key_required",
+            hint: "新建 provider 必须提供 apiKey",
+          },
+          requestId,
+        );
+        return;
+      }
+      sealed = current;
+    }
     await database.db
       .insert(providerAccounts)
       .values({ provider, name: accountName, encryptedCredential: sealed })
@@ -4593,6 +4642,89 @@ async function handleSetupProvider(
   } catch (error) {
     logger.warn({ err: error }, "setup provider failed");
     json(response, 500, { status: "error", reason: "provider_save_failed" }, requestId);
+  }
+}
+
+/**
+ * POST /providers/delete — deletes a model provider account and removes it from
+ * every role policy's candidate list (issue #58). Deleting a provider that is
+ * still referenced elsewhere is safe: candidates are pruned, remaining ones
+ * keep serving as failover. BaseUrl setting is kept (provider may still be
+ * configured via env or re-added later).
+ */
+async function handleProviderDelete(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  const body = await readBody(request);
+  let parsed: { provider?: unknown; accountName?: unknown };
+  try {
+    parsed = JSON.parse(body.toString("utf8"));
+  } catch {
+    json(response, 400, { status: "error", reason: "invalid JSON" }, requestId);
+    return;
+  }
+  const provider =
+    typeof parsed.provider === "string" ? parsed.provider.trim() : "";
+  const accountName =
+    typeof parsed.accountName === "string" ? parsed.accountName.trim() : "";
+  if (!provider || !accountName) {
+    json(
+      response,
+      400,
+      {
+        status: "error",
+        reason: "provider and accountName required",
+      },
+      requestId,
+    );
+    return;
+  }
+  try {
+    await database.db
+      .delete(providerAccounts)
+      .where(
+        and(
+          eq(providerAccounts.provider, provider),
+          eq(providerAccounts.name, accountName),
+        ),
+      );
+    // 从各角色策略的 candidates 中剔除被删账户，保留其余候选。
+    const policies = await database.db
+      .select({
+        id: modelRolePolicies.id,
+        role: modelRolePolicies.role,
+        version: modelRolePolicies.version,
+        candidates: modelRolePolicies.candidates,
+      })
+      .from(modelRolePolicies);
+    for (const policy of policies) {
+      const candidates = Array.isArray(policy.candidates)
+        ? (policy.candidates as unknown[])
+        : [];
+      const pruned = candidates.filter((entry) => {
+        const value = entry as Record<string, unknown>;
+        return !(
+          value.provider === provider && value.accountName === accountName
+        );
+      });
+      if (pruned.length === candidates.length) continue;
+      await database.db
+        .update(modelRolePolicies)
+        .set({ candidates: pruned })
+        .where(eq(modelRolePolicies.id, policy.id));
+    }
+    audit(request, "provider.delete", provider, { account: accountName });
+    json(response, 200, { status: "ok", provider, accountName }, requestId);
+  } catch (error) {
+    logger.warn({ err: error }, "provider delete failed");
+    json(
+      response,
+      500,
+      { status: "error", reason: "provider_delete_failed" },
+      requestId,
+    );
   }
 }
 
@@ -5948,6 +6080,29 @@ async function handleRequest(
 
   if (path === "/providers") {
     await handleProviders(response, requestId);
+    return;
+  }
+
+  if (path === "/providers/delete") {
+    if (String(request.method) !== "POST") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    if (!(await isAdminRequest(request))) {
+      json(
+        response,
+        403,
+        { status: "error", reason: "admin required" },
+        requestId,
+      );
+      return;
+    }
+    await handleProviderDelete(request, response, requestId);
     return;
   }
 

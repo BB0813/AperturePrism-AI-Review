@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   bumpCache,
+  deleteProvider,
   fetchModels,
   fetchProviders,
   saveProvider,
+  type ProviderAccount,
   type ProviderOverview,
 } from "../lib/api";
-import { GearIcon, RefreshIcon } from "../components/icons";
+import { GearIcon, RefreshIcon, TrashIcon, PencilIcon } from "../components/icons";
 import { ErrorPanel, LoadingRows } from "../components/ui";
 import { explainUnknown } from "../lib/errors";
 import { modelRoleLabel } from "../lib/labels";
@@ -14,18 +16,25 @@ import { SettingsSection } from "../components/SettingsSection";
 import { useToast } from "../components/Toast";
 
 /**
- * 新增模型的表单。此前模型配置只能在安装向导里做一次，装完之后本页是纯只读，
- * 用户「点进模型路由却找不到配置的地方」（issue #2）。后端 /setup/provider
- * 只要求管理员、不要求未初始化，因此这里直接复用它。
+ * 新增/编辑模型的表单。此前模型配置只能在安装向导里做一次，装完之后本页是纯只读，
+ * 用户「点进模型路由却找不到配置的地方」（issue #2）。后端 /setup/provider 只要求
+ * 管理员、不要求未初始化，因此这里直接复用它。支持编辑已有账户（issue #58）：
+ * apiKey 留空时保留旧密钥。
  */
-function AddProviderForm({ onSaved }: { onSaved: () => void }) {
+function AddProviderForm({
+  onSaved,
+  initial,
+}: {
+  onSaved: () => void;
+  initial?: ProviderAccount;
+}) {
   const toast = useToast();
-  const [open, setOpen] = useState(false);
-  const [provider, setProvider] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
+  const [open, setOpen] = useState(!!initial);
+  const [provider, setProvider] = useState(initial?.provider ?? "");
+  const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? "");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
-  const [accountName, setAccountName] = useState("");
+  const [accountName, setAccountName] = useState(initial?.name ?? "");
   const [models, setModels] = useState<string[]>([]);
   const [probing, setProbing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -37,7 +46,11 @@ function AddProviderForm({ onSaved }: { onSaved: () => void }) {
     setModel("");
     setAccountName("");
     setModels([]);
+    setOpen(false);
   };
+
+  // 编辑模式下账号名不可改（provider+name 是唯一键，改了等于新建）。
+  const editing = !!initial;
 
   // 拉取模型列表既是便利，也是对 baseUrl/apiKey 的一次连通性验证。
   const probeModels = async () => {
@@ -66,11 +79,15 @@ function AddProviderForm({ onSaved }: { onSaved: () => void }) {
       provider: provider.trim(),
       baseUrl: baseUrl.trim(),
       apiKey: apiKey.trim(),
-      model: model.trim(),
+      model: model.trim() || (models[0] ?? ""),
       ...(accountName.trim() ? { accountName: accountName.trim() } : {}),
     };
-    if (!payload.provider || !payload.baseUrl || !payload.apiKey || !payload.model) {
-      toast.error("Provider、Base URL、API Key 与模型均为必填");
+    if (!payload.provider || !payload.baseUrl || !payload.model) {
+      toast.error("Provider、Base URL 与模型均为必填");
+      return;
+    }
+    if (!editing && !payload.apiKey) {
+      toast.error("新增时 API Key 为必填");
       return;
     }
     setSaving(true);
@@ -80,7 +97,6 @@ function AddProviderForm({ onSaved }: { onSaved: () => void }) {
         `已保存 ${result.provider}/${result.model}，已接入 ${result.policiesUpdated} 个角色策略`,
       );
       reset();
-      setOpen(false);
       bumpCache();
       onSaved();
     } catch (err) {
@@ -102,8 +118,10 @@ function AddProviderForm({ onSaved }: { onSaved: () => void }) {
   return (
     <section className="panel">
       <div className="panel-title">
-        <h2>添加模型</h2>
-        <span className="count">保存后自动接入全部分析角色</span>
+        <h2>{editing ? "编辑模型" : "添加模型"}</h2>
+        <span className="count">
+          {editing ? "更新 baseUrl/模型，密钥留空保留" : "保存后自动接入全部分析角色"}
+        </span>
       </div>
       <div className="stack" style={{ gap: 10 }}>
         <div className="filters">
@@ -111,6 +129,7 @@ function AddProviderForm({ onSaved }: { onSaved: () => void }) {
             className="input"
             placeholder="Provider 标识，如 newapi"
             value={provider}
+            disabled={editing}
             onChange={(e) => setProvider(e.target.value)}
           />
           <input
@@ -126,7 +145,7 @@ function AddProviderForm({ onSaved }: { onSaved: () => void }) {
             className="input"
             style={{ flex: "1 1 260px" }}
             type="password"
-            placeholder="API Key"
+            placeholder={editing ? "API Key（留空保留原密钥）" : "API Key"}
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
             data-lpignore="true"
@@ -162,21 +181,15 @@ function AddProviderForm({ onSaved }: { onSaved: () => void }) {
             className="input"
             placeholder="账户名（可留空，默认 <provider>-main）"
             value={accountName}
+            disabled={editing}
             onChange={(e) => setAccountName(e.target.value)}
           />
         </div>
         <div className="filters">
           <button className="btn btn-primary" onClick={submit} disabled={saving}>
-            {saving ? "保存中…" : "保存并接入"}
+            {saving ? "保存中…" : editing ? "保存修改" : "保存并接入"}
           </button>
-          <button
-            className="btn"
-            onClick={() => {
-              reset();
-              setOpen(false);
-            }}
-            disabled={saving}
-          >
+          <button className="btn" onClick={reset} disabled={saving}>
             取消
           </button>
         </div>
@@ -194,6 +207,8 @@ export function ProviderPage() {
   const [data, setData] = useState<ProviderOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<ProviderAccount | null>(null);
+  const toast = useToast();
 
   const load = useCallback(() => {
     setLoading(true);
@@ -275,10 +290,43 @@ export function ProviderPage() {
           <span className="count">{data?.accounts.length ?? "–"}</span>
         </div>
         {data && data.accounts.length > 0 ? (
-          <div className="tag-row">
-            {data.accounts.map((name) => (
-              <span key={name} className="tag">
-                {name}
+          <div className="tag-row" style={{ flexWrap: "wrap", gap: 8 }}>
+            {data.accounts.map((account) => (
+              <span key={`${account.provider}:${account.name}`} className="tag">
+                {account.provider}/{account.name}
+                <button
+                  className="iconbtn"
+                  title="编辑"
+                  aria-label={`编辑 ${account.provider}/${account.name}`}
+                  onClick={() => setEditing(account)}
+                >
+                  <PencilIcon size={14} />
+                </button>
+                <button
+                  className="iconbtn danger"
+                  title="删除"
+                  aria-label={`删除 ${account.provider}/${account.name}`}
+                  onClick={async () => {
+                    if (
+                      !window.confirm(
+                        `确定要删除账户 ${account.provider}/${account.name} 吗？该账户将从全部角色策略候选与凭据库中移除。`,
+                      )
+                    )
+                      return;
+                    try {
+                      await deleteProvider({
+                        provider: account.provider,
+                        accountName: account.name,
+                      });
+                      bumpCache();
+                      load();
+                    } catch (err) {
+                      toast.error(`删除失败：${explainUnknown(err)}`);
+                    }
+                  }}
+                >
+                  <TrashIcon size={14} />
+                </button>
               </span>
             ))}
           </div>
@@ -289,6 +337,17 @@ export function ProviderPage() {
           凭据以 AES-GCM 加密存储，仅 Worker 在进程内解密，绝不出现在此界面。
         </p>
       </section>
+
+      {editing ? (
+        <AddProviderForm
+          key={`edit:${editing.provider}:${editing.name}`}
+          initial={editing}
+          onSaved={() => {
+            setEditing(null);
+            load();
+          }}
+        />
+      ) : null}
 
       <SettingsSection
         keys={["embedding_base_url", "embedding_api_key", "embedding_model"]}
