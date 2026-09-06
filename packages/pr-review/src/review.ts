@@ -130,9 +130,11 @@ export async function reviewPullRequest(
       {
         tools: builtinTools(),
         exploreInstruction:
-          mode === "deep"
+          "调用工具时注意：list_directory 先传空字符串 \"\" 拿仓库根目录，进子目录用相对路径；" +
+          "禁止绝对路径或 /home/user/repos/... 这类仓库名/用户目录前缀。" +
+          (mode === "deep"
             ? "这是大规模/复杂 PR。你可以调用 read_file / list_directory / get_git_info 工具主动查看关键路径、跨文件依赖与相关源码，以全面理解变更影响后给出审查结果。"
-            : "你可以调用 read_file / list_directory / get_git_info 工具查看 diff 涉及或相关的源码文件以加深理解，然后给出审查结果。仅在确实需要更多上下文时才调用工具。",
+            : "你可以调用 read_file / list_directory / get_git_info 工具查看 diff 涉及或相关的源码文件以加深理解，然后给出审查结果。仅在确实需要更多上下文时才调用工具。"),
         ...(options.tools.maxRounds === undefined
           ? {}
           : { maxRounds: options.tools.maxRounds }),

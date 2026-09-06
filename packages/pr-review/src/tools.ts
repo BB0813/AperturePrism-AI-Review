@@ -37,11 +37,14 @@ export function builtinTools(): ModelToolSpec[] {
     {
       name: "read_file",
       description:
-        "读取仓库中某个文件的 UTF-8 内容（基于当前 PR 的 head 分支）。path 是仓库内相对路径，如 src/main.ts。大文件只返回开头部分。仅用于读取，禁止修改。",
+        "读取仓库中某个文件的 UTF-8 内容（基于当前分支）。path 值必须是仓库内相对路径，如 src/main.ts、desktop.py —— 不要传以 / 开头的绝对路径，也不要拼上 /home/user/repos/ 这类用户目录前缀。大文件只返回开头部分。仅用于读取，禁止修改。",
       parameters: {
         type: "object",
         properties: {
-          path: { type: "string", description: "仓库内相对文件路径" },
+          path: {
+            type: "string",
+            description: "仓库内相对文件路径（如 src/main.ts，不含仓库名/绝对路径前缀）",
+          },
         },
         required: ["path"],
       },
@@ -49,11 +52,14 @@ export function builtinTools(): ModelToolSpec[] {
     {
       name: "list_directory",
       description:
-        "列出仓库中某个目录下的条目（文件名与子目录名）。path 为仓库内相对路径，传空字符串表示仓库根目录。",
+        "列出仓库中某个目录下的条目（文件名与子目录名）。要查看仓库根目录时，path 传空字符串 \"\"；要进入子目录就传相对路径（如 src）。绝不要传 / 开头的绝对路径或 /home/user/repos/... 这种用户目录前缀。",
       parameters: {
         type: "object",
         properties: {
-          path: { type: "string", description: "目录相对路径（空=仓库根目录）" },
+          path: {
+            type: "string",
+            description: "目录相对路径（空字符串=仓库根目录，禁止绝对路径）",
+          },
         },
       },
     },
@@ -66,8 +72,22 @@ export function builtinTools(): ModelToolSpec[] {
   ];
 }
 
-function safePath(raw: string): string {
-  return String(raw || "").replace(/^\/+/, "").replace(/\.\.(\/|$)/g, "");
+/**
+ * 把模型给的路径规范化到仓库根内：去掉前导 /、去 ../ 组件、并拒绝任何
+ * 从仓库根"逃逸"出去的绝对路径或用户目录前缀（如 /home/...、repos/owner/name/）。
+ * 越界时返回 null，由调用方给模型明确报错，避免模型把错误路径当"成功"继续深入。
+ */
+function safePath(raw: string): string | null {
+  const value = String(raw || "").trim();
+  if (value === "") return "";
+  // 去掉前导 / 与任何仓库名前缀式路径（绝对路径 / 绝对化前缀），统一成相对路径。
+  const stripped = value.replace(/^\/+/, "");
+  // 拒绝显式 user 目录前缀（常见于模型幻觉出 /home/... 后逐级往上列）。
+  if (/^(home|root|home\/[^/]+|var|tmp|usr|repos)(\/|$)/i.test(stripped)) return null;
+  // 去掉 .. 组件（禁止跳出仓库根）。
+  const hasDotDot = stripped.split("/").some((seg) => seg === "..");
+  if (hasDotDot) return null;
+  return stripped;
 }
 
 /** 执行单个工具调用，返回给模型的结果文本。 */
@@ -87,7 +107,13 @@ export async function executeToolCall(
     switch (name) {
       case "read_file": {
         const path = safePath(typeof args.path === "string" ? args.path : "");
-        if (!path) return { ok: false, content: "read_file: 缺少 path 参数" };
+        if (path === null)
+          return {
+            ok: false,
+            content:
+              "read_file: path 无效。必须传仓库内相对路径（如 desktop.py、src/main.ts），禁止绝对路径或 /home/... 等用户目录前缀。",
+          };
+        if (path === "") return { ok: false, content: "read_file: 缺少 path 参数" };
         const file = await ctx.client.getFileContents({
           installationId: ctx.installationId,
           owner: ctx.owner,
@@ -107,6 +133,12 @@ export async function executeToolCall(
 
       case "list_directory": {
         const path = safePath(typeof args.path === "string" ? args.path : "");
+        if (path === null)
+          return {
+            ok: false,
+            content:
+              "list_directory: path 无效。传空字符串 \"\" 表示仓库根目录，进子目录用相对路径（如 src）；禁止绝对路径或 /home/... 等用户目录前缀。",
+          };
         const entries = await ctx.client.listDirectory({
           installationId: ctx.installationId,
           owner: ctx.owner,
