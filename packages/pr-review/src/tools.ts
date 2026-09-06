@@ -179,6 +179,12 @@ export type ToolLoopOptions = {
   maxRounds?: number;
   /** 注入给模型的"开始探索"引导消息。 */
   exploreInstruction?: string;
+  /**
+   * 强制读仓：当模型在尚未调用任何读取工具时就试图收尾（false「无法读取/无法审查」
+   * 这类模板逃避）时，插入一条强制指令要求它先调用 read_file / list_directory 再作答。
+   * 最多强制 2 次；仍不调用则放行（避免死循环）。代码审查 / 缺陷任务应开启。
+   */
+  forceToolUse?: boolean;
 };
 
 /**
@@ -193,7 +199,11 @@ export async function runToolLoop(
 ): Promise<{ messages: ModelMessage[]; rounds: number }> {
   const tools = options.tools ?? builtinTools();
   const maxRounds = options.maxRounds ?? 6;
+  const forceToolUse = options.forceToolUse ?? false;
   let rounds = 0;
+  // 强制读仓仅允许插入有限次，避免模型一直不配合时无限循环。
+  let forcedCount = 0;
+  let sawToolCall = false;
   let current: ModelMessage[] = [...messages];
 
   if (options.exploreInstruction) {
@@ -222,6 +232,24 @@ export async function runToolLoop(
     rounds += 1;
 
     if (!response.toolCalls || response.toolCalls.length === 0) {
+      // 强制读仓：模型在从没调用过任何工具时就打算收尾（往往输出"无法读取/无法
+      // 审查"这类逃避模板）。审查/缺陷任务必须让它真读仓后再作答。
+      if (forceToolUse && !sawToolCall && forcedCount < 2) {
+        forcedCount += 1;
+        current = [
+          ...current,
+          { role: "assistant", content: response.content ?? "" },
+          {
+            role: "user",
+            content:
+              "警告：你还没有调用任何读取工具就准备给出最终结论。这是一个要求读仓的任务，" +
+              "你必须先用 read_file 或 list_directory 读取相关文件后再作答（path 用仓库内相对路径，" +
+              "根目录传空字符串，不要用绝对路径），不要在结论中说「无代码访问能力」。" +
+              "请现在立刻调用工具。",
+          },
+        ];
+        continue;
+      }
       logger.info(
         { rounds, owner: ctx.owner, name: ctx.name, toolCalls: 0 },
         "deep tool loop finished without tool calls",
@@ -229,6 +257,7 @@ export async function runToolLoop(
       current = [...current, { role: "assistant", content: response.content }];
       return { messages: current, rounds };
     }
+    sawToolCall = true;
 
     logger.info(
       { rounds, owner: ctx.owner, name: ctx.name, toolCalls: response.toolCalls.length },

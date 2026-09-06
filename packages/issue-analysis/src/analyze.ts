@@ -76,6 +76,12 @@ export type IssueAnalyzerOptions = {
   tools?: {
     context: ToolExecutionContext;
     maxRounds?: number;
+    /**
+     * 强制读仓：审查/缺陷任务开启后，若模型未调用任何工具就打算收尾（输出
+     * "无代码访问能力"等逃避模板），runToolLoop 会插入强制指令要求它先读取
+     * 目标文件再作答。仅当 tools 注入时有意义。
+     */
+    forceToolUse?: boolean;
   };
 };
 
@@ -290,6 +296,9 @@ export async function analyzeIssue(
         ...(options.tools.maxRounds === undefined
           ? {}
           : { maxRounds: options.tools.maxRounds }),
+        ...(options.tools.forceToolUse === undefined
+          ? {}
+          : { forceToolUse: options.tools.forceToolUse }),
       },
     );
     mainContent =

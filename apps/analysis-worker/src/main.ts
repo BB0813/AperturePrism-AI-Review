@@ -609,7 +609,8 @@ async function main(): Promise<void> {
               },
             }),
         // 仅缺陷类开启读仓定位（deep 由 issue_deep_analysis 开关控制）；feature 轻量
-        // 不读仓，避免对纯需求描述也触发耗时的代码探索。
+        // 不读仓，避免对纯需求描述也触发耗时的代码探索。缺陷/审查类额外开启强制读仓，
+        // 防止模型跳过工具直接以"无代码访问能力"逃避。
         ...(deep && isDefectIssue(context)
           ? {
               tools: {
@@ -622,6 +623,7 @@ async function main(): Promise<void> {
                   ref: "HEAD",
                 },
                 maxRounds: 4,
+                forceToolUse: true,
               },
             }
           : {}),
