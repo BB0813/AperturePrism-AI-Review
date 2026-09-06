@@ -228,6 +228,18 @@ export async function runToolLoop(
   };
 
   for (;;) {
+    // 诊断：确认 tools 是否随每次调用送达模型（排查"探针可调、worker 实际不调"差异）。
+    logger.info(
+      {
+        owner: ctx.owner,
+        name: ctx.name,
+        rounds,
+        tools: tools.length,
+        messages: current.length,
+        contentChars: current.reduce((a, m) => a + (m.content?.length ?? 0), 0),
+      },
+      "deep tool loop invoke",
+    );
     const response = await invokeWithEmptyRetry({ messages: current, tools });
     rounds += 1;
 
