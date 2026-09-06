@@ -13,7 +13,7 @@ import type { IssueContext } from "./context.js";
 export { fenceUntrusted, UNTRUSTED_CLOSE, UNTRUSTED_OPEN };
 
 /** Bump when the prompt semantics change so the idempotency key changes too. */
-export const ISSUE_ANALYSIS_PROMPT_VERSION = "v11" as const;
+export const ISSUE_ANALYSIS_PROMPT_VERSION = "v12" as const;
 /** Policy version embedded in task dedupe keys; must include the prompt version. */
 export const ISSUE_ANALYSIS_POLICY_VERSION =
   `issue-analysis-${ISSUE_ANALYSIS_PROMPT_VERSION}` as const;
@@ -166,6 +166,21 @@ const SYSTEM_PROMPT_V11 = `${SYSTEM_PROMPT_V10}
 - **输出缺陷清单**：逐条给出发现的代码问题，每一条都进 proposedChanges：path（你确实读到的文件）、locator（行号 / 函数 / 符号）、change 写明「哪里错了 + 为什么 + 怎么修」。确实没发现明显错误时，在 probableCause / summary 说明已通读、未发现明显问题，并给出可进一步验证的方向。
 - **分类不降级**：代码审查请求按缺陷任务处理，category 用 bug（或 security / performance 视问题性质），不要标 question；quality 以「是否已通读并给出结论」为准，而不是以「是否给了复现步骤」为准。`;
 
+/**
+ * v12：工具调用优先校准（用户 09-06 反馈）。
+ * 在 v11 基础上：当「当前代码访问」可用时，把"先用工具读仓库"提为不可绕过的
+ * 前置步骤，明确禁止用"无代码访问能力"逃避（模型曾跳过工具直接输出该模板）。
+ */
+const SYSTEM_PROMPT_V12 = `${SYSTEM_PROMPT_V11}
+
+工具调用优先（校准，必须遵守；与上方冲突时以此为准）：
+- 当系统消息末尾标注「当前代码访问」为可用时，读取仓库是你必须先执行的前置步骤，不是可选项：
+  - 代码审查请求（以及缺陷类）必须先调用 read_file / list_directory 读取相关文件，再给出结论。
+  - **禁止**在从未调用过任何读取工具的情况下，输出"无代码访问能力 / 无法读取 / 无法审查"这类结论——你已具备 read 工具，那既不符合事实，也解决不了问题。
+  - 读取时第一个 list_directory 用空字符串 \"\" 拿仓库根目录，之后用相对路径（如 desktop.py、src/main.ts），不要用绝对路径或 /home/... 这类前缀。
+  - 通读后确实没发现可定位缺陷时，如实写"已通读，未发现明显缺陷"，并给出可进一步验证的方向；不得以"无权限"代替。
+- 输出契约（JSON）不受影响：工具读取获得的源码信息应落入 proposedChanges / probableCause / evidence 等字段。`;
+
 /** 无代码访问时 proposedChanges.path 的统一占位值；comment.ts 渲染时不再包代码框。 */
 export const CODE_ACCESS_UNKNOWN_PATH = "（未读取源码，路径待确认）";
 
@@ -188,9 +203,10 @@ const CODE_ACCESS_DISABLED_INSTRUCTION = `
  * 快照登记进本表，再写新版本正文 —— 这样新版本翻车时可一键回退。
  */
 const ISSUE_SYSTEM_PROMPTS: Readonly<Record<string, string>> = {
-  // v11（当前）：代码审查请求 —— 识别「检查某文件/代码 bug」意图，强制读仓
-  // 亲自逐条挑错，不再当 question 打发（用户 09-05 反馈 #14）。
-  [ISSUE_ANALYSIS_PROMPT_VERSION]: SYSTEM_PROMPT_V11,
+  // v12（当前）：工具调用优先 —— 读仓为先决条件，禁止用"无代码访问"逃避（09-06）。
+  [ISSUE_ANALYSIS_PROMPT_VERSION]: SYSTEM_PROMPT_V12,
+  // v11：代码审查请求 —— 识别"检查某文件/代码 bug"意图，强制读仓亲自挑错。
+  v11: SYSTEM_PROMPT_V11,
   // v10：缺陷类智能取材（指令触发型不索要复现、报错型才要日志）+ 读仓可落地。
   v10: SYSTEM_PROMPT_V10,
   // v9：代码定位诚实性 —— 无源码上下文禁止编造路径、证据不充数（#25）。
