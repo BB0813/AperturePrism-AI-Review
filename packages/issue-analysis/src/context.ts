@@ -38,6 +38,12 @@ export type IssueContext = {
   repoMemory?: string;
   /** 仓库 `.apertureprism/rules/` 目录下的审核规则（Sakura 式专属文件夹）。 */
   repoRules?: string;
+  /**
+   * 方案B：服务端主动预读的目标文件源码（审查/缺陷请求注入）。模型不必依赖
+   * 调用 read_file（deepseek 对 function-calling 不稳定）即可直接看到代码；
+   * 内容由 worker 用 installation 读取，仅作待分析数据注入，非用户指令。
+   */
+  preloadedFiles?: { path: string; content: string }[];
 };
 
 export type IssueContextBudget = {

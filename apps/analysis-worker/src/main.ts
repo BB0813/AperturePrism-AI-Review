@@ -546,6 +546,29 @@ async function main(): Promise<void> {
         },
         "issue deep decision: tools injection",
       );
+      // 方案B：审查/缺陷类主动预读被点名目标文件并注入上下文，保证模型无论是否
+      // 调用工具都能看到源码（deepseek 的 function-calling 不稳定）。tools 仍保留。
+      if (deep && isDefectIssue(context)) {
+        try {
+          const preload = await preloadTargetFiles(assertGithub(github), context);
+          if (preload.length > 0) {
+            context = { ...context, preloadedFiles: preload };
+            logger.info(
+              {
+                repo: repositoryFullName,
+                subject: context.issue.number,
+                files: preload.map((f) => f.path),
+              },
+              "issue preload: target files injected",
+            );
+          }
+        } catch (error) {
+          logger.warn(
+            { err: error, repo: repositoryFullName },
+            "issue target file preload failed",
+          );
+        }
+      }
       const promptVersion = await resolveIssuePromptVersion();
       const promptMode = await resolveIssuePromptMode();
       const issueSections = await resolveIssueSections(repositoryFullName);
@@ -1494,6 +1517,61 @@ function isDefectIssue(context: IssueContext): boolean {
     (issue.labels ?? []).join(" ")
   }`;
   return DEFECT_HINT.test(hay);
+}
+
+/** 最小文件读取器：避免引入 github-adapter 的完整 GitHubClient 类型依赖。 */
+type FileReader = {
+  getFileContents(args: {
+    installationId: string;
+    owner: string;
+    name: string;
+    path: string;
+    ref: string;
+  }): Promise<{ content?: string } | null | undefined>;
+};
+
+/** 审查/缺陷请求里用户点名的文件路径（如 main.py、backend/app.ts）。最多取 2 个。 */
+const TARGET_FILE_RE =
+  /([\w.\-/]+\.(?:py|js|ts|tsx|jsx|json|go|rs|java|c|cc|cpp|h|hpp|sh|ps1|bat|mjs|cjs|css|html|yaml|yml|toml|md))/gi;
+const PRELOAD_MAX_CHARS = 60_000;
+
+function extractTargetFiles(context: IssueContext): string[] {
+  const hay = `${context.issue.title ?? ""}\n${context.issue.body ?? ""}`;
+  const found: string[] = [];
+  for (const match of hay.matchAll(TARGET_FILE_RE)) {
+    const path = match[1];
+    if (path && path.length <= 160 && !path.includes(" ")) found.push(path);
+  }
+  return [...new Set(found)].slice(0, 2);
+}
+
+/**
+ * 方案B：服务端主动预读被点名审查的目标文件源码并注入上下文，模型无需依赖
+ * 调用 read_file 即可看到代码（deepseek 对 function-calling 不稳定，工具注入
+ * 无法保证其一定主动读仓）。读不到的文件静默跳过，不阻断分析。
+ */
+async function preloadTargetFiles(
+  reader: FileReader,
+  context: IssueContext,
+): Promise<{ path: string; content: string }[]> {
+  const out: { path: string; content: string }[] = [];
+  for (const path of extractTargetFiles(context)) {
+    try {
+      const file = await reader.getFileContents({
+        installationId: context.installationId,
+        owner: context.repository.owner,
+        name: context.repository.name,
+        path,
+        ref: "HEAD",
+      });
+      if (file && file.content) {
+        out.push({ path, content: file.content.slice(0, PRELOAD_MAX_CHARS) });
+      }
+    } catch {
+      // 文件不存在或读取失败 → 忽略，保留其它可读文件。
+    }
+  }
+  return out;
 }
 
 /**
