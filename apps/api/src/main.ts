@@ -6018,6 +6018,31 @@ async function handleRequest(
     return;
   }
 
+  // 删除 provider 账户是写操作（POST），必须放在下面的 GET-only 兜底守卫之前，
+  // 否则会被守卫拦成 405（与 /repositories/:id/settings 同因，issue #58）。
+  if (path === "/providers/delete") {
+    if (String(request.method) !== "POST") {
+      json(
+        response,
+        405,
+        { status: "error", reason: "method not allowed" },
+        requestId,
+      );
+      return;
+    }
+    if (!(await isAdminRequest(request))) {
+      json(
+        response,
+        403,
+        { status: "error", reason: "admin required" },
+        requestId,
+      );
+      return;
+    }
+    await handleProviderDelete(request, response, requestId);
+    return;
+  }
+
   if (request.method !== "GET") {
     json(
       response,
@@ -6080,29 +6105,6 @@ async function handleRequest(
 
   if (path === "/providers") {
     await handleProviders(response, requestId);
-    return;
-  }
-
-  if (path === "/providers/delete") {
-    if (String(request.method) !== "POST") {
-      json(
-        response,
-        405,
-        { status: "error", reason: "method not allowed" },
-        requestId,
-      );
-      return;
-    }
-    if (!(await isAdminRequest(request))) {
-      json(
-        response,
-        403,
-        { status: "error", reason: "admin required" },
-        requestId,
-      );
-      return;
-    }
-    await handleProviderDelete(request, response, requestId);
     return;
   }
 
