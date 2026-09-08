@@ -3,6 +3,7 @@ export * from "./backup.js";
 export * from "./backup-redact.js";
 export * from "./client.js";
 export * from "./github-app.js";
+export * from "./grants.js";
 export * from "./health.js";
 export * from "./label-rules.js";
 export * from "./password.js";

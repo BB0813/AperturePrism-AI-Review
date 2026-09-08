@@ -445,6 +445,31 @@ export const userSessions = pgTable(
 );
 
 /**
+ * 仓库可见性授权（方向七）：用户 - 仓库 映射。access 为 'view'（只读可看）或
+ * 'manage'（可管设置/触发分析）。删除用户/仓库时级联清理授权。
+ */
+export const repositoryGrants = pgTable(
+  "repository_grants",
+  {
+    userLogin: text("user_login")
+      .notNull()
+      .references(() => users.login, { onDelete: "cascade" }),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    /** 'view' | 'manage'。 */
+    access: text("access").default("view").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userLogin, table.repositoryId] }),
+    index("repository_grants_repo_idx").on(table.repositoryId),
+  ],
+);
+
+/**
  * Security audit log: one row per sensitive admin/operator action (role
  * changes, backup import, setup init, settings update, index operations).
  */

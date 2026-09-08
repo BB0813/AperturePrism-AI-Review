@@ -68,6 +68,11 @@ import {
   setLastLogin,
   setPassword,
   verifyPassword,
+  canAccessGrant,
+  deleteGrant,
+  listAllGrants,
+  listGrantsForUser,
+  setGrant,
   pruneRepositories,
   resolveSettingValue,
   resolveGithubAppCredentials,
@@ -505,6 +510,8 @@ const protectedPaths = [
   "/repo-rules",
   // 独立自检路径（不能写成 /github/webhook —— 那是 GitHub 公开投递入口）。
   "/webhook-selftest",
+  // 方向七：仓库可见性授权管理（admin）。
+  "/grants",
 ];
 const EVENT_CHANNEL = "apertureprism:task:events";
 
@@ -1210,9 +1217,16 @@ async function handleTasks(
     const offset = Number.isFinite(offsetRaw)
       ? Math.max(Math.trunc(offsetRaw), 0)
       : 0;
+    // 方向七：非 admin 仅列出被授权仓库的任务。
+    const scope = await visibleRepoScope(request);
     const items = await database.db
       .select(taskSummaryColumns)
       .from(analysisTasks)
+      .where(
+        scope && scope.ids !== null
+          ? inArray(analysisTasks.repositoryId, [...scope.ids])
+          : undefined,
+      )
       .orderBy(desc(analysisTasks.createdAt), desc(analysisTasks.id))
       .limit(limit)
       .offset(offset);
@@ -1240,6 +1254,22 @@ async function handleTasks(
       requestId,
     );
     return;
+  }
+  // 方向七：非 admin 只能查看被授权仓库的任务详情。
+  if (row.repositoryId) {
+    const login = sessionLogin(request);
+    if (login) {
+      const user = await getUser(database.db, login);
+      if (user && !user.isAdmin && !(await canAccessGrant(database.db, login, row.repositoryId, "view"))) {
+        json(
+          response,
+          404,
+          { status: "error", reason: "task not found" },
+          requestId,
+        );
+        return;
+      }
+    }
   }
   const [timeline, attempts, publications] = await Promise.all([
     database.db
@@ -1889,6 +1919,7 @@ async function handleSummary(
 
 /** Installed GitHub repositories with per-repo task/result counts. */
 async function handleRepositories(
+  request: IncomingMessage,
   response: ServerResponse,
   requestId: string,
 ): Promise<void> {
@@ -1920,6 +1951,10 @@ async function handleRepositories(
   const resultByName = new Map(
     resultCounts.map((r) => [r.repository_full_name, Number(r.c)]),
   );
+  // 仓库可见性（方向七）：admin/bearer 全可见；其它用户仅可见被授权的仓库。
+  // grants 为空 → 用户没有授权 → 不列任何仓库（除非是 admin）。
+  const scope = await visibleRepoScope(request);
+  const visibleIds = scope ? scope.ids : null;
   // A repo may have been ingested more than once (different GitHub ids from
   // separate webhook deliveries); merge by full name for a clean list.
   const byName = new Map<
@@ -1933,6 +1968,8 @@ async function handleRepositories(
     }
   >();
   for (const repo of repos) {
+    // 非 admin 且该仓库不在授权集内 → 跳过（不展示）。
+    if (visibleIds !== null && !visibleIds.has(repo.id)) continue;
     const fullName = `${repo.owner}/${repo.name}`;
     const existing = byName.get(fullName);
     const taskCount = taskByRepo.get(repo.id) ?? 0;
@@ -2321,6 +2358,8 @@ async function handleRepoRulesRequest(
 
   // GET /repo-rules —— 所有仓库 + 规则状态。
   if (path === "/repo-rules" && request.method === "GET") {
+    // 方向七：非 admin 仅能看到被授权仓库的规则状态。
+    const scope = await visibleRepoScope(request);
     const repos = await database.db
       .select({
         id: repositories.id,
@@ -2329,6 +2368,11 @@ async function handleRepoRulesRequest(
         installationId: repositories.installationId,
       })
       .from(repositories)
+      .where(
+        scope && scope.ids !== null
+          ? inArray(repositories.id, [...scope.ids])
+          : undefined,
+      )
       .orderBy(asc(repositories.name));
     const items = await Promise.all(
       repos.map(async (repo) => {
@@ -2632,11 +2676,12 @@ async function handleRepositorySettings(
   }
 
   if (request.method === "PUT") {
-    if (!(await isAdminRequest(request))) {
+    // 方向七：写仓库设置需 admin 或该仓库 manage 授权。
+    if (!(await canAccessRepo(request, repositoryId, "manage"))) {
       json(
         response,
         403,
-        { status: "error", reason: "admin required" },
+        { status: "error", reason: "admin or manage access required" },
         requestId,
       );
       return;
@@ -2688,6 +2733,17 @@ async function handleRepositorySettings(
       response,
       405,
       { status: "error", reason: "method not allowed" },
+      requestId,
+    );
+    return;
+  }
+
+  // 方向七：读仓库设置需 admin 或该仓库 view（含 manage）授权。
+  if (!(await canAccessRepo(request, repositoryId, "view"))) {
+    json(
+      response,
+      403,
+      { status: "error", reason: "view access required" },
       requestId,
     );
     return;
@@ -3002,6 +3058,10 @@ async function handleLogs(
 
   const sinceRaw = url.searchParams.get("since");
   const isHistory = url.searchParams.get("history") === "1";
+  // 方向七：非 admin 仅能看到被授权仓库的任务事件。
+  const scope = await visibleRepoScope(request);
+  const repoFilter =
+    scope && scope.ids !== null ? [...scope.ids] : null;
 
   if (isHistory) {
     const limitRaw = Number(url.searchParams.get("limit"));
@@ -3020,6 +3080,12 @@ async function handleLogs(
         createdAt: taskEvents.createdAt,
       })
       .from(taskEvents)
+      .innerJoin(analysisTasks, eq(taskEvents.taskId, analysisTasks.id))
+      .where(
+        repoFilter
+          ? inArray(analysisTasks.repositoryId, repoFilter)
+          : undefined,
+      )
       .orderBy(desc(taskEvents.createdAt), desc(taskEvents.id))
       .limit(limit)
       .offset(offset);
@@ -3045,7 +3111,15 @@ async function handleLogs(
         createdAt: taskEvents.createdAt,
       })
       .from(taskEvents)
-      .where(gt(taskEvents.createdAt, since))
+      .innerJoin(analysisTasks, eq(taskEvents.taskId, analysisTasks.id))
+      .where(
+        and(
+          gt(taskEvents.createdAt, since),
+          ...(repoFilter
+            ? [inArray(analysisTasks.repositoryId, repoFilter)]
+            : []),
+        ),
+      )
       .orderBy(asc(taskEvents.createdAt))
       .limit(500);
     json(response, 200, { events, deliveries: [] }, requestId);
@@ -3061,6 +3135,12 @@ async function handleLogs(
         createdAt: taskEvents.createdAt,
       })
       .from(taskEvents)
+      .innerJoin(analysisTasks, eq(taskEvents.taskId, analysisTasks.id))
+      .where(
+        repoFilter
+          ? inArray(analysisTasks.repositoryId, repoFilter)
+          : undefined,
+      )
       .orderBy(desc(taskEvents.createdAt))
       .limit(60),
     database.db
@@ -4488,6 +4568,55 @@ async function isReadOnlyRequest(request: IncomingMessage): Promise<boolean> {
 }
 
 /**
+ * 方向七：仓库可见性授权作用域。
+ * 返回 `null` 表示"全部仓库可见/可管"（admin 或匿名开放模式）；否则返回当前用户
+ * 被授权的一组仓库 id 与 full_name。列表型 handler 用它过滤展示行。
+ */
+async function visibleRepoScope(
+  request: IncomingMessage,
+): Promise<{ ids: Set<string> | null; fullNames: Set<string> | null } | null> {
+  const login = sessionLogin(request);
+  if (!login) return null; // bearer/open 模式：全可见
+  const user = await getUser(database.db, login);
+  if (user?.isAdmin === true) return null; // admin 兜底全可见
+  const grants = await listGrantsForUser(database.db, login);
+  if (grants.length === 0) return { ids: new Set(), fullNames: new Set() };
+  const ids = new Set<string>();
+  const fullNames = new Set<string>();
+  const repoRows = await database.db
+    .select({
+      id: repositories.id,
+      owner: repositories.owner,
+      name: repositories.name,
+    })
+    .from(repositories)
+    .where(
+      inArray(
+        repositories.id,
+        [...new Set(grants.map((g) => g.repositoryId))],
+      ),
+    );
+  for (const row of repoRows) {
+    ids.add(row.id);
+    fullNames.add(`${row.owner}/${row.name}`);
+  }
+  return { ids, fullNames };
+}
+
+/** admin → 全放行；否则校验仓库授权是否满足指定等级（view 或 manage）。 */
+async function canAccessRepo(
+  request: IncomingMessage,
+  repositoryId: string,
+  need: "view" | "manage",
+): Promise<boolean> {
+  const login = sessionLogin(request);
+  if (!login) return true; // 开放/bearer 模式放行
+  const user = await getUser(database.db, login);
+  if (user?.isAdmin === true) return true;
+  return canAccessGrant(database.db, login, repositoryId, need);
+}
+
+/**
  * Best-effort security audit entry. Never blocks the operation it records;
  * a write failure is logged and swallowed.
  */
@@ -4575,6 +4704,108 @@ async function handleUsers(
       isReadOnly: roles.isReadOnly ?? null,
     });
     json(response, 200, { status: "ok", ...user }, requestId);
+    return;
+  }
+
+  json(response, 405, { status: "error", reason: "method not allowed" }, requestId);
+}
+
+/* ---------- 方向七：仓库可见性授权管理（admin） ---------- */
+async function handleGrants(
+  request: IncomingMessage,
+  response: ServerResponse,
+  requestId: string,
+): Promise<void> {
+  if (!(await isAdminRequest(request))) {
+    json(response, 403, { status: "error", reason: "admin required" }, requestId);
+    return;
+  }
+  const url = new URL(request.url ?? "/", "http://localhost");
+  const path = url.pathname;
+
+  // GET /grants[?user=&repository=]  → 列出授权（可按用户/仓库筛选）
+  if (path === "/grants" && request.method === "GET") {
+    const user = url.searchParams.get("user")?.trim() || undefined;
+    const repository = url.searchParams.get("repository")?.trim() || undefined;
+    let grants = await listAllGrants(database.db, { userLogin: user });
+    if (repository) {
+      // 找出匹配该仓库（by id 或 full_name owner/name）的 repositoryId 集合。
+      const allRepos = await database.db
+        .select({ id: repositories.id, owner: repositories.owner, name: repositories.name })
+        .from(repositories);
+      const wanted = new Set<string>();
+      for (const row of allRepos) {
+        if (
+          row.id === repository ||
+          `${row.owner}/${row.name}`.toLowerCase() === repository.toLowerCase()
+        )
+          wanted.add(row.id);
+      }
+      grants = grants.filter((g) => wanted.has(g.repositoryId));
+    }
+    json(response, 200, { items: grants }, requestId);
+    return;
+  }
+
+  // PUT /grants/:user/:repository  → 设/改授权，body { access: 'view' | 'manage' }
+  if (path.startsWith("/grants/") && request.method === "PUT") {
+    const rest = path.slice("/grants/".length).trim();
+    const slash = rest.indexOf("/");
+    if (slash <= 0 || slash === rest.length - 1) {
+      json(response, 400, { status: "error", reason: "bad grant path" }, requestId);
+      return;
+    }
+    const userLogin = decodeURIComponent(rest.slice(0, slash)).trim();
+    const repositoryId = decodeURIComponent(rest.slice(slash + 1)).trim();
+    const body = await readBody(request);
+    let parsed: { access?: unknown };
+    try {
+      parsed = JSON.parse(body.toString("utf8"));
+    } catch {
+      json(response, 400, { status: "error", reason: "invalid JSON" }, requestId);
+      return;
+    }
+    const access = parsed.access === "manage" ? "manage" : "view";
+    if (!userLogin || !repositoryId) {
+      json(response, 400, { status: "error", reason: "user and repo required" }, requestId);
+      return;
+    }
+    // 校验用户与仓库确实存在，避免往授权表写悬空外键。
+    const [user, repo] = await Promise.all([
+      getUser(database.db, userLogin),
+      database.db
+        .select({ id: repositories.id })
+        .from(repositories)
+        .where(eq(repositories.id, repositoryId))
+        .limit(1),
+    ]);
+    if (!user || repo.length === 0) {
+      json(response, 404, { status: "error", reason: "user or repo not found" }, requestId);
+      return;
+    }
+    await setGrant(database.db, userLogin, repositoryId, access);
+    audit(request, "grants.set", `${userLogin}@${repositoryId}`, { access });
+    json(response, 200, { status: "ok", userLogin, repositoryId, access }, requestId);
+    return;
+  }
+
+  // DELETE /grants/:user/:repository → 移除授权
+  if (path.startsWith("/grants/") && request.method === "DELETE") {
+    const rest = path.slice("/grants/".length).trim();
+    const slash = rest.indexOf("/");
+    if (slash <= 0 || slash === rest.length - 1) {
+      json(response, 400, { status: "error", reason: "bad grant path" }, requestId);
+      return;
+    }
+    const userLogin = decodeURIComponent(rest.slice(0, slash)).trim();
+    const repositoryId = decodeURIComponent(rest.slice(slash + 1)).trim();
+    const removed = await deleteGrant(database.db, userLogin, repositoryId);
+    if (!removed) {
+      json(response, 404, { status: "error", reason: "grant not found" }, requestId);
+      return;
+    }
+    audit(request, "grants.remove", `${userLogin}@${repositoryId}`, {});
+    json(response, 200, { status: "ok", removed: true }, requestId);
     return;
   }
 
@@ -5392,10 +5623,19 @@ async function handleResults(
   const offset = Number.isFinite(offsetRaw)
     ? Math.max(Math.trunc(offsetRaw), 0)
     : 0;
+  // 方向七：非 admin 仅列出被授权仓库的结果。
+  const scope = await visibleRepoScope(request);
+  const where =
+    scope && scope.fullNames !== null
+      ? and(
+          eq(subjectResults.subjectType, type),
+          inArray(subjectResults.repositoryFullName, [...scope.fullNames]),
+        )
+      : eq(subjectResults.subjectType, type);
   const items = await database.db
     .select(resultColumns)
     .from(subjectResults)
-    .where(eq(subjectResults.subjectType, type))
+    .where(where)
     .orderBy(desc(subjectResults.createdAt), desc(subjectResults.id))
     .limit(limit)
     .offset(offset);
@@ -6423,6 +6663,13 @@ async function handleRequest(
     return;
   }
 
+  // 方向七：仓库可见性授权管理。PUT/DELETE 是写操作，放在 GET-only 兜底守卫之前
+  // （与 /providers/delete 同因，避免 405）。admin 校验在 handleGrants 内部完成。
+  if (path === "/grants" || path.startsWith("/grants/")) {
+    await handleGrants(request, response, requestId);
+    return;
+  }
+
   if (request.method !== "GET") {
     json(
       response,
@@ -6445,7 +6692,7 @@ async function handleRequest(
   }
 
   if (path === "/repositories") {
-    await handleRepositories(response, requestId);
+    await handleRepositories(request, response, requestId);
     return;
   }
 
