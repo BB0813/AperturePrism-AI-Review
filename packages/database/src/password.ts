@@ -59,14 +59,14 @@ export async function verifyPassword(
 ): Promise<boolean> {
   const parts = encoded.split("$");
   if (parts.length !== 6 || parts[0] !== "scrypt") return false;
-  const n = Number(parts[1]);
-  const r = Number(parts[2]);
-  const p = Number(parts[3]);
+  const n = Number(parts[1]!);
+  const r = Number(parts[2]!);
+  const p = Number(parts[3]!);
   if (!Number.isFinite(n) || n <= 0) return false;
   if (!Number.isFinite(r) || r <= 0) return false;
   if (!Number.isFinite(p) || p <= 0) return false;
-  const salt = Buffer.from(parts[4], "base64url");
-  const expected = Buffer.from(parts[5], "base64url");
+  const salt = Buffer.from(parts[4]!, "base64url");
+  const expected = Buffer.from(parts[5]!, "base64url");
   try {
     const derived = await scryptAsync(password, salt, KEYLEN, { N: n, r, p });
     return (
