@@ -977,12 +977,82 @@ export type AccountInfo = {
   login: string | null;
   displayName: string | null;
   isAdmin: boolean;
-  authMethod: "oauth" | "bearer";
+  isReadOnly: boolean;
+  hasPassword: boolean;
+  needsBootstrap?: boolean;
+  authMethod: "oauth" | "bearer" | "password";
 };
 
-/** Current account: the OAuth login, or a bearer-identified session. */
+/** Current account: the OAuth login, a password-login session, or a bearer token. */
 export async function fetchMe(): Promise<AccountInfo> {
   return (await getJson("/auth/me")) as AccountInfo;
+}
+
+/** 本地密码登录（方向一）：返回会话 token 与用户信息。 */
+export async function loginLocal(input: {
+  username: string;
+  password: string;
+}): Promise<{ token: string; user: AccountInfo }> {
+  const response = await fetch("/auth/login", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify(input),
+  });
+  const data = (await response.json().catch(() => ({}))) as {
+    status?: string;
+    reason?: string;
+    token?: string;
+    user?: AccountInfo;
+  };
+  if (!response.ok || !data.token) {
+    const reason = data.reason === "invalid_credentials" ? "用户名或密码错误" : (data.reason ?? "登录失败");
+    throw new Error(reason);
+  }
+  return { token: data.token, user: data.user };
+}
+
+/** 引导创建首个本地管理员（无本地 admin 时开放）。 */
+export async function registerLocal(input: {
+  username: string;
+  password: string;
+}): Promise<{ token: string; user: AccountInfo }> {
+  const response = await fetch("/auth/register", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify(input),
+  });
+  const data = (await response.json().catch(() => ({}))) as {
+    status?: string;
+    reason?: string;
+    token?: string;
+    user?: AccountInfo;
+  };
+  if (!response.ok || !data.token)
+    throw new Error(data.reason ?? "创建管理员失败");
+  return { token: data.token, user: data.user };
+}
+
+/** 登出：吊销当前会话。 */
+export async function logoutLocal(): Promise<void> {
+  await fetch("/auth/logout", { method: "POST", headers: authHeaders() });
+}
+
+/** 改密：本地账号。返回是否成功（旧密错误时抛错）。 */
+export async function changePassword(input: {
+  currentPassword: string;
+  newPassword: string;
+}): Promise<void> {
+  const response = await fetch("/auth/password", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...authHeaders() },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const data = (await response.json().catch(() => ({}))) as {
+      reason?: string;
+    };
+    throw new Error(data.reason ?? "修改密码失败");
+  }
 }
 
 /** Updates the display name of the OAuth user. */

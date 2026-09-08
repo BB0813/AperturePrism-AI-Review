@@ -394,6 +394,12 @@ export const users = pgTable(
     isAdmin: boolean("is_admin").default(false).notNull(),
     /** 只读操作员：可登录查看，禁止一切写操作（OAuth 用户）。 */
     isReadOnly: boolean("is_read_only").default(false).notNull(),
+    /** 本地账号密码哈希（argon2id）；null = 非本地账号（纯 OAuth）。 */
+    passwordHash: text("password_hash"),
+    /** TOTP 密钥；方向三 2FA 启用后使用。 */
+    totpSecret: text("totp_secret"),
+    totpEnabled: boolean("totp_enabled").default(false).notNull(),
+    lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -402,6 +408,40 @@ export const users = pgTable(
       .notNull(),
   },
   (table) => [uniqueIndex("users_login_unique").on(table.login)],
+);
+
+/**
+ * 统一会话表：本地密码登录与 GitHub OAuth 登录都落一条会话。token 本身以
+ * sha256 hash 存储（不落明文），支持过期、吊销与并发查询。
+ */
+export const userSessions = pgTable(
+  "user_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userLogin: text("user_login")
+      .notNull()
+      .references(() => users.login, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    /** 来源：'password' | 'github'。 */
+    authMethod: text("auth_method").notNull(),
+    issuedAt: timestamp("issued_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    userAgent: text("user_agent"),
+    ip: text("ip"),
+  },
+  (table) => [
+    uniqueIndex("user_sessions_token_hash_unique").on(table.tokenHash),
+    index("user_sessions_user_revoked_idx").on(
+      table.userLogin,
+      table.revokedAt,
+    ),
+  ],
 );
 
 /**

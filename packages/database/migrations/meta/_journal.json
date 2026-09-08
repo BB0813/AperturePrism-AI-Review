@@ -141,6 +141,13 @@
       "when": 1788900001000,
       "tag": "0019_embedding_2048",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1788950000000,
+      "tag": "0020_auth_local_accounts",
+      "breakpoints": true
     }
   ]
 }

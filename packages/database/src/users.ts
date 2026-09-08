@@ -10,6 +10,10 @@ export type UserRow = {
   isAdmin: boolean;
   /** 只读操作员：可查看，禁止写操作。 */
   isReadOnly: boolean;
+  /** 本地密码哈希；undefined = 非本地账号。 */
+  passwordHash: string | null;
+  /** 本地账号是否已设置密码（可复用于判断可用密码登录）。 */
+  hasPassword: boolean;
 };
 
 const USER_COLUMNS = {
@@ -17,6 +21,7 @@ const USER_COLUMNS = {
   displayName: schema.users.displayName,
   isAdmin: schema.users.isAdmin,
   isReadOnly: schema.users.isReadOnly,
+  passwordHash: schema.users.passwordHash,
 } as const;
 
 function toRow(row: {
@@ -24,14 +29,32 @@ function toRow(row: {
   displayName: string;
   isAdmin: boolean;
   isReadOnly: boolean;
+  passwordHash: string | null;
 }): UserRow {
   return {
     login: row.login,
     displayName: row.displayName,
     isAdmin: row.isAdmin,
     isReadOnly: row.isReadOnly,
+    passwordHash: row.passwordHash,
+    hasPassword: row.passwordHash !== null && row.passwordHash.length > 0,
   };
 }
+
+/** 密码哈希不在任何列表/查询结果中意外泄漏给前端（读取时显式不返回原文哈希）。 */
+function publicUser(row: UserRow): Omit<UserRow, "passwordHash"> & {
+  passwordHash?: never;
+} {
+  return {
+    login: row.login,
+    displayName: row.displayName,
+    isAdmin: row.isAdmin,
+    isReadOnly: row.isReadOnly,
+    hasPassword: row.hasPassword,
+  };
+}
+
+export type PublicUser = ReturnType<typeof publicUser>;
 
 /**
  * Creates the user on first OAuth login; otherwise a no-op. The very first
@@ -120,4 +143,53 @@ export async function listUsers(db: Database): Promise<UserRow[]> {
     .from(schema.users)
     .orderBy(asc(schema.users.login));
   return rows.map(toRow);
+}
+
+/** 仅返回可安全暴露给前端的用户字段（不含 passwordHash）。 */
+export function toPublicUsers(rows: UserRow[]): PublicUser[] {
+  return rows.map(publicUser);
+}
+
+export function toPublicUser(row: UserRow | null): PublicUser | null {
+  return row ? publicUser(row) : null;
+}
+
+/** 为本地账号设置密码哈希；OAuth-only 用户也可借此开通本地登录。 */
+export async function setPassword(
+  db: Database,
+  login: string,
+  passwordHash: string,
+): Promise<boolean> {
+  const updated = await db
+    .update(schema.users)
+    .set({ passwordHash, updatedAt: new Date() })
+    .where(eq(schema.users.login, login))
+    .returning({ id: schema.users.id });
+  return updated.length > 0;
+}
+
+/** 记录最近登录时间（不阻塞，供审计/会话展示）。 */
+export async function setLastLogin(
+  db: Database,
+  login: string,
+): Promise<void> {
+  await db
+    .update(schema.users)
+    .set({ lastLoginAt: new Date() })
+    .where(eq(schema.users.login, login));
+}
+
+/**
+ * 判断是否需要进行本地账号引导：没有任何 isAdmin 的本地（设置了密码）用户时
+ * 返回 true（此时 `/auth/register` 开放，创建首个本地管理员）。
+ */
+export async function needsPasswordBootstrap(db: Database): Promise<boolean> {
+  const rows = await db
+    .select(USER_COLUMNS)
+    .from(schema.users)
+    .where(eq(schema.users.isAdmin, true));
+  return !rows.some(
+    (row) =>
+      row.passwordHash !== null && row.passwordHash.length > 0,
+  );
 }

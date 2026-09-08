@@ -1,16 +1,30 @@
-import { useEffect, useState } from "react";
-import { fetchMe, fetchOAuthStatus, fetchSetupStatus } from "../lib/api";
+import { useEffect, useState, type FormEvent } from "react";
+import {
+  fetchMe,
+  fetchOAuthStatus,
+  fetchSetupStatus,
+  loginLocal,
+  registerLocal,
+} from "../lib/api";
 import { setToken } from "../lib/auth";
 import { useTheme } from "../hooks/useTheme";
 import { MoonIcon, SunIcon } from "../components/icons";
 
-/** Full-screen gate shown when no access token is stored. */
+/**
+ * 登录门禁。支持三种方式（按环境自动呈现）：
+ *  1. 用户名 + 密码 —— 本地账号登录（方向一）；无任何本地 admin 时进入「创建管理员」。
+ *  2. GitHub OAuth —— 已配置时显示按钮。
+ *  3. API 令牌（折叠降级）—— 兼容旧 WEBUI_TOKEN 直连。
+ */
 export function Login(props: { onAuthenticated: (token: string) => void }) {
-  const [value, setValue] = useState("");
+  const [mode, setMode] = useState<"login" | "register" | "token">("login");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [token, setTokenInput] = useState("");
+  const [needsBootstrap, setNeedsBootstrap] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [oauthOn, setOauthOn] = useState(false);
-  // The install wizard is only offered on a fresh (uninitialized) install.
   const [setupOn, setSetupOn] = useState(false);
   const { theme, toggle } = useTheme();
 
@@ -21,35 +35,62 @@ export function Login(props: { onAuthenticated: (token: string) => void }) {
     fetchSetupStatus()
       .then((s) => setSetupOn(!s.initialized))
       .catch(() => setSetupOn(false));
+    // 探测未登录状态是否需要引导（无本地 admin）。
+    fetchMe()
+      .then((me) => setNeedsBootstrap(me.needsBootstrap ?? false))
+      .catch(() => undefined);
   }, []);
 
-  // 真正的密码验证：先拿令牌调一次受保护接口，通过了才进入控制台。
-  // 注意：fetchMe 用的是存储里的 token，所以先把输入值写入 localStorage 再校验；
-  // 否则全新浏览器（无历史 token）即使输对也只会带空/旧 token 而误报「令牌无效」。
-  const submit = async () => {
-    const token = value.trim();
-    if (!token) {
+  // 未登录且需要引导 → 直接进「创建管理员」模式。
+  useEffect(() => {
+    if (needsBootstrap) setMode("register");
+  }, [needsBootstrap]);
+
+  const submitPassword = async () => {
+    if (!username.trim() || !password) {
+      setError(mode === "register" ? "请输入用户名和密码" : "请输入用户名和密码");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const { token: t } =
+        mode === "register"
+          ? await registerLocal({ username: username.trim(), password })
+          : await loginLocal({ username: username.trim(), password });
+      setToken(t);
+      props.onAuthenticated(t);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "登录失败，请稍后重试");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitToken = async () => {
+    const t = token.trim();
+    if (!t) {
       setError("请输入访问令牌");
       return;
     }
     setBusy(true);
     setError(null);
-    setToken(token); // 先落库，fetchMe 才有正确的 token 可用
+    setToken(t);
     try {
       await fetchMe();
-      props.onAuthenticated(token);
-    } catch (err) {
-      // 校验失败：清掉刚才写入的 token，避免下次误用这个无效值
+      props.onAuthenticated(t);
+    } catch {
       setToken("");
-      const messageText = err instanceof Error ? err.message : "";
-      setError(
-        messageText.includes("unauthorized")
-          ? "访问令牌无效，请检查后重试。"
-          : "无法连接服务器，请稍后重试。",
-      );
+      setError("访问令牌无效，请检查后重试。");
     } finally {
       setBusy(false);
     }
+  };
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (mode === "token") submitToken();
+    else submitPassword();
   };
 
   return (
@@ -70,7 +111,7 @@ export function Login(props: { onAuthenticated: (token: string) => void }) {
           <span>AperturePrism</span>
         </div>
 
-        {oauthOn ? (
+        {oauthOn && mode !== "register" ? (
           <a className="btn btn-primary btn-block" href="/auth/login">
             使用 GitHub 登录
           </a>
@@ -78,38 +119,95 @@ export function Login(props: { onAuthenticated: (token: string) => void }) {
 
         <form
           className="login"
-          onSubmit={(event) => {
-            event.preventDefault();
-            submit();
-          }}
+          onSubmit={submit}
         >
           <div>
-            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>访问控制台</div>
+            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>
+              {mode === "register"
+                ? "创建管理员账号"
+                : mode === "token"
+                  ? "使用访问令牌"
+                  : "访问控制台"}
+            </div>
             <p className="login-desc">
-              请输入 API 访问令牌。令牌仅保存在本机浏览器，用于保护任务、结果与事件接口。
+              {mode === "register"
+                ? "当前实例尚未配置本地管理员，请设置首个管理员账号与密码。"
+                : mode === "token"
+                  ? "输入 API 访问令牌（WEBUI_TOKEN）。令牌仅保存在本机浏览器。"
+                  : "使用本地账号密码登录。如需旧版令牌登录，见下方「使用令牌」。"}
             </p>
           </div>
 
-          <div className="field">
-            <label htmlFor="token">API 访问令牌</label>
-            <input
-              id="token"
-              className="input"
-              type="password"
-              value={value}
-              onChange={(event) => setValue(event.target.value)}
-              placeholder="输入 WEBUI_API_TOKEN"
-              autoFocus
-              autoComplete="current-password"
-            />
-          </div>
+          {mode !== "token" ? (
+            <>
+              <div className="field">
+                <label htmlFor="username">用户名</label>
+                <input
+                  id="username"
+                  className="input"
+                  type="text"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  placeholder="管理员用户名"
+                  autoFocus
+                  autoComplete="username"
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="password">密码</label>
+                <input
+                  id="password"
+                  className="input"
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder={mode === "register" ? "至少 8 位" : "输入密码"}
+                  autoComplete={
+                    mode === "register" ? "new-password" : "current-password"
+                  }
+                />
+              </div>
+            </>
+          ) : (
+            <div className="field">
+              <label htmlFor="token">API 访问令牌</label>
+              <input
+                id="token"
+                className="input"
+                type="password"
+                value={token}
+                onChange={(event) => setTokenInput(event.target.value)}
+                placeholder="输入 WEBUI_API_TOKEN"
+                autoFocus
+                autoComplete="current-password"
+              />
+            </div>
+          )}
 
           {error ? <p className="state state-error">{error}</p> : null}
 
           <button className="btn btn-block" type="submit" disabled={busy}>
-            进入控制台
+            {mode === "register" ? "创建并登录" : "进入控制台"}
           </button>
         </form>
+
+        {mode === "token" ? (
+          <button
+            className="btn btn-ghost btn-block"
+            style={{ justifyContent: "center" }}
+            onClick={() => setMode("login")}
+          >
+            返回账号密码登录
+          </button>
+        ) : !needsBootstrap ? (
+          <button
+            className="btn btn-ghost btn-block"
+            style={{ justifyContent: "center" }}
+            onClick={() => setMode(mode === "login" ? "token" : "login")}
+          >
+            {mode === "login" ? "使用令牌登录" : "返回账号密码登录"}
+          </button>
+        ) : null}
 
         {setupOn ? (
           <a
