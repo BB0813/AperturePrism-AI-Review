@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, isNull, lt, ne, or } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, isNull, lt, ne, or } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "./schema.js";
 import { hashToken } from "./password.js";
@@ -56,7 +56,9 @@ export async function createSession(
       ip: input.ip ?? null,
     })
     .returning(SESSION_COLUMNS);
-  return rows[0];
+  const row = rows[0];
+  if (!row) throw new Error("createSession: no row returned");
+  return row;
 }
 
 /** 校验：token 指纹存在且未撤销、未过期。返回有效会话行或 null。 */
@@ -201,8 +203,8 @@ export async function pruneSessions(
     .where(
       or(
         lt(schema.userSessions.expiresAt, now),
-        // revoked_at 存在即删（已显式撤销 > 保留期限由调用方传 now 决定）
-        ne(schema.userSessions.revokedAt, null),
+        // 已显式撤销的会话也清理（保留期限由调用方通过 now 控制）。
+        isNotNull(schema.userSessions.revokedAt),
       ),
     )
     .returning({ id: schema.userSessions.id });
