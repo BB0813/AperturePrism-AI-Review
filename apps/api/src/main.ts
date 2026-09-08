@@ -4727,7 +4727,10 @@ async function handleGrants(
   if (path === "/grants" && request.method === "GET") {
     const user = url.searchParams.get("user")?.trim() || undefined;
     const repository = url.searchParams.get("repository")?.trim() || undefined;
-    let grants = await listAllGrants(database.db, { userLogin: user });
+    let grants = await listAllGrants(
+      database.db,
+      user ? { userLogin: user } : {},
+    );
     if (repository) {
       // 找出匹配该仓库（by id 或 full_name owner/name）的 repositoryId 集合。
       const allRepos = await database.db
