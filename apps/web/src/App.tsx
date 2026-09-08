@@ -95,7 +95,7 @@ export const NAV: NavGroup[] = [
     title: "数据与运维",
     items: [
       { path: "/repos", label: "已安装仓库", icon: FolderIcon },
-      { path: "/grants", label: "仓库授权", icon: GaugeIcon },
+      { path: "/grants", label: "仓库授权", icon: UserIcon },
       { path: "/analysis", label: "分析设置", icon: SlidersIcon },
       { path: "/repo-rules", label: "审核规则", icon: ShieldIcon },
       { path: "/vector", label: "向量存储", icon: DatabaseIcon },
