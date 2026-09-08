@@ -69,7 +69,8 @@ export async function listGrantsForUser(
     .from(schema.repositoryGrants)
     .where(eq(schema.repositoryGrants.userLogin, userLogin))
     .orderBy(asc(schema.repositoryGrants.repositoryId));
-  return rows;
+  // drizzle 将 text 列类型推断为 string；这里收敛回字面量联合。
+  return rows.map((r) => ({ ...r, access: r.access as RepoGrantAccess }));
 }
 
 /** 校验用户对某仓库是否满足指定访问等级。返回布尔。 */
@@ -118,5 +119,6 @@ export async function listAllGrants(
           .select(GRANT_COLUMNS)
           .from(schema.repositoryGrants)
           .orderBy(asc(schema.repositoryGrants.userLogin));
-  return rows;
+  // 收敛 text 列的 string 类型回字面量联合。
+  return rows.map((r) => ({ ...r, access: r.access as RepoGrantAccess }));
 }
