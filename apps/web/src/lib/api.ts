@@ -33,6 +33,7 @@ async function getJson(url: string): Promise<unknown> {
 
 async function fetchJson(url: string): Promise<unknown> {
   const response = await fetch(url, {
+    credentials: "same-origin",
     headers: { accept: "application/json", ...authHeaders() },
   });
   if (response.status === 401) {
@@ -995,6 +996,7 @@ export async function loginLocal(input: {
 }): Promise<{ token: string; user: AccountInfo }> {
   const response = await fetch("/auth/login", {
     method: "POST",
+    credentials: "same-origin",
     headers: { "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify(input),
   });
@@ -1018,6 +1020,7 @@ export async function registerLocal(input: {
 }): Promise<{ token: string; user: AccountInfo }> {
   const response = await fetch("/auth/register", {
     method: "POST",
+    credentials: "same-origin",
     headers: { "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify(input),
   });
@@ -1034,7 +1037,11 @@ export async function registerLocal(input: {
 
 /** 登出：吊销当前会话。 */
 export async function logoutLocal(): Promise<void> {
-  await fetch("/auth/logout", { method: "POST", headers: authHeaders() });
+  await fetch("/auth/logout", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: authHeaders(),
+  });
 }
 
 /** 改密：本地账号。返回是否成功（旧密错误时抛错）。 */
@@ -1044,6 +1051,7 @@ export async function changePassword(input: {
 }): Promise<void> {
   const response = await fetch("/auth/password", {
     method: "POST",
+    credentials: "same-origin",
     headers: { "content-type": "application/json", ...authHeaders() },
     body: JSON.stringify(input),
   });

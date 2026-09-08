@@ -520,6 +520,10 @@ function isAuthorized(request: IncomingMessage): boolean {
     const url = new URL(request.url ?? "/", "http://localhost");
     token = url.searchParams.get("token");
   }
+  // 方向四A：HttpOnly cookie 里的会话 token 也可鉴权（SSE/同源请求无需带 header）。
+  if (token === null || token.length === 0) {
+    token = sessionCookieToken(request);
+  }
   if (token === null || token.length === 0) return false;
   if (
     token.length === expected.length &&
@@ -4031,8 +4035,48 @@ async function handleAuth(
   json(response, 404, { status: "error", reason: "not_found" }, requestId);
 }
 
-/** Login of the current OAuth session from the Authorization header, if any. */
+/** HttpOnly 会话 cookie 名（方向四A）：把签名 token 放 cookie，前端 JS 不可读。 */
+const SESSION_COOKIE = "__ap_session";
+
+/** 从 Cookie 头解析会话 token（URL 编码处理）。 */
+function sessionCookieToken(request: IncomingMessage): string | null {
+  const header = request.headers.cookie;
+  if (typeof header !== "string" || header.length === 0) return null;
+  for (const part of header.split(";")) {
+    const eqIdx = part.indexOf("=");
+    if (eqIdx === -1) continue;
+    const name = part.slice(0, eqIdx).trim();
+    if (name === SESSION_COOKIE) {
+      try {
+        return decodeURIComponent(part.slice(eqIdx + 1).trim()) || null;
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+/** Set-Cookie 片段：HttpOnly + SameSite=Strict；生产（经 https）追加 Secure。 */
+function sessionCookieHeader(token: string, maxAgeSeconds: number): string {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  return (
+    `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Path=/; ` +
+    `SameSite=Strict; Max-Age=${maxAgeSeconds}${secure}`
+  );
+}
+
+/** 清空会话 cookie（登出时）。 */
+function clearSessionCookie(): string {
+  const secure =
+    process.env.NODE_ENV === "production" ? "; Secure" : "";
+  return `${SESSION_COOKIE}=; HttpOnly; Path=/; SameSite=Strict; Max-Age=0${secure}`;
+}
+
+/** Login of the current signed session (cookie or Authorization header), if any. */
 function sessionLogin(request: IncomingMessage): string | null {
+  const fromCookie = sessionCookieToken(request);
+  if (fromCookie) return parseSessionToken(fromCookie);
   const header = request.headers.authorization;
   if (typeof header === "string" && header.startsWith("Bearer "))
     return parseSessionToken(header.slice(7));
@@ -4206,6 +4250,10 @@ async function handleLocalAuth(
       ...fp,
     });
     await setLastLogin(database.db, username);
+    response.setHeader(
+      "set-cookie",
+      sessionCookieHeader(token, Math.floor(SESSION_TTL_MS / 1000)),
+    );
     json(
       response,
       200,
@@ -4275,6 +4323,10 @@ async function handleLocalAuth(
       expiresAt: new Date(now.getTime() + SESSION_TTL_MS),
       ...fp,
     });
+    response.setHeader(
+      "set-cookie",
+      sessionCookieHeader(token, Math.floor(SESSION_TTL_MS / 1000)),
+    );
     audit(request, "auth.bootstrap", username, {});
     json(
       response,
@@ -4304,8 +4356,10 @@ async function handleLocalAuth(
 
   // POST /auth/logout —— 吊销当前会话
   if (path === "/auth/logout" && method === "POST") {
-    const token = extractBearerOrQueryToken(request);
+    const token =
+      sessionCookieToken(request) ?? extractBearerOrQueryToken(request);
     if (token) await revokeSession(database.db, token, now);
+    response.setHeader("set-cookie", clearSessionCookie());
     audit(request, "auth.logout", login, {});
     json(response, 200, { status: "ok" }, requestId);
     return;
@@ -4405,7 +4459,9 @@ function extractBearerOrQueryToken(request: IncomingMessage): string | null {
   if (typeof header === "string" && header.startsWith("Bearer "))
     return header.slice(7);
   const url = new URL(request.url ?? "/", "http://localhost");
-  return url.searchParams.get("token");
+  const query = url.searchParams.get("token");
+  if (query) return query;
+  return sessionCookieToken(request);
 }
 
 /**
