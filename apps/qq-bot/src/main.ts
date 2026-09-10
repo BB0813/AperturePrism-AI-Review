@@ -238,11 +238,15 @@ function connectOfficialQq(): void {
   });
   let attempt = 0;
   let heartbeatMs = 30_000;
+  // 会话状态跨重连持久化：READY 下发的 session_id + 已收到的最新 seq。
+  // 官方网关重连时应走 op 6 RESUME 续接会话；若每次重连都重发 op 2 Identify，
+  // 新会话会顶掉旧会话，导致约每 30 分钟被强制断线、事件订阅不稳、收不到消息。
+  let sessionId = "";
+  let lastSequence = 0;
 
   const connect = (): void => {
     let socket: WebSocket;
     let heartbeatTimer: unknown;
-    let lastSequence = 0;
 
     const clearHeartbeat = (): void => {
       if (heartbeatTimer !== undefined)
@@ -265,16 +269,23 @@ function connectOfficialQq(): void {
       attempt = 0;
       try {
         const token = await tokenStore.getToken();
-        socket.send(
-          JSON.stringify({
-            op: 2,
-            d: {
-              token: `QQBot ${token}`,
-              intents: qq.officialIntents,
-              shard: [0, 1],
-            },
-          }),
-        );
+        const auth = `QQBot ${token}`;
+        if (sessionId) {
+          // 已有会话 → RESUME 续接（token + session_id + seq），不要重开 Identify。
+          socket.send(
+            JSON.stringify({
+              op: 6,
+              d: { token: auth, session_id: sessionId, seq: lastSequence },
+            }),
+          );
+        } else {
+          socket.send(
+            JSON.stringify({
+              op: 2,
+              d: { token: auth, intents: qq.officialIntents, shard: [0, 1] },
+            }),
+          );
+        }
       } catch (error) {
         logger.error(
           { err: error },
@@ -309,6 +320,14 @@ function connectOfficialQq(): void {
       if (op === 0) {
         const sequence = typeof data.s === "number" ? data.s : lastSequence;
         if (sequence > lastSequence) lastSequence = sequence;
+        // READY 事件通过 payload.session_id 下发，保存它以便重连时 RESUME。
+        if (
+          payload &&
+          typeof payload.session_id === "string" &&
+          payload.session_id.length > 0
+        ) {
+          sessionId = payload.session_id;
+        }
         const eventType = typeof data.t === "string" ? data.t : undefined;
         const dispatch = {
           op: 0,
@@ -323,8 +342,18 @@ function connectOfficialQq(): void {
         logger.info("official QQ requested reconnect");
         clearHeartbeat();
         socket.close();
+        return;
       }
-      // op 1 / 11 (heartbeat ack) and op 9 (invalid session) are handled by reconnect.
+      // op 9 = invalid session：清除会话状态，下一次以全新 Identify 重连。
+      if (op === 9) {
+        logger.info("official QQ invalid session, reset");
+        sessionId = "";
+        lastSequence = 0;
+        clearHeartbeat();
+        socket.close();
+        return;
+      }
+      // op 1 / 11 (heartbeat ack) 直接忽略即可。
     };
 
     socket.onclose = () => {
