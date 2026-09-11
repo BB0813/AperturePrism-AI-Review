@@ -51,7 +51,12 @@ export type BotCommand =
   | { kind: "review"; raw: string }
   | { kind: "retry"; raw: string }
   | { kind: "status"; raw: string }
-  | { kind: "help"; raw: string };
+  | { kind: "help"; raw: string }
+  | { kind: "repos"; raw: string }
+  | { kind: "repo"; raw: string }
+  | { kind: "logs"; raw: string }
+  | { kind: "scan"; raw: string }
+  | { kind: "settings"; raw: string };
 
 export const botCommandKinds = [
   "analyze",
@@ -59,5 +64,10 @@ export const botCommandKinds = [
   "retry",
   "status",
   "help",
+  "repos",
+  "repo",
+  "logs",
+  "scan",
+  "settings",
 ] as const;
 export type BotCommandKind = (typeof botCommandKinds)[number];

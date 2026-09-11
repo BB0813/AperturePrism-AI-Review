@@ -318,6 +318,13 @@ function connectOfficialQq(): void {
         return;
       }
       if (op === 0) {
+        logger.info(
+          {
+            eventType: data.t ?? "(none)",
+            hasPayload: payload === undefined ? false : true,
+          },
+          "official QQ dispatch received",
+        );
         const sequence = typeof data.s === "number" ? data.s : lastSequence;
         if (sequence > lastSequence) lastSequence = sequence;
         // READY 事件通过 payload.session_id 下发，保存它以便重连时 RESUME。
@@ -373,6 +380,15 @@ async function handleOfficialQqDispatch(
   tokenStore: ReturnType<typeof createOfficialQqTokenStore>,
 ): Promise<void> {
   const message = normalizeOfficialQqMessage(dispatch);
+  logger.info(
+    {
+      eventType: dispatch.t ?? "(none)",
+      normalized: message ? "ok" : "skip",
+      scene: message?.scene,
+      body: message?.body.slice(0, 80),
+    },
+    "official QQ message normalized",
+  );
   if (!message) return;
   const command = parseBotCommand(message.body);
   const reply = await dispatchBotTurn(message, command, taskAction);
