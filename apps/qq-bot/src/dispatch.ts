@@ -36,9 +36,24 @@ const defaultAction: DispatchAction = (_message, command) => {
 
 /** What a command expects in its arguments (link or task id). */
 export function commandHint(kind: BotCommand["kind"]): string {
-  return kind === "analyze" || kind === "review"
-    ? "GitHub 链接"
-    : "任务 ID";
+  switch (kind) {
+    case "analyze":
+    case "review":
+      return "GitHub 链接";
+    case "status":
+    case "retry":
+      return "任务 ID";
+    case "repo":
+    case "settings":
+      return "仓库名（可选）";
+    case "repos":
+    case "scan":
+      return "（无参数）";
+    case "logs":
+      return "条数（可选）";
+    case "help":
+      return "—";
+  }
 }
 
 function exampleCommand(kind: BotCommand["kind"]): string {
@@ -53,6 +68,8 @@ function exampleCommand(kind: BotCommand["kind"]): string {
       return "/retry <任务ID>";
     case "help":
       return "/prism help";
+    default:
+      return `/${kind}${kind === "repo" || kind === "settings" ? " owner/name" : ""}`;
   }
 }
 
@@ -80,6 +97,11 @@ export function helpText(): string {
     "  /review <PR 链接>      审查一个 GitHub Pull Request",
     "  /status <任务ID>       查看任务执行状态与结果",
     "  /retry <任务ID>        重跑失败/已取消的任务",
+    "  /repos                 列出已记录的仓库",
+    "  /repo <owner/name>     查看单个仓库详情",
+    "  /logs [条数]           查看最近任务/事件日志",
+    "  /scan                  触发全仓库索引扫描",
+    "  /settings [owner/name] 查看仓库扫描/功能设置",
     "  /prism help            显示本帮助",
   ].join("\n");
 }
@@ -96,6 +118,16 @@ function commandKindLabel(kind: BotCommand["kind"]): string {
       return "状态查询";
     case "help":
       return "帮助";
+    case "repos":
+      return "仓库列表";
+    case "repo":
+      return "仓库详情";
+    case "logs":
+      return "日志";
+    case "scan":
+      return "扫描触发";
+    case "settings":
+      return "扫描设置";
   }
 }
 

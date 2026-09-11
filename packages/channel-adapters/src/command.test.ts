@@ -23,6 +23,17 @@ describe("bot command parser", () => {
     });
     expect(parseBotCommand("/prism help")).toEqual({ kind: "help", raw: "" });
     expect(parseBotCommand("/prism")).toEqual({ kind: "help", raw: "" });
+    expect(parseBotCommand("/repos")).toEqual({ kind: "repos", raw: "" });
+    expect(parseBotCommand("/repo owner/name")).toEqual({
+      kind: "repo",
+      raw: "owner/name",
+    });
+    expect(parseBotCommand("/logs 20")).toEqual({ kind: "logs", raw: "20" });
+    expect(parseBotCommand("/scan")).toEqual({ kind: "scan", raw: "" });
+    expect(parseBotCommand("/settings owner/name")).toEqual({
+      kind: "settings",
+      raw: "owner/name",
+    });
   });
 
   it("ignores leading blank lines and requires the command on the first content line", () => {

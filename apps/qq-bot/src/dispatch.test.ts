@@ -32,6 +32,9 @@ describe("QQ bot dispatch", () => {
     expect(reply).toContain("/analyze");
     expect(reply).toContain("/status");
     expect(reply).toContain("/prism help");
+    expect(reply).toContain("/repos");
+    expect(reply).toContain("/logs");
+    expect(reply).toContain("/settings");
   });
 
   it("acknowledges an analyze command with a GitHub link", async () => {

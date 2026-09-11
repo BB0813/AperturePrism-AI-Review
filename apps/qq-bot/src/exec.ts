@@ -42,6 +42,16 @@ export function createTaskAction(deps: TaskActionDeps): DispatchAction {
           return await taskStatus(deps, command.raw);
         case "retry":
           return await retryTask(deps, command.raw);
+        case "repos":
+          return await listRepositories(deps);
+        case "repo":
+          return await repositoryDetail(deps, command.raw);
+        case "logs":
+          return await recentLogs(deps, command.raw);
+        case "scan":
+          return await triggerScan(deps);
+        case "settings":
+          return await scanConfig(deps, command.raw);
         case "help":
           return null; // handled before the action runs
       }
@@ -236,4 +246,219 @@ function formatTime(value: Date | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(
     d.getHours(),
   )}:${pad(d.getMinutes())}`;
+}
+
+// ---------------------------------------------------------------------------
+// 仓库 / 日志类命令。全部复用 apps/api 的只读 + admin 触发端点；Bot 用 Bearer
+// token 调用（无 session），API 将无身份请求视为 admin → 全仓库可见/可触发。
+// ---------------------------------------------------------------------------
+
+/** Common headers for API calls; add Bearer when a token is configured. */
+function apiHeaders(deps: TaskActionDeps): Record<string, string> {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (deps.apiToken) headers.authorization = `Bearer ${deps.apiToken}`;
+  return headers;
+}
+
+/** GET an API path, decoding common failure shapes into a user-facing reason. */
+async function apiGet<T>(
+  deps: TaskActionDeps,
+  path: string,
+): Promise<{ ok: true; data: T } | { ok: false; reason: string }> {
+  const url = `${deps.apiBaseUrl.replace(/\/+$/, "")}${path}`;
+  let response: Response;
+  try {
+    response = await fetch(url, { headers: apiHeaders(deps) });
+  } catch {
+    return { ok: false, reason: `无法连接 API（${deps.apiBaseUrl}），请检查网络。` };
+  }
+  if (!response.ok) {
+    let reason = `HTTP ${response.status}`;
+    try {
+      const body = (await response.json()) as { reason?: unknown };
+      if (typeof body?.reason === "string" && body.reason) reason = body.reason;
+    } catch {
+      // non-JSON response falls through
+    }
+    return { ok: false, reason };
+  }
+  return { ok: true, data: (await response.json()) as T };
+}
+
+async function listRepositories(deps: TaskActionDeps): Promise<string> {
+  const res = await apiGet<{ items?: unknown[] }>(
+    deps,
+    "/repositories",
+  );
+  if (!res.ok) return `获取仓库列表失败：${res.reason}`;
+  const items = Array.isArray(res.data.items) ? res.data.items : [];
+  if (items.length === 0) return "尚无记录的仓库。";
+  const lines = items.slice(0, 30).map((item) => {
+    const it = item as {
+      fullName?: unknown;
+      taskCount?: unknown;
+      resultCount?: unknown;
+    };
+    const name = typeof it.fullName === "string" ? it.fullName : "—";
+    const tasks = Number(it.taskCount) || 0;
+    const results = Number(it.resultCount) || 0;
+    return `  - ${name}：任务 ${tasks} ｜ 结果 ${results}`;
+  });
+  return [`已记录仓库（${items.length}）：`, ...lines].join("\n");
+}
+
+async function repositoryDetail(
+  deps: TaskActionDeps,
+  raw: string,
+): Promise<string> {
+  const name = raw.trim();
+  if (!/^[\w.-]+\/[\w.-]+$/u.test(name)) {
+    return "用法：/repo <owner/name>，例如 `/repo owner/repo`。";
+  }
+  const res = await apiGet<{ items?: unknown[] }>(deps, "/repositories");
+  if (!res.ok) return `获取仓库详情失败：${res.reason}`;
+  const items = Array.isArray(res.data.items) ? res.data.items : [];
+  const repo = items.find((it) => {
+    const fullName = (it as { fullName?: unknown }).fullName;
+    return fullName === name;
+  }) as
+    | { fullName?: unknown; taskCount?: unknown; resultCount?: unknown }
+    | undefined;
+  if (!repo) return `仓库「${name}」未记录/未安装。`;
+
+  const lines = [
+    `仓库：${typeof repo.fullName === "string" ? repo.fullName : name}`,
+    `  任务：${Number(repo.taskCount) || 0} ｜ 结果：${Number(repo.resultCount) || 0}`,
+  ];
+
+  const issues = await apiGet<{ items?: unknown[] }>(
+    deps,
+    `/repositories/issues?fullName=${encodeURIComponent(name)}&limit=5`,
+  );
+  if (issues.ok && Array.isArray(issues.data.items) && issues.data.items.length) {
+    lines.push("  最近条目：");
+    for (const item of issues.data.items.slice(0, 5)) {
+      const it = item as { number?: unknown; title?: unknown; type?: unknown };
+      lines.push(
+        `    #${it.number ?? "?"} [${it.type ?? "issue"}] ${String(
+          it.title ?? "",
+        ).slice(0, 40)}`,
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
+async function recentLogs(deps: TaskActionDeps, raw: string): Promise<string> {
+  const rawN = raw.trim();
+  let limit = 60;
+  if (rawN.length > 0) {
+    if (!/^\d+$/u.test(rawN)) return "用法：/logs [条数]，例如 `/logs 20`。";
+    limit = Math.min(Math.max(Number(rawN), 1), 200);
+  }
+  const res = await apiGet<{ events?: unknown[] }>(
+    deps,
+    `/logs?history=1&limit=${limit}`,
+  );
+  if (!res.ok) return `获取日志失败：${res.reason}`;
+  const events = Array.isArray(res.data.events) ? res.data.events : [];
+  if (events.length === 0) return "暂无日志事件。";
+  const lines = events.slice(0, Math.min(limit, 200)).map((event) => {
+    const it = event as {
+      taskId?: unknown;
+      eventType?: unknown;
+      createdAt?: unknown;
+    };
+    const taskId = typeof it.taskId === "string" ? it.taskId : "";
+    const short = taskId.length > 8 ? taskId.slice(0, 8) : taskId;
+    const type = typeof it.eventType === "string" ? it.eventType : "?";
+    const when =
+      it.createdAt instanceof Date
+        ? formatTime(it.createdAt)
+        : typeof it.createdAt === "string"
+          ? it.createdAt.slice(0, 16).replace("T", " ")
+          : "";
+    return `  ${short} ${type} ${when}`;
+  });
+  return [
+    `最近日志（${events.length}）：`,
+    ...lines,
+    limit < 200 ? "提示：可用 `/logs <条数>` 查看更多。" : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+async function triggerScan(deps: TaskActionDeps): Promise<string> {
+  const url = `${deps.apiBaseUrl.replace(/\/+$/, "")}/scans/run`;
+  let response: Response;
+  try {
+    response = await fetch(url, { method: "POST", headers: apiHeaders(deps) });
+  } catch {
+    return `无法连接 API（${deps.apiBaseUrl}），请检查网络。`;
+  }
+  if (response.status === 403) {
+    return "当前令牌无管理员权限，无法触发扫描。";
+  }
+  if (!response.ok) return `触发扫描失败：HTTP ${response.status}`;
+  return "已触发全仓库索引扫描，worker 将在下一轮执行。";
+}
+
+async function scanConfig(
+  deps: TaskActionDeps,
+  raw: string,
+): Promise<string> {
+  const filter =
+    raw.trim().length > 0 && /^[\w.-]+\/[\w.-]+$/u.test(raw.trim())
+      ? raw.trim()
+      : null;
+  const res = await apiGet<{ enabled?: unknown; items?: unknown[] }>(
+    deps,
+    "/scans/config",
+  );
+  if (!res.ok) return `获取扫描设置失败：${res.reason}`;
+  const globalOn = res.data.enabled === true;
+  const items = Array.isArray(res.data.items) ? res.data.items : [];
+  const rows = filter
+    ? items.filter(
+        (it) =>
+          (it as { fullName?: unknown }).fullName === filter,
+      )
+    : items;
+  if (rows.length === 0) {
+    return filter
+      ? `仓库「${filter}」没有扫描配置。`
+      : "暂无仓库扫描配置。";
+  }
+  const lines = [
+    `全局扫描：${globalOn ? "开启" : "关闭"}`,
+    ...rows.slice(0, 20).map((item) => formatScanConfig(item)),
+  ];
+  return lines.join("\n");
+}
+
+function formatScanConfig(item: unknown): string {
+  const it = item as {
+    fullName?: unknown;
+    installed?: unknown;
+    enabled?: unknown;
+    intervalMinutes?: unknown;
+    maxIssues?: unknown;
+    maxPrs?: unknown;
+    autoAnalyzeIssues?: unknown;
+    autoAnalyzePrs?: unknown;
+    createTrackingIssues?: unknown;
+  };
+  const name = typeof it.fullName === "string" ? it.fullName : "?";
+  const on = it.enabled === true;
+  const lines = [
+    `  ${name}（${it.installed === true ? "已安装" : "未安装"}）扫描 ${on ? "开" : "关"}`,
+    `    间隔 ${String(it.intervalMinutes ?? "-")} 分钟｜Issue ${String(
+      it.maxIssues ?? "-",
+    )}｜PR ${String(it.maxPrs ?? "-")}`,
+    `    自动分析 Issue ${it.autoAnalyzeIssues === true ? "是" : "否"}｜PR ${
+      it.autoAnalyzePrs === true ? "是" : "否"
+    }｜建跟踪单 ${it.createTrackingIssues === true ? "是" : "否"}`,
+  ];
+  return lines.join("\n");
 }

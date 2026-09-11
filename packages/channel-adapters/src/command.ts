@@ -6,6 +6,11 @@ const KNOWN: Record<string, BotCommand["kind"]> = {
   retry: "retry",
   status: "status",
   prism: "help",
+  repos: "repos",
+  repo: "repo",
+  logs: "logs",
+  scan: "scan",
+  settings: "settings",
 };
 
 /**
