@@ -73,7 +73,10 @@ import {
   reviewPullRequest,
   type PrReviewContext,
 } from "../../../packages/pr-review/src/index.js";
-import { createOpenAICompatibleAdapter } from "../../../packages/model-router/src/index.js";
+import {
+  createOpenAICompatibleAdapter,
+  routeModelInvocation,
+} from "../../../packages/model-router/src/index.js";
 import {
   runExpertReview,
   selectSkills,
@@ -555,7 +558,22 @@ async function main(): Promise<void> {
       // 调用工具都能看到源码（deepseek 的 function-calling 不稳定）。tools 仍保留。
       if (deep && shouldReadRepo) {
         try {
-          const preload = await preloadTargetFiles(assertGithub(github), context);
+          const preload = await preloadTargetFiles(
+            assertGithub(github),
+            context,
+            // 内容级检索：#62 方案2。仅当路径打分未命中（中文语义）时，由模型从
+            // 仓库候选清单挑最相关源码，覆盖纯中文 enhancement 场景。
+            async (candidatePaths, ctx) => {
+              const res = await routeModelInvocation(adapters, {
+                candidates: issueCandidates,
+                request: buildFilePickRequest(ctx, candidatePaths),
+                deadlineMs: Math.min(analysisDeadlineMs, 30_000),
+                retryPolicy: analysisRetryPolicy,
+                ...(signal === undefined ? {} : { signal }),
+              });
+              return parseFilePicks(res.response.content, candidatePaths);
+            },
+          );
           if (preload.length > 0) {
             context = { ...context, preloadedFiles: preload };
             logger.info(
@@ -1705,15 +1723,12 @@ async function findRelevantFiles(
     .map((x) => x.path);
 }
 
-async function preloadTargetFiles(
+/** 实际读取并截断一组文件；读不到的文件静默跳过，不阻断分析。 */
+async function readPreloadFiles(
   reader: FileReader,
   context: IssueContext,
+  paths: string[],
 ): Promise<{ path: string; content: string }[]> {
-  const explicit = extractTargetFiles(context);
-  const paths =
-    explicit.length > 0
-      ? explicit
-      : await findRelevantFiles(reader, context).catch(() => []);
   const out: { path: string; content: string }[] = [];
   for (const path of paths) {
     try {
@@ -1732,6 +1747,88 @@ async function preloadTargetFiles(
     }
   }
   return out;
+}
+
+/**
+ * #62 方案2：内容级检索。路径打分未命中（多为纯中文语义，ASCII 路径无法直接
+ * 匹配中文关键词）时，让模型从仓库候选文件清单里挑最相关源码回填预读注入。
+ */
+function buildFilePickRequest(
+  context: IssueContext,
+  candidatePaths: string[],
+): {
+  messages: { role: "system" | "user"; content: string }[];
+  responseFormat: "json";
+  temperature: number;
+  maxOutputTokens: number;
+} {
+  const issue = `${context.issue.title ?? ""}\n${context.issue.body ?? ""}`;
+  const list = candidatePaths.slice(0, 500).join("\n");
+  return {
+    messages: [
+      {
+        role: "system",
+        content:
+          "你是仓库代码检索助手。根据用户 Issue（可能为中文）找出与修复/实现该需求最相关的仓库文件。只能从给定的文件清单中选择，不得编造路径。",
+      },
+      {
+        role: "user",
+        content: `Issue 内容（可能是中文）：\n${issue}\n\n候选文件清单（只能从这些里选）：\n${list}\n\n请返回一个 JSON 对象 {"paths": [...]}，最多 2 个、按相关度从高到低；都不相关则返回 {"paths": []}。只输出该 JSON。`,
+      },
+    ],
+    responseFormat: "json",
+    temperature: 0.1,
+    maxOutputTokens: 700,
+  };
+}
+
+/** 解析模型返回的文件选择，只保留候选清单内真实存在的路径（大小写不敏感）。 */
+function parseFilePicks(text: string, candidates: string[]): string[] {
+  const byLower = new Map<string, string>();
+  for (const p of candidates) byLower.set(p.toLowerCase(), p);
+  const picked: string[] = [];
+  const blocks = text.match(/\{[\s\S]*\}/g) ?? [];
+  for (const block of blocks) {
+    try {
+      const obj = JSON.parse(block) as { paths?: unknown };
+      if (!Array.isArray(obj.paths)) continue;
+      for (const v of obj.paths) {
+        if (typeof v !== "string") continue;
+        const real = byLower.get(v.toLowerCase());
+        if (real && !picked.includes(real)) picked.push(real);
+      }
+    } catch {
+      // 非 JSON 块，跳过。
+    }
+  }
+  return picked.slice(0, 2);
+}
+
+/**
+ * 预读源码：优先用户点名文件 → 路径关键词命中 → 内容级检索（模型挑文件）。
+ * 注入后模型无需依赖不稳定的 function-calling 即可看到源码（#62）。
+ */
+async function preloadTargetFiles(
+  reader: FileReader,
+  context: IssueContext,
+  pickWithModel?: (
+    candidatePaths: string[],
+    ctx: IssueContext,
+  ) => Promise<string[]>,
+): Promise<{ path: string; content: string }[]> {
+  const explicit = extractTargetFiles(context);
+  if (explicit.length > 0) return readPreloadFiles(reader, context, explicit);
+  const pathHits = await findRelevantFiles(reader, context).catch(() => []);
+  if (pathHits.length > 0) return readPreloadFiles(reader, context, pathHits);
+  // 路径打分未命中（中文语义居多）→ 内容级检索：让模型挑最相关源码。
+  if (pickWithModel) {
+    const candidatePaths = await listRepoSourcePaths(reader, context).catch(() => []);
+    if (candidatePaths.length > 0) {
+      const modelPicks = await pickWithModel(candidatePaths, context).catch(() => []);
+      if (modelPicks.length > 0) return readPreloadFiles(reader, context, modelPicks);
+    }
+  }
+  return [];
 }
 
 /**

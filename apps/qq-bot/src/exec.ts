@@ -293,18 +293,35 @@ async function listRepositories(deps: TaskActionDeps): Promise<string> {
   if (!res.ok) return `获取仓库列表失败：${res.reason}`;
   const items = Array.isArray(res.data.items) ? res.data.items : [];
   if (items.length === 0) return "尚无记录的仓库。";
-  const lines = items.slice(0, 30).map((item) => {
+  const shown = items.slice(0, 30).map((item) => {
     const it = item as {
       fullName?: unknown;
       taskCount?: unknown;
       resultCount?: unknown;
     };
-    const name = typeof it.fullName === "string" ? it.fullName : "—";
-    const tasks = Number(it.taskCount) || 0;
-    const results = Number(it.resultCount) || 0;
-    return `  - ${name}：任务 ${tasks} ｜ 结果 ${results}`;
+    return {
+      name: typeof it.fullName === "string" ? it.fullName : "—",
+      tasks: Number(it.taskCount) || 0,
+      results: Number(it.resultCount) || 0,
+    };
   });
-  return [`已记录仓库（${items.length}）：`, ...lines].join("\n");
+  const width = Math.max("仓库名".length, ...shown.map((r) => r.name.length));
+  const pad = (s: string): string => s.padEnd(width);
+  const lines = shown.map(
+    (r) =>
+      `  ${pad(r.name)}  任务 ${String(r.tasks).padStart(4)} ｜ 结果 ${String(
+        r.results,
+      ).padStart(4)}`,
+  );
+  const header =
+    items.length > 30
+      ? `已记录仓库（前 ${shown.length}/${items.length}）：`
+      : `已记录仓库（${items.length}）：`;
+  const footer =
+    items.length > 30
+      ? "数量较多，仅显示前 30；可用 `/repo <owner/name>` 查看单个仓库。"
+      : "提示：可用 `/repo <owner/name>` 查看仓库详情。";
+  return [header, ...lines, footer].join("\n");
 }
 
 async function repositoryDetail(
@@ -363,26 +380,72 @@ async function recentLogs(deps: TaskActionDeps, raw: string): Promise<string> {
   if (!res.ok) return `获取日志失败：${res.reason}`;
   const events = Array.isArray(res.data.events) ? res.data.events : [];
   if (events.length === 0) return "暂无日志事件。";
-  const lines = events.slice(0, Math.min(limit, 200)).map((event) => {
+
+  const EVENT_LABEL: Record<string, string> = {
+    "task.queued": "排队",
+    "task.started": "开始",
+    "task.heartbeat": "心跳",
+    "task.analysis_usage": "用量",
+    "task.completed": "完成",
+    "task.failed": "失败",
+    "task.canceled": "取消",
+    "task.retry_wait": "等待重试",
+    "task.retried": "重试",
+    "task.publishing": "发布",
+    "task.error": "错误",
+  };
+  const labelOf = (t: string): string => EVENT_LABEL[t] ?? t;
+
+  const taken = events.slice(0, Math.min(limit, 200));
+  const groups: {
+    short: string;
+    type: string;
+    label: string;
+    when: string;
+    count: number;
+  }[] = [];
+  const dist = new Map<string, number>();
+  for (const event of taken) {
     const it = event as {
       taskId?: unknown;
       eventType?: unknown;
       createdAt?: unknown;
     };
+    const type = typeof it.eventType === "string" ? it.eventType : "?";
     const taskId = typeof it.taskId === "string" ? it.taskId : "";
     const short = taskId.length > 8 ? taskId.slice(0, 8) : taskId;
-    const type = typeof it.eventType === "string" ? it.eventType : "?";
     const when =
       it.createdAt instanceof Date
         ? formatTime(it.createdAt)
         : typeof it.createdAt === "string"
           ? it.createdAt.slice(0, 16).replace("T", " ")
           : "";
-    return `  ${short} ${type} ${when}`;
-  });
+    dist.set(type, (dist.get(type) ?? 0) + 1);
+    const last = groups[groups.length - 1];
+    if (last && last.short === short && last.type === type) last.count++;
+    else groups.push({ short, type, label: labelOf(type), when, count: 1 });
+  }
+
+  const lines = groups.map(
+    (g) =>
+      `  ${g.short.padEnd(8)} [${g.label}] ${g.when}${
+        g.count > 1 ? `  ×${g.count}` : ""
+      }`,
+  );
+  const distLine = [...dist.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([t, c]) => `${t}×${c}`)
+    .join("  ");
+
+  const header =
+    groups.length !== taken.length
+      ? `最近日志（${taken.length} 条 → 合并 ${groups.length} 组）：`
+      : `最近日志（${taken.length} 条）：`;
   return [
-    `最近日志（${events.length}）：`,
+    header,
     ...lines,
+    distLine ? `分布：${distLine}` : "",
     limit < 200 ? "提示：可用 `/logs <条数>` 查看更多。" : "",
   ]
     .filter(Boolean)
