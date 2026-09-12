@@ -1581,6 +1581,14 @@ type FileReader = {
     path: string;
     ref: string;
   }): Promise<{ content?: string } | null | undefined>;
+  /** 列目录条目（contents API），供兜底命中按关键词扫仓用。 */
+  listDirectory(args: {
+    installationId: string;
+    owner: string;
+    name: string;
+    path: string;
+    ref: string;
+  }): Promise<{ name: string; path: string; type: string }[]>;
 };
 
 /** 审查/缺陷请求里用户点名的文件路径（如 main.py、backend/app.ts）。最多取 2 个。 */
@@ -1599,16 +1607,115 @@ function extractTargetFiles(context: IssueContext): string[] {
 }
 
 /**
- * 方案B：服务端主动预读被点名审查的目标文件源码并注入上下文，模型无需依赖
- * 调用 read_file 即可看到代码（deepseek 对 function-calling 不稳定，工具注入
- * 无法保证其一定主动读仓）。读不到的文件静默跳过，不阻断分析。
+ * 方案B：服务端主动预读目标文件源码并注入上下文，模型无需依赖调用 read_file
+ * 即可看到代码（deepseek 对 function-calling 不稳定，工具注入无法保证其一定
+ * 主动读仓）。先取用户点名文件；未点名的（常见于模糊 enhancement）走兜底命中：
+ * 按 issue 关键词在有界扫出的仓库路径里打分，挑最相关的源码注入（#62）。
+ * 读不到的文件静默跳过，不阻断分析。
  */
+const FALLBACK_MAX_FILES = 200;
+const FALLBACK_MAX_DEPTH = 3;
+/** 需跳过的目录（依赖/产物/版本控制/虚拟环境）。 */
+const FALLBACK_SKIP_DIR =
+  /(^|\/)(\.git|node_modules|dist|build|\.next|\.nuxt|out|coverage|vendor|target|\.cache|\.venv)(\/|$)/;
+/** 只把可读的源码/配置纳入候选，排除二进制/图片/归档/压缩产物。 */
+const FALLBACK_SOURCE_EXT =
+  /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|c|cc|cpp|h|hpp|sh|ps1|bat|json|css|scss|less|html|vue|svelte|yml|yaml|toml|md)$/i;
+
+/** 从 issue 标题/正文提取英文技术关键词（去停用词），用于兜底扫仓匹配。 */
+function extractIssueKeywords(context: IssueContext): Set<string> {
+  const hay = `${context.issue.title ?? ""}\n${context.issue.body ?? ""}`.toLowerCase();
+  const stop = new Set(
+    "a|an|the|and|or|for|with|from|to|of|in|on|at|by|as|is|it|be|are|was|were|been|this|that|these|those|its|our|their|your|his|her|my|i|we|you|they|he|she|do|does|did|not|no|yes|but|if|so|then|there|here|about|into|over|under|again|while|when|how|why|what|where|which|who|can|could|would|should|may|might|must|will|shall|also|only|some|such|more|most|other|same|very|too|just|please|help|bug|fix|feat|feature|enhancement|issue|support|add|adding|new|use|used|using|get|got|give|need|needs|want|wants|have|has|having".split(
+      "|",
+    ),
+  );
+  const terms = new Set<string>();
+  for (const m of hay.matchAll(/\b[a-z][a-z0-9_-]{2,}\b/g)) {
+    const w = m[0];
+    if (!stop.has(w) && !/^\d/.test(w)) terms.add(w);
+  }
+  return terms;
+}
+
+/** 有界 BFS：收集仓库内源码/配置文件路径（限制深度、访问数与文件数）。 */
+async function listRepoSourcePaths(
+  reader: FileReader,
+  context: IssueContext,
+): Promise<string[]> {
+  const files: string[] = [];
+  const queue: string[] = [""];
+  let visited = 0;
+  let depth = 0;
+  while (queue.length > 0 && files.length < FALLBACK_MAX_FILES && visited < FALLBACK_MAX_FILES * 2) {
+    const level = queue.length;
+    depth += 1;
+    if (depth > FALLBACK_MAX_DEPTH) break;
+    for (let i = 0; i < level && queue.length > 0; i++) {
+      const dir = queue.shift()!;
+      visited += 1;
+      const entries = await reader
+        .listDirectory({
+          installationId: context.installationId,
+          owner: context.repository.owner,
+          name: context.repository.name,
+          path: dir,
+          ref: "HEAD",
+        })
+        .catch(() => []);
+      for (const e of entries) {
+        if (e.type === "file") {
+          if (FALLBACK_SOURCE_EXT.test(e.path) && !/\.(min|bundle|chunk)\.\w+$/.test(e.path)) {
+            files.push(e.path);
+          }
+        } else if (e.type === "dir" && !FALLBACK_SKIP_DIR.test(e.path)) {
+          queue.push(e.path);
+        }
+      }
+    }
+  }
+  return files;
+}
+
+/** 按关键词给路径打分：命中文件名加权更高。 */
+function scorePathByKeywords(path: string, terms: Set<string>): number {
+  const lower = path.toLowerCase();
+  const base = lower.split("/").pop() ?? "";
+  let score = 0;
+  for (const t of terms) {
+    if (base.includes(t)) score += 2;
+    else if (lower.includes(t)) score += 1;
+  }
+  return score;
+}
+
+/** 兜底命中：无点名文件时，按 issue 关键词挑最相关的源码（最多 2 个）。 */
+async function findRelevantFiles(
+  reader: FileReader,
+  context: IssueContext,
+): Promise<string[]> {
+  const terms = extractIssueKeywords(context);
+  if (terms.size === 0) return [];
+  const paths = await listRepoSourcePaths(reader, context);
+  return paths
+    .map((path) => ({ path, score: scorePathByKeywords(path, terms) }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 2)
+    .map((x) => x.path);
+}
+
 async function preloadTargetFiles(
   reader: FileReader,
   context: IssueContext,
 ): Promise<{ path: string; content: string }[]> {
+  const explicit = extractTargetFiles(context);
+  const paths =
+    explicit.length > 0
+      ? explicit
+      : await findRelevantFiles(reader, context).catch(() => []);
   const out: { path: string; content: string }[] = [];
-  for (const path of extractTargetFiles(context)) {
+  for (const path of paths) {
     try {
       const file = await reader.getFileContents({
         installationId: context.installationId,
