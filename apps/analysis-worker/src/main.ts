@@ -564,6 +564,14 @@ async function main(): Promise<void> {
             // 内容级检索：#62 方案2。仅当路径打分未命中（中文语义）时，由模型从
             // 仓库候选清单挑最相关源码，覆盖纯中文 enhancement 场景。
             async (candidatePaths, ctx) => {
+              logger.info(
+                {
+                  repo: repositoryFullName,
+                  subject: ctx.issue.number,
+                  candidatePaths: candidatePaths.length,
+                },
+                "content retrieval: model file picker start",
+              );
               const res = await routeModelInvocation(adapters, {
                 candidates: issueCandidates,
                 request: buildFilePickRequest(ctx, candidatePaths),
@@ -571,7 +579,17 @@ async function main(): Promise<void> {
                 retryPolicy: analysisRetryPolicy,
                 ...(signal === undefined ? {} : { signal }),
               });
-              return parseFilePicks(res.response.content, candidatePaths);
+              const picked = parseFilePicks(res.response.content, candidatePaths);
+              logger.info(
+                {
+                  repo: repositoryFullName,
+                  subject: ctx.issue.number,
+                  response: res.response.content.slice(0, 300),
+                  picked,
+                },
+                "content retrieval: model picked files",
+              );
+              return picked;
             },
           );
           if (preload.length > 0) {
@@ -1787,19 +1805,30 @@ function parseFilePicks(text: string, candidates: string[]): string[] {
   const byLower = new Map<string, string>();
   for (const p of candidates) byLower.set(p.toLowerCase(), p);
   const picked: string[] = [];
+  const push = (v: string): void => {
+    if (typeof v !== "string") return;
+    const real = byLower.get(v.trim().toLowerCase());
+    if (real && !picked.includes(real)) picked.push(real);
+  };
+  // 先试 JSON 块：{"paths": [ ... ]}
   const blocks = text.match(/\{[\s\S]*\}/g) ?? [];
   for (const block of blocks) {
     try {
       const obj = JSON.parse(block) as { paths?: unknown };
-      if (!Array.isArray(obj.paths)) continue;
-      for (const v of obj.paths) {
-        if (typeof v !== "string") continue;
-        const real = byLower.get(v.toLowerCase());
-        if (real && !picked.includes(real)) picked.push(real);
-      }
+      if (Array.isArray(obj.paths)) for (const v of obj.paths) push(String(v));
     } catch {
       // 非 JSON 块，跳过。
     }
+  }
+  if (picked.length > 0) return picked.slice(0, 2);
+  // 兜底：逐行当作相对路径解析（去掉列表符号/引号/逗号）。
+  for (const line of text.split(/\r?\n/)) {
+    const clean = line
+      .trim()
+      .replace(/^[-*\d.\s"'`]+/, "")
+      .replace(/[,;'"]+$/u, "")
+      .trim();
+    if (clean) push(clean);
   }
   return picked.slice(0, 2);
 }
