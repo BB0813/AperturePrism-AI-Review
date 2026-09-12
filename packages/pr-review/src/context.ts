@@ -63,6 +63,8 @@ export type RenderedPrContext = {
   repoMemory?: string;
   /** 仓库 `.apertureprism/rules/` 目录下的审核规则（Sakura 式专属文件夹）。 */
   repoRules?: string;
+  /** 变更文件原文（预读注入，供模型直接确认逻辑，无需依赖 read_file）。 */
+  preloadedFiles?: readonly { path: string; content: string }[];
 };
 
 /**

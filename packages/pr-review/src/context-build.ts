@@ -71,6 +71,47 @@ export async function buildPrContext(
 
   const parsed = parseUnifiedDiff(diffText);
   const rendered = renderDiffForModel(parsed, budget);
+
+  // #62/审查一致性：模型（尤其 deepseek 类）常不调 read_file。主动预读变更文件原文，
+  // 使其无需调用工具也能看到文件周边代码，避免小 PR 只按 diff 臆断而误报。
+  const CHANGED_FILE_PRELOAD_MAX = 5;
+  const CHANGED_FILE_PRELOAD_CHARS = 24_000;
+  const CHANGED_FILE_PRELOAD_TOTAL = 60_000;
+  const textFiles = parsed.files
+    .filter((f) => f.hunks && f.hunks.length > 0)
+    .map((f) => ({ path: f.newPath, churn: f.additions + f.deletions }))
+    .sort((a, b) => b.churn - a.churn)
+    .slice(0, CHANGED_FILE_PRELOAD_MAX);
+  const headSha =
+    (pullRequest as { head?: { sha?: string } }).head?.sha ??
+    (pullRequest as { mergeCommitSha?: string }).mergeCommitSha ??
+    "HEAD";
+  const preloadedFiles: { path: string; content: string }[] = [];
+  let preloadTotal = 0;
+  for (const f of textFiles) {
+    if (preloadTotal >= CHANGED_FILE_PRELOAD_TOTAL) break;
+    try {
+      const file = await github.getFileContents(
+        {
+          installationId: input.installationId,
+          owner: input.owner,
+          name: input.name,
+          path: f.path,
+          ref: headSha,
+        },
+        signal,
+      );
+      if (file && file.content) {
+        const content = file.content.slice(0, CHANGED_FILE_PRELOAD_CHARS);
+        preloadTotal += content.length;
+        preloadedFiles.push({ path: f.path, content });
+      }
+    } catch {
+      // 单个文件读取失败不阻断，保留其它可读文件。
+    }
+  }
+  if (preloadedFiles.length > 0) rendered.preloadedFiles = preloadedFiles;
+
   return {
     repository: { owner: input.owner, name: input.name },
     pullRequest,

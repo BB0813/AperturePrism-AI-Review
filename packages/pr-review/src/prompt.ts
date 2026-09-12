@@ -44,7 +44,7 @@ const systemPrompt = `你是一个严谨的 GitHub Pull Request 代码审查器�
 }
 
 规则（必须遵守）：
-- findings 只针对 diff 中真实出现的代码，严禁编造不存在的缺陷，证据必须逐字摘自 diff。
+- findings 只针对 diff 或下方"变更文件原文"中真实出现的代码，严禁编造不存在的缺陷，证据必须逐字摘自 diff 或预读原文。
 - 只给出高价值、可行动的审查意见；低置信的风格意见不要输出。
 - afterLine 必须是 diff 中新文件行号语义内的行；无法可靠对应行号时用 0，并视情况进入总体总结而非强行给出错误行号。
 - severity 表示影响：只有证据充分时才给 critical/high；speculative 的 downgrade 到 medium 或 low。
@@ -108,6 +108,15 @@ export function renderPrContextText(context: RenderedPrContext): string {
     `新增行: ${context.diff.additions}，删除行: ${context.diff.deletions}`,
     "",
     renderHunksText(context),
+    ...(context.preloadedFiles && context.preloadedFiles.length > 0
+      ? [
+          "",
+          "## 变更文件原文（预读注入源码，可直接据此确认逻辑，无需调用工具）",
+          ...context.preloadedFiles.map(
+            (f) => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``,
+          ),
+        ]
+      : []),
   ];
   if (context.repoMemory && context.repoMemory.length > 0) {
     lines.push(

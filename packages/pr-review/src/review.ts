@@ -135,6 +135,8 @@ export async function reviewPullRequest(
           (mode === "deep"
             ? "这是大规模/复杂 PR。你可以调用 read_file / list_directory / get_git_info 工具主动查看关键路径、跨文件依赖与相关源码，以全面理解变更影响后给出审查结果。"
             : "你可以调用 read_file / list_directory / get_git_info 工具查看 diff 涉及或相关的源码文件以加深理解，然后给出审查结果。仅在确实需要更多上下文时才调用工具。"),
+        // 方案2：standard/deep 强制先读仓再作答，避免模型跳过工具仅按 diff 臆断（deepseek 常不调 read_file）。
+        forceToolUse: mode !== "quick",
         ...(options.tools.maxRounds === undefined
           ? {}
           : { maxRounds: options.tools.maxRounds }),
