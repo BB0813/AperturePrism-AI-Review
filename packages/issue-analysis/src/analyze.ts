@@ -367,3 +367,5 @@ export async function analyzeIssue(
 
   return { outcome: "invalid", usage, attempts, durationMs: now() - startedAt };
 }
+
+// TEST-PR-REVIEW-VERIFY: 供验证 PR 预读变更文件是否为模型所误读的哨兵注释
